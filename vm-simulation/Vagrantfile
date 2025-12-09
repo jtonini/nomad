@@ -118,7 +118,7 @@ Vagrant.configure("2") do |config|
     chown -R slurm:slurm /var/run/slurm
     
     # Copy SLURM configuration
-    cp /home/vagrant/nomade/vm-simulation/slurm/slurm.conf /etc/slurm/slurm.conf
+    cp /home/vagrant/nomade/vm-simulation/slurm/slurm-minimal.conf /etc/slurm/slurm.conf
     cp /home/vagrant/nomade/vm-simulation/slurm/cgroup.conf /etc/slurm/cgroup.conf
     
     # Set permissions
@@ -132,11 +132,10 @@ Vagrant.configure("2") do |config|
     systemctl start slurmd
     
     # Wait for SLURM to start
-    sleep 3
+    sleep 5
     
     # Set nodes to idle
-    scontrol update nodename=cpu[01-03] state=idle
-    scontrol update nodename=gpu[01-02] state=idle
+    scontrol update nodename=nomade-test state=idle 2>/dev/null || true
     
     echo "=========================================="
     echo "Setting up Python environment"
@@ -160,8 +159,10 @@ Vagrant.configure("2") do |config|
     # Simulate cluster filesystem structure
     mkdir -p /scratch
     mkdir -p /project
+    mkdir -p /localscratch
     mkdir -p /home/testuser
-    chmod 777 /scratch
+    chmod 1777 /scratch
+    chmod 1777 /localscratch
     chmod 755 /project
     
     # Create test user

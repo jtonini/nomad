@@ -72,5 +72,3 @@ Thumbs.db
 # Distribution
 *.tar.gz
 *.zip
-vm-simulation/.vagrant/
-*.tar.gz

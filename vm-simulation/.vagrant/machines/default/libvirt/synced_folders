@@ -1,0 +1,1 @@
+{"rsync":{"/home/vagrant/nomade":{"type":"rsync","rsync__exclude":[".git/","*.tar.gz","__pycache__/","*.pyc",".vagrant/"],"guestpath":"/home/vagrant/nomade","hostpath":"/home/cazuza/nomade","disabled":false,"__vagrantfile":true,"exclude":[".git/","*.tar.gz","__pycache__/","*.pyc",".vagrant/"],"owner":"vagrant","group":"vagrant"}}}
