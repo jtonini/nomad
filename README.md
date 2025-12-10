@@ -1,6 +1,6 @@
-# NOMADE
+# NØMADE
 
-**NOde MAnagement DEvice** — A lightweight HPC monitoring and predictive analytics tool.
+**NØde MAnagement DEvice** — A lightweight HPC monitoring and predictive analytics tool.
 
 > *"Travels light, adapts to its environment, and doesn't need permanent infrastructure."*
 
@@ -11,7 +11,7 @@
 
 ## Overview
 
-NOMADE is a lightweight, self-contained monitoring and prediction system for HPC clusters. Unlike heavyweight monitoring solutions that require complex infrastructure, NOMADE is designed to be deployed quickly, run with minimal resources, and provide actionable insights through both real-time alerts and predictive analytics.
+NØMADE is a lightweight, self-contained monitoring and prediction system for HPC clusters. Unlike heavyweight monitoring solutions that require complex infrastructure, NØMADE is designed to be deployed quickly, run with minimal resources, and provide actionable insights through both real-time alerts and predictive analytics.
 
 ### Key Features
 
@@ -24,7 +24,7 @@ NOMADE is a lightweight, self-contained monitoring and prediction system for HPC
 
 ### Philosophy
 
-NOMADE is inspired by nomadic principles:
+NØMADE is inspired by nomadic principles:
 - **Travels light**: Minimal dependencies, single SQLite database, no complex infrastructure
 - **Adapts to its environment**: Configurable collectors, flexible alert rules, cluster-agnostic
 - **Leaves no trace**: Clean uninstall, no system modifications required (except optional SLURM hooks)
@@ -35,7 +35,7 @@ NOMADE is inspired by nomadic principles:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                              NOMADE                                     │
+│                              NØMADE                                    │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
@@ -130,7 +130,7 @@ NOMADE is inspired by nomadic principles:
 
 ### Quantitative Similarity Network
 
-NOMADE builds a similarity network from job metrics:
+NØMADE builds a similarity network from job metrics:
 
 - **Raw quantitative metrics**: No arbitrary thresholds or binary labels
   - CPU%, VRAM (GB), Memory (GB), Swap (GB)
@@ -169,7 +169,7 @@ NOMADE builds a similarity network from job metrics:
 
 ## Derivative Analysis
 
-A key innovation in NOMADE is the use of first and second derivatives for early warning:
+A key innovation in NØMADE is the use of first and second derivatives for early warning:
 
 ```
 VALUE (0th derivative):     "Disk is at 850 GB"
@@ -179,7 +179,7 @@ SECOND DERIVATIVE:          "Fill rate is ACCELERATING at 3 GB/day²"
 
 ### Why Second Derivatives Matter
 
-Traditional threshold alerts only trigger when a value crosses a limit. By monitoring the second derivative (acceleration), NOMADE can detect:
+Traditional threshold alerts only trigger when a value crosses a limit. By monitoring the second derivative (acceleration), NØMADE can detect:
 
 - **Exponential growth**: Before linear projections underestimate
 - **Sudden changes**: Spikes in usage patterns
@@ -252,7 +252,7 @@ sudo systemctl restart slurmctld
 
 ## Configuration
 
-NOMADE uses a TOML configuration file:
+NØMADE uses a TOML configuration file:
 
 ```toml
 # nomade.toml
@@ -485,7 +485,7 @@ nomade/
 
 ## Theoretical Background
 
-NOMADE's prediction engine is inspired by biogeographical network analysis, particularly the work of Vilhena & Antonelli (2015) on mapping biomes using species occurrence data.
+NØMADE's prediction engine is inspired by biogeographical network analysis, particularly the work of Vilhena & Antonelli (2015) on mapping biomes using species occurrence data.
 
 ### Biogeography → HPC Analogy
 
@@ -499,7 +499,7 @@ NOMADE's prediction engine is inspired by biogeographical network analysis, part
 
 ### Key Insight
 
-Just as biogeographical regions emerge from species distribution data rather than being predefined, NOMADE allows behavior patterns to emerge from job metrics rather than imposing arbitrary categories.
+Just as biogeographical regions emerge from species distribution data rather than being predefined, NØMADE allows behavior patterns to emerge from job metrics rather than imposing arbitrary categories.
 
 ### Dual-View Analysis
 

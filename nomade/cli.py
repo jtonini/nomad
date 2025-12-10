@@ -64,7 +64,7 @@ def get_db_path(config: dict[str, Any]) -> Path:
 @click.option('-v', '--verbose', is_flag=True, help='Enable debug logging')
 @click.pass_context
 def cli(ctx: click.Context, config_path: str, verbose: bool) -> None:
-    """NOMADE - NOde MAnagement DEvice
+    """NØMADE - NØde MAnagement DEvice
     
     Lightweight HPC monitoring and prediction tool.
     """
@@ -283,7 +283,7 @@ def status(ctx: click.Context, db: str) -> None:
     conn.row_factory = sqlite3.Row
     
     click.echo()
-    click.echo(click.style("═══ NOMADE Status ═══", bold=True))
+    click.echo(click.style("═══ NØMADE Status ═══", bold=True))
     click.echo()
     
     # Filesystem status
@@ -423,8 +423,8 @@ def alerts(ctx: click.Context, db: str, unresolved: bool, severity: str) -> None
 @click.pass_context
 def version(ctx: click.Context) -> None:
     """Show version information."""
-    click.echo("NOMADE v0.1.0")
-    click.echo("NOde MAnagement DEvice")
+    click.echo("NØMADE v0.1.0")
+    click.echo("NØde MAnagement DEvice")
 
 
 def main() -> None:
