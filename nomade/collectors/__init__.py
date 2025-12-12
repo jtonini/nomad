@@ -1,5 +1,5 @@
 """
-NOMADE Collectors
+NØMADE Collectors
 
 Data collectors for monitoring HPC infrastructure.
 """
@@ -16,6 +16,10 @@ from .slurm import SlurmCollector
 from .job_metrics import JobMetricsCollector
 from .iostat import IOStatCollector
 from .mpstat import MPStatCollector
+from .vmstat import VMStatCollector
+from .node_state import NodeStateCollector
+from .gpu import GPUCollector
+from .nfs import NFSCollector
 
 __all__ = [
     'BaseCollector',
@@ -28,4 +32,8 @@ __all__ = [
     'JobMetricsCollector',
     'IOStatCollector',
     'MPStatCollector',
+    'VMStatCollector',
+    'NodeStateCollector',
+    'GPUCollector',
+    'NFSCollector',
 ]

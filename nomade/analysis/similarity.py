@@ -49,6 +49,11 @@ class JobFeatures:
     core_imbalance_ratio: float  # std/avg - higher = more imbalance
     max_core_busy: float
     
+    # From vmstat (memory pressure during job)
+    avg_memory_pressure: float
+    peak_swap_activity: float  # swap_in + swap_out
+    avg_procs_blocked: float
+    
     # Derived
     write_intensity: float  # GB per minute
     
@@ -71,6 +76,9 @@ class JobFeatures:
             min(self.avg_core_busy / 100, 1.0),  # Normalize to 100%
             min(self.core_imbalance_ratio / 1.0, 1.0),  # Normalize to 1.0 ratio
             min(self.max_core_busy / 100, 1.0),  # Normalize to 100%
+            min(self.avg_memory_pressure, 1.0),  # Already 0-1
+            min(self.peak_swap_activity / 1000, 1.0),  # Normalize to 1000 KB/s
+            min(self.avg_procs_blocked / 10, 1.0),  # Normalize to 10 blocked procs
         ])
     
     @property
@@ -92,6 +100,9 @@ class JobFeatures:
             'avg_core_busy',
             'core_imbalance_ratio',
             'max_core_busy',
+            'avg_memory_pressure',
+            'peak_swap_activity',
+            'avg_procs_blocked',
         ]
 
 
@@ -209,10 +220,33 @@ class SimilarityAnalyzer:
                     avg_core_busy = 0.0
                     core_imbalance = 0.0
                     max_core_busy = 0.0
+                
+                # Memory pressure from vmstat
+                vmstat_query = """
+                SELECT 
+                    AVG(memory_pressure) as avg_pressure,
+                    MAX(swap_in_kb + swap_out_kb) as peak_swap,
+                    AVG(procs_blocked) as avg_blocked
+                FROM vmstat
+                WHERE timestamp BETWEEN ? AND ?
+                """
+                vmstat_row = conn.execute(vmstat_query,
+                    (row['start_time'], row['end_time'])).fetchone()
+                if vmstat_row:
+                    avg_memory_pressure = vmstat_row['avg_pressure'] or 0.0
+                    peak_swap_activity = vmstat_row['peak_swap'] or 0.0
+                    avg_procs_blocked = vmstat_row['avg_blocked'] or 0.0
+                else:
+                    avg_memory_pressure = 0.0
+                    peak_swap_activity = 0.0
+                    avg_procs_blocked = 0.0
             else:
                 avg_core_busy = 0.0
                 core_imbalance = 0.0
                 max_core_busy = 0.0
+                avg_memory_pressure = 0.0
+                peak_swap_activity = 0.0
+                avg_procs_blocked = 0.0
             
             features.append(JobFeatures(
                 job_id=row['job_id'],
@@ -232,6 +266,9 @@ class SimilarityAnalyzer:
                 avg_core_busy=avg_core_busy,
                 core_imbalance_ratio=core_imbalance,
                 max_core_busy=max_core_busy,
+                avg_memory_pressure=avg_memory_pressure,
+                peak_swap_activity=peak_swap_activity,
+                avg_procs_blocked=avg_procs_blocked,
                 write_intensity=total_write / runtime if runtime > 0 else 0,
             ))
         

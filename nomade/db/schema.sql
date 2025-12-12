@@ -103,6 +103,161 @@ CREATE TABLE IF NOT EXISTS queue_state (
 
 CREATE INDEX idx_queue_state_partition_ts ON queue_state(partition, timestamp);
 
+-- System I/O statistics (from iostat)
+CREATE TABLE IF NOT EXISTS iostat_cpu (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    user_percent REAL,
+    system_percent REAL,
+    iowait_percent REAL,
+    idle_percent REAL
+);
+
+CREATE INDEX idx_iostat_cpu_ts ON iostat_cpu(timestamp);
+
+CREATE TABLE IF NOT EXISTS iostat_device (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    device TEXT NOT NULL,
+    reads_per_sec REAL,
+    read_kb_per_sec REAL,
+    read_await_ms REAL,
+    writes_per_sec REAL,
+    write_kb_per_sec REAL,
+    write_await_ms REAL,
+    util_percent REAL,
+    queue_length REAL
+);
+
+CREATE INDEX idx_iostat_device_ts ON iostat_device(timestamp, device);
+
+-- Per-core CPU statistics (from mpstat)
+CREATE TABLE IF NOT EXISTS mpstat_core (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    core_id INTEGER NOT NULL,
+    user_percent REAL,
+    nice_percent REAL,
+    system_percent REAL,
+    iowait_percent REAL,
+    irq_percent REAL,
+    soft_percent REAL,
+    steal_percent REAL,
+    idle_percent REAL,
+    busy_percent REAL
+);
+
+CREATE INDEX idx_mpstat_core_ts ON mpstat_core(timestamp);
+CREATE INDEX idx_mpstat_core_id ON mpstat_core(core_id, timestamp);
+
+-- CPU summary statistics (from mpstat)
+CREATE TABLE IF NOT EXISTS mpstat_summary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    num_cores INTEGER,
+    avg_busy_percent REAL,
+    max_busy_percent REAL,
+    min_busy_percent REAL,
+    std_busy_percent REAL,
+    avg_iowait_percent REAL,
+    max_iowait_percent REAL,
+    busy_spread REAL,
+    imbalance_ratio REAL,
+    cores_idle INTEGER,
+    cores_saturated INTEGER
+);
+
+CREATE INDEX idx_mpstat_summary_ts ON mpstat_summary(timestamp);
+
+-- Memory and swap statistics (from vmstat)
+CREATE TABLE IF NOT EXISTS vmstat (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    procs_runnable INTEGER,
+    procs_blocked INTEGER,
+    swap_used_kb INTEGER,
+    free_kb INTEGER,
+    buffer_kb INTEGER,
+    cache_kb INTEGER,
+    swap_in_kb INTEGER,
+    swap_out_kb INTEGER,
+    blocks_in INTEGER,
+    blocks_out INTEGER,
+    interrupts INTEGER,
+    context_switches INTEGER,
+    cpu_user INTEGER,
+    cpu_system INTEGER,
+    cpu_idle INTEGER,
+    cpu_iowait INTEGER,
+    cpu_steal INTEGER,
+    memory_pressure REAL
+);
+
+CREATE INDEX idx_vmstat_ts ON vmstat(timestamp);
+
+-- SLURM node state (from scontrol)
+CREATE TABLE IF NOT EXISTS node_state (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    node_name TEXT NOT NULL,
+    state TEXT,
+    cpus_total INTEGER,
+    cpus_alloc INTEGER,
+    cpu_load REAL,
+    memory_total_mb INTEGER,
+    memory_alloc_mb INTEGER,
+    memory_free_mb INTEGER,
+    cpu_alloc_percent REAL,
+    memory_alloc_percent REAL,
+    partitions TEXT,
+    reason TEXT,
+    features TEXT,
+    gres TEXT,
+    is_healthy INTEGER
+);
+
+CREATE INDEX idx_node_state_ts ON node_state(timestamp);
+CREATE INDEX idx_node_state_name ON node_state(node_name, timestamp);
+
+-- GPU statistics (from nvidia-smi)
+CREATE TABLE IF NOT EXISTS gpu_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    gpu_index INTEGER,
+    gpu_name TEXT,
+    gpu_util_percent REAL,
+    memory_util_percent REAL,
+    memory_used_mb INTEGER,
+    memory_total_mb INTEGER,
+    memory_free_mb INTEGER,
+    temperature_c INTEGER,
+    power_draw_w REAL,
+    power_limit_w REAL,
+    compute_processes INTEGER
+);
+
+CREATE INDEX idx_gpu_stats_ts ON gpu_stats(timestamp);
+CREATE INDEX idx_gpu_stats_gpu ON gpu_stats(gpu_index, timestamp);
+
+-- NFS I/O statistics (from nfsiostat)
+CREATE TABLE IF NOT EXISTS nfs_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME NOT NULL,
+    mount_point TEXT NOT NULL,
+    server TEXT,
+    ops_per_sec REAL,
+    read_ops_per_sec REAL,
+    write_ops_per_sec REAL,
+    read_kb_per_sec REAL,
+    write_kb_per_sec REAL,
+    avg_rtt_ms REAL,
+    avg_exe_ms REAL,
+    retrans_percent REAL
+);
+
+CREATE INDEX idx_nfs_stats_ts ON nfs_stats(timestamp);
+CREATE INDEX idx_nfs_stats_mount ON nfs_stats(mount_point, timestamp);
+
 -- ============================================
 -- JOB DATA (Prediction)
 -- ============================================
@@ -160,6 +315,23 @@ CREATE TABLE IF NOT EXISTS job_metrics (
 );
 
 CREATE INDEX idx_job_metrics_job_ts ON job_metrics(job_id, timestamp);
+
+-- Job I/O samples (from job monitor daemon)
+CREATE TABLE IF NOT EXISTS job_io_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    timestamp DATETIME NOT NULL,
+    total_read_bytes INTEGER,
+    total_write_bytes INTEGER,
+    nfs_write_bytes INTEGER,
+    local_write_bytes INTEGER,
+    nfs_ratio REAL,
+    pid_count INTEGER,
+    
+    FOREIGN KEY (job_id) REFERENCES jobs(job_id)
+);
+
+CREATE INDEX idx_job_io_samples_job ON job_io_samples(job_id, timestamp);
 
 -- Job summary (computed at job end)
 CREATE TABLE IF NOT EXISTS job_summary (
@@ -386,6 +558,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 
 INSERT INTO schema_version (version, description) VALUES (1, 'Initial schema');
+INSERT OR IGNORE INTO schema_version (version, description) VALUES (2, 'Added mpstat, vmstat, node_state, gpu_stats, nfs_stats tables');
 
 -- ============================================
 -- VIEWS (Convenience)

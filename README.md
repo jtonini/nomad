@@ -35,7 +35,7 @@ NØMADE is inspired by nomadic principles:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                              NØMADE                                    │
+│                              NØMADE                                     │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
@@ -52,24 +52,88 @@ NØMADE is inspired by nomadic principles:
 │         ▼                                             ▼                │
 │  ┌─────────────────────┐                ┌─────────────────────────┐   │
 │  │  MONITORING ENGINE  │                │   PREDICTION ENGINE     │   │
-│  │  Threshold-based    │                │   Pattern-based ML      │   │
-│  │  Immediate alerts   │                │   Recommendations       │   │
+│  │  Threshold-based    │                │   Similarity networks   │   │
+│  │  Immediate alerts   │                │   19-dim feature space  │   │
 │  └─────────┬───────────┘                └────────────┬────────────┘   │
 │            │                                          │                │
 │            └──────────────────┬───────────────────────┘                │
 │                               │                                        │
 │  ┌────────────────────────────┴────────────────────────────────────┐  │
 │  │                         DATA LAYER                               │  │
-│  │            SQLite · Time-series · Job History                    │  │
+│  │            SQLite · Time-series · Job History · I/O Samples      │  │
 │  └────────────────────────────┬────────────────────────────────────┘  │
 │                               │                                        │
 │  ┌────────────────────────────┴────────────────────────────────────┐  │
 │  │                        COLLECTORS                                │  │
-│  │   Disk │ SLURM │ Nodes │ Licenses │ Jobs │ Network              │  │
+│  │  disk│slurm│job_metrics│iostat│mpstat│vmstat│node_state│gpu│nfs │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Data Collection Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         NØMADE Data Collection                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SYSTEM COLLECTORS (every 60s):                                              │
+│  ┌──────────────┬─────────────────────────────────────────────────────────┐ │
+│  │ disk         │ Filesystem usage (total, used, free, projections)       │ │
+│  │ iostat       │ Device I/O: %iowait, utilization, latency               │ │
+│  │ mpstat       │ Per-core CPU: utilization, imbalance detection          │ │
+│  │ vmstat       │ Memory pressure, swap activity, blocked processes       │ │
+│  │ nfs          │ NFS I/O: ops/sec, throughput, RTT, retransmissions     │ │
+│  │ gpu          │ NVIDIA GPU: utilization, memory, temperature, power     │ │
+│  └──────────────┴─────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  SLURM COLLECTORS (every 60s):                                               │
+│  ┌──────────────┬─────────────────────────────────────────────────────────┐ │
+│  │ slurm        │ Queue state: pending, running, partition stats          │ │
+│  │ job_metrics  │ sacct data: CPU/mem efficiency, health scores           │ │
+│  │ node_state   │ Node allocation, drain reasons, CPU load, memory        │ │
+│  └──────────────┴─────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  JOB MONITOR (every 30s):                                                    │
+│  ┌──────────────┬─────────────────────────────────────────────────────────┐ │
+│  │ job_monitor  │ Per-job I/O: NFS vs local writes from /proc/[pid]/io    │ │
+│  └──────────────┴─────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  FEATURE VECTOR (19 dimensions for similarity analysis):                     │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │  From sacct:              From iostat:           From vmstat:          │ │
+│  │   1. health_score          11. avg_iowait         17. memory_pressure  │ │
+│  │   2. cpu_efficiency        12. peak_iowait        18. swap_activity    │ │
+│  │   3. memory_efficiency     13. device_util        19. procs_blocked    │ │
+│  │   4. used_gpu                                                          │ │
+│  │   5. had_swap             From mpstat:                                 │ │
+│  │                            14. avg_core_busy                           │ │
+│  │  From job_monitor:         15. imbalance_ratio                         │ │
+│  │   6. total_write_gb        16. max_core_busy                           │ │
+│  │   7. write_rate_mbps                                                   │ │
+│  │   8. nfs_ratio                                                         │ │
+│  │   9. runtime_minutes                                                   │ │
+│  │  10. write_intensity                                                   │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Collector Details
+
+| Collector | Source | Data Collected | Graceful Skip |
+|-----------|--------|----------------|---------------|
+| `disk` | `shutil.disk_usage` | Filesystem total/used/free, projections | No |
+| `slurm` | `squeue`, `sinfo` | Queue depth, partition stats, wait times | No |
+| `job_metrics` | `sacct` | Job history, CPU/mem efficiency, health scores | No |
+| `iostat` | `iostat -x` | %iowait, device utilization, latency | No |
+| `mpstat` | `mpstat -P ALL` | Per-core CPU, imbalance ratio, saturation | No |
+| `vmstat` | `vmstat` | Memory pressure, swap, blocked processes | No |
+| `node_state` | `scontrol show node` | Node allocation, drain reasons, CPU load | No |
+| `gpu` | `nvidia-smi` | GPU util, memory, temp, power | Yes (if no GPU) |
+| `nfs` | `nfsiostat` | NFS ops/sec, throughput, RTT | Yes (if no NFS) |
+| `job_monitor` | `/proc/[pid]/io` | Per-job NFS vs local I/O attribution | No |
 
 ### Two Engines, One System
 
@@ -128,20 +192,64 @@ NØMADE is inspired by nomadic principles:
 
 ## Prediction Capabilities
 
+### 19-Dimension Feature Vector
+
+NØMADE builds job similarity networks using a comprehensive feature vector that captures multiple aspects of job behavior:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Feature Vector Architecture                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  JOB OUTCOME (from sacct):                                                  │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  health_score      │ 0.0 (catastrophic) → 1.0 (perfect)             │   │
+│  │  cpu_efficiency    │ actual/requested CPU utilization               │   │
+│  │  memory_efficiency │ actual/requested memory utilization            │   │
+│  │  used_gpu          │ job utilized GPU resources                     │   │
+│  │  had_swap          │ job triggered swap usage                       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  I/O BEHAVIOR (from job_monitor):                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  total_write_gb    │ total data written during job                  │   │
+│  │  write_rate_mbps   │ peak write throughput                          │   │
+│  │  nfs_ratio         │ NFS writes / total writes (0-1)                │   │
+│  │  runtime_minutes   │ job duration                                   │   │
+│  │  write_intensity   │ GB written per minute                          │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  SYSTEM I/O STATE (from iostat, correlated to job runtime):                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  avg_iowait        │ average %iowait during job                     │   │
+│  │  peak_iowait       │ maximum %iowait spike                          │   │
+│  │  device_util       │ average device utilization                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  CPU DISTRIBUTION (from mpstat, correlated to job runtime):                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  avg_core_busy     │ average CPU utilization across cores           │   │
+│  │  imbalance_ratio   │ std/avg busy (higher = more imbalance)         │   │
+│  │  max_core_busy     │ hottest core utilization                       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  MEMORY PRESSURE (from vmstat, correlated to job runtime):                  │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  memory_pressure   │ composite pressure indicator (0-1)             │   │
+│  │  swap_activity     │ peak swap in+out (KB/s)                        │   │
+│  │  procs_blocked     │ avg processes blocked on I/O                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Quantitative Similarity Network
 
-NØMADE builds a similarity network from job metrics:
-
 - **Raw quantitative metrics**: No arbitrary thresholds or binary labels
-  - CPU%, VRAM (GB), Memory (GB), Swap (GB)
-  - NFS read/write (GB), Local read/write (GB)
-  - I/O wait (%), Runtime (hrs)
-  
 - **Non-redundant features**: `vram_gb > 0` implies GPU used (no separate flag)
-
-- **Cosine similarity**: On normalized feature vectors
-
+- **Cosine similarity**: On normalized 19-dimension feature vectors
 - **Continuous health score**: 0 (catastrophic) → 1 (perfect), not binary
+- **Time-correlated system state**: iostat/mpstat/vmstat data aligned to job runtime
 
 ### Simulation & Validation
 
@@ -205,7 +313,52 @@ Traditional threshold alerts only trigger when a value crosses a limit. By monit
 - Python 3.9+
 - SQLite 3.35+
 - SLURM (for queue and job monitoring)
-- Root access (optional, for cgroup metrics)
+- sysstat package (iostat, mpstat)
+- procps package (vmstat) - usually pre-installed
+
+Optional:
+- nvidia-smi (for GPU monitoring)
+- nfs-common with nfsiostat (for NFS monitoring)
+- Root access (for cgroup metrics)
+
+### System Check
+
+After installation, verify all requirements:
+
+```bash
+nomade syscheck
+```
+
+Expected output:
+```
+NØMADE System Check
+════════════════════════════════════════
+Python:
+  ✓ Version 3.10.12 (requires >=3.9)
+  ✓ Required packages installed
+SLURM:
+  ✓ sinfo available
+  ✓ squeue available
+  ✓ sacct available
+  ✓ sstat available
+  ✓ slurmdbd enabled
+  ✓ JobAcctGather configured
+System Tools:
+  ✓ iostat available
+  ✓ mpstat available
+  ✓ vmstat available
+  ○ nvidia-smi not found (no GPU monitoring)
+  ○ nfsiostat not found (no NFS monitoring)
+  ✓ /proc/[pid]/io accessible
+Database:
+  ✓ SQLite available
+  ✓ Database: /var/lib/nomade/nomade.db
+  ✓ Schema version: 2
+Config:
+  ✓ Config: /etc/nomade/nomade.toml
+────────────────────────────────────────
+✓ All checks passed!
+```
 
 ### Quick Start
 
@@ -263,38 +416,49 @@ data_dir = "/var/lib/nomade"
 log_level = "INFO"
 
 [collectors]
-# Enable/disable collectors
-disk = true
-slurm = true
-nodes = true
-licenses = true
-jobs = true
-network = true
-
-# Collection intervals (seconds)
-disk_interval = 300
-slurm_interval = 60
-nodes_interval = 120
+# All collectors enabled by default
+# Set enabled = false to disable specific collectors
 
 [collectors.disk]
-# Filesystems to monitor
-filesystems = ["/", "/home", "/scratch", "/project"]
+enabled = true
+filesystems = ["/", "/home", "/scratch", "/localscratch"]
 
-# Quota sources
-quota_command = "quota -g"
+[collectors.slurm]
+enabled = true
+partitions = ["standard", "debug", "gpu", "highmem"]
 
-[collectors.licenses]
-# License servers to monitor
-[[collectors.licenses.servers]]
-name = "matlab"
-type = "flexlm"
-host = "license.example.edu"
-port = 27000
+[collectors.job_metrics]
+enabled = true
+lookback_hours = 24
+min_runtime_seconds = 10
 
-[[collectors.licenses.servers]]
-name = "gaussian"
-type = "flexlm"
-host = "license.example.edu"
+[collectors.iostat]
+enabled = true
+# devices = ["sda", "nvme0n1"]  # Optional: specific devices only
+
+[collectors.mpstat]
+enabled = true
+store_per_core = true
+store_summary = true
+
+[collectors.vmstat]
+enabled = true
+
+[collectors.node_state]
+enabled = true
+# nodes = ["node001", "node002"]  # Optional: specific nodes only
+
+[collectors.gpu]
+enabled = true  # Gracefully skipped if no nvidia-smi
+
+[collectors.nfs]
+enabled = true  # Gracefully skipped if no nfsiostat
+
+[monitor]
+# Job I/O monitor settings
+sample_interval = 30
+nfs_paths = ["/home", "/scratch", "/project"]
+local_paths = ["/localscratch", "/tmp", "/dev/shm"]
 port = 27001
 
 [alerts]
@@ -337,30 +501,93 @@ port = 8080
 ### Command Line Interface
 
 ```bash
-# Start/stop monitoring daemon
-nomade start
-nomade stop
-nomade status
+# System status overview
+nomade status              # Full system status with all metrics
+nomade syscheck            # Verify system requirements
 
-# View current state
-nomade disk          # Disk usage summary
-nomade queue         # Queue status
-nomade nodes         # Node health
-nomade licenses      # License availability
-nomade alerts        # Recent alerts
+# Data collection
+nomade collect --once      # Single collection cycle
+nomade collect --interval 60   # Continuous collection
+nomade collect -C disk,slurm   # Specific collectors only
 
-# Prediction features
-nomade predict <job_id>     # Predict job health
-nomade recommend <user>     # User-specific recommendations
-nomade defaults             # Show data-driven defaults
+# Job I/O monitoring
+nomade monitor             # Monitor running jobs for I/O
+nomade monitor --once      # Single snapshot
+nomade monitor -i 30       # 30-second interval
 
-# Dashboard
-nomade dashboard            # Start web dashboard
+# Analysis
+nomade disk /home --hours 24   # Filesystem trend analysis
+nomade jobs --user jsmith      # Recent job history
+nomade similarity              # Job similarity analysis
+nomade similarity --find-similar 12345  # Find similar jobs
+nomade similarity --export viz.json     # Export for visualization
 
-# Database management
-nomade init                 # Initialize database
-nomade export               # Export data for analysis
-nomade prune --days 90      # Remove old data
+# Alerts
+nomade alerts              # View recent alerts
+nomade alerts --unresolved # Only unresolved alerts
+```
+
+### Bash Helper Functions
+
+Source the helper script for convenient shortcuts:
+
+```bash
+source ~/nomade/scripts/nomade.sh
+nhelp      # Show all commands
+```
+
+| Command | Description |
+|---------|-------------|
+| `nstatus` | Quick status overview |
+| `nwatch [s]` | Live status updates (every s seconds) |
+| `ndisk PATH` | Filesystem trend analysis |
+| `njobs` | Recent job history |
+| `nsimilarity` | Job similarity analysis |
+| `nalerts` | View alerts |
+| `ncollect` | Run data collection |
+| `nmonitor` | Job I/O monitoring |
+| `nsyscheck` | System requirements check |
+| `nlog` | Tail collection log |
+
+### Status Output
+
+```
+═══ NØMADE Status ═══
+
+Filesystems:
+  /                    [██████████░░░░░░░░░░] 51.4% (34.02/66.26 GB)
+  /home                [██████████░░░░░░░░░░] 51.4% (34.02/66.26 GB)
+Queue:
+  standard        Running:   4  Pending:  12
+  gpu             Running:   2  Pending:   3
+I/O:
+  CPU iowait:    2.3%
+  CPU user/sys:  45.2% / 3.1%
+  vda          util: 15.2% write: 1240 KB/s  latency: 4.2ms
+CPU Cores:
+  Cores:         32
+  Avg busy:      48.2%
+  Range:         12.0% - 98.5% (spread: 86.5%)
+  Imbalance:     0.42 (std/avg)
+  Saturated:     4 (>95% busy)
+Memory:
+  Free:          12.45 GB
+  Cache:         48.23 GB
+  Swap used:     128 MB
+  Pressure:      0.15
+Nodes:
+  node001         MIXED        CPU: 28/32 (88%)  Mem: 92%  Load: 27.4
+  node002         ALLOCATED    CPU: 32/32 (100%) Mem: 98%  Load: 31.2
+  node003         DRAIN        CPU: 0/32 (0%)    Mem: 0%   Load: 0.01
+    └─ Reason: GPU memory errors - investigating
+Collection:
+  disk            1440 runs  100% success
+  iostat          1440 runs  100% success
+  mpstat          1440 runs  100% success
+  vmstat          1440 runs  100% success
+  slurm           1440 runs  100% success
+  job_metrics     1440 runs  100% success
+  node_state      1440 runs  100% success
 ```
 
 ### Python API

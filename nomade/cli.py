@@ -28,6 +28,10 @@ from nomade.collectors.slurm import SlurmCollector
 from nomade.collectors.job_metrics import JobMetricsCollector
 from nomade.collectors.iostat import IOStatCollector
 from nomade.collectors.mpstat import MPStatCollector
+from nomade.collectors.vmstat import VMStatCollector
+from nomade.collectors.node_state import NodeStateCollector
+from nomade.collectors.gpu import GPUCollector
+from nomade.collectors.nfs import NFSCollector
 from nomade.analysis.derivatives import (
     DerivativeAnalyzer,
     analyze_disk_trend,
@@ -139,6 +143,30 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
     if not collector or 'mpstat' in collector:
         if mpstat_config.get('enabled', True):
             collectors.append(MPStatCollector(mpstat_config, db_path))
+    
+    # VMStat collector
+    vmstat_config = config.get('collectors', {}).get('vmstat', {})
+    if not collector or 'vmstat' in collector:
+        if vmstat_config.get('enabled', True):
+            collectors.append(VMStatCollector(vmstat_config, db_path))
+    
+    # Node state collector
+    node_state_config = config.get('collectors', {}).get('node_state', {})
+    if not collector or 'node_state' in collector:
+        if node_state_config.get('enabled', True):
+            collectors.append(NodeStateCollector(node_state_config, db_path))
+    
+    # GPU collector (graceful skip if no GPU)
+    gpu_config = config.get('collectors', {}).get('gpu', {})
+    if not collector or 'gpu' in collector:
+        if gpu_config.get('enabled', True):
+            collectors.append(GPUCollector(gpu_config, db_path))
+    
+    # NFS collector (graceful skip if no NFS)
+    nfs_config = config.get('collectors', {}).get('nfs', {})
+    if not collector or 'nfs' in collector:
+        if nfs_config.get('enabled', True):
+            collectors.append(NFSCollector(nfs_config, db_path))
     
     if not collectors:
         raise click.ClickException("No collectors enabled")
@@ -433,6 +461,106 @@ def status(ctx: click.Context, db: str) -> None:
     
     click.echo()
     
+    # Memory status (from vmstat)
+    click.echo(click.style("Memory:", bold=True))
+    try:
+        vmstat_row = conn.execute(
+            """
+            SELECT swap_used_kb, free_kb, buffer_kb, cache_kb,
+                   swap_in_kb, swap_out_kb, procs_blocked,
+                   memory_pressure, timestamp
+            FROM vmstat
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        
+        if vmstat_row:
+            free_gb = vmstat_row['free_kb'] / 1024 / 1024
+            cache_gb = vmstat_row['cache_kb'] / 1024 / 1024
+            swap_mb = vmstat_row['swap_used_kb'] / 1024
+            pressure = vmstat_row['memory_pressure']
+            
+            pressure_color = 'green' if pressure < 0.3 else 'yellow' if pressure < 0.6 else 'red'
+            swap_color = 'green' if swap_mb < 100 else 'yellow' if swap_mb < 1000 else 'red'
+            
+            click.echo(f"  Free:          {free_gb:.2f} GB")
+            click.echo(f"  Cache:         {cache_gb:.2f} GB")
+            click.echo(f"  Swap used:     {click.style(f'{swap_mb:.0f} MB', fg=swap_color)}")
+            click.echo(f"  Pressure:      {click.style(f'{pressure:.2f}', fg=pressure_color)}")
+            
+            if vmstat_row['procs_blocked'] > 0:
+                click.echo(f"  Blocked procs: {click.style(str(vmstat_row['procs_blocked']), fg='yellow')}")
+            if vmstat_row['swap_in_kb'] > 0 or vmstat_row['swap_out_kb'] > 0:
+                click.echo(f"  Swap activity: {click.style('ACTIVE', fg='red')} (in:{vmstat_row['swap_in_kb']} out:{vmstat_row['swap_out_kb']} KB/s)")
+        else:
+            click.echo("  No vmstat data")
+    except sqlite3.OperationalError:
+        click.echo("  No vmstat data (table not created yet)")
+    
+    click.echo()
+    
+    # Node status (from scontrol)
+    click.echo(click.style("Nodes:", bold=True))
+    try:
+        node_rows = conn.execute(
+            """
+            SELECT node_name, state, cpus_alloc, cpus_total,
+                   memory_alloc_mb, memory_total_mb, cpu_load, reason
+            FROM node_state
+            WHERE timestamp = (SELECT MAX(timestamp) FROM node_state)
+            ORDER BY node_name
+            """
+        ).fetchall()
+        
+        if node_rows:
+            for node in node_rows:
+                state = node['state']
+                state_color = 'green' if state in ('IDLE', 'MIXED', 'ALLOCATED') else 'yellow' if 'DRAIN' in state else 'red'
+                
+                cpu_pct = (node['cpus_alloc'] / node['cpus_total'] * 100) if node['cpus_total'] else 0
+                mem_pct = (node['memory_alloc_mb'] / node['memory_total_mb'] * 100) if node['memory_total_mb'] else 0
+                
+                click.echo(f"  {node['node_name']:<15} {click.style(state, fg=state_color):<12} CPU: {node['cpus_alloc']}/{node['cpus_total']} ({cpu_pct:.0f}%)  Mem: {mem_pct:.0f}%  Load: {node['cpu_load']:.2f}")
+                
+                if node['reason']:
+                    click.echo(f"    └─ Reason: {click.style(node['reason'], fg='yellow')}")
+        else:
+            click.echo("  No node data")
+    except sqlite3.OperationalError:
+        click.echo("  No node data (table not created yet)")
+    
+    click.echo()
+    
+    # GPU status (if available)
+    try:
+        gpu_rows = conn.execute(
+            """
+            SELECT gpu_index, gpu_name, gpu_util_percent, memory_util_percent,
+                   memory_used_mb, memory_total_mb, temperature_c, power_draw_w
+            FROM gpu_stats
+            WHERE timestamp = (SELECT MAX(timestamp) FROM gpu_stats)
+            ORDER BY gpu_index
+            """
+        ).fetchall()
+        
+        if gpu_rows:
+            click.echo(click.style("GPUs:", bold=True))
+            for gpu in gpu_rows:
+                util = gpu['gpu_util_percent']
+                util_color = 'green' if util < 50 else 'yellow' if util < 80 else 'red'
+                temp_color = 'green' if gpu['temperature_c'] < 70 else 'yellow' if gpu['temperature_c'] < 85 else 'red'
+                
+                mem_pct = (gpu['memory_used_mb'] / gpu['memory_total_mb'] * 100) if gpu['memory_total_mb'] else 0
+                
+                click.echo(f"  GPU {gpu['gpu_index']}: {gpu['gpu_name']}")
+                click.echo(f"    Util: {click.style(f'{util:.0f}%', fg=util_color)}  Mem: {mem_pct:.0f}%  Temp: {click.style(f'{gpu['temperature_c']}°C', fg=temp_color)}  Power: {gpu['power_draw_w']:.0f}W")
+            click.echo()
+    except sqlite3.OperationalError:
+        pass  # No GPU table - skip silently
+    
+    click.echo()
+    
     # Recent collection stats
     click.echo(click.style("Collection:", bold=True))
     collection_rows = conn.execute(
@@ -714,6 +842,22 @@ def syscheck(ctx: click.Context) -> None:
         click.echo(f"  {click.style('⚠', fg='yellow')} mpstat not found (install sysstat package)")
         click.echo(f"    → apt install sysstat  OR  yum install sysstat")
         warnings += 1
+    
+    if shutil.which('vmstat'):
+        click.echo(f"  {click.style('✓', fg='green')} vmstat available")
+    else:
+        click.echo(f"  {click.style('⚠', fg='yellow')} vmstat not found")
+        warnings += 1
+    
+    if shutil.which('nvidia-smi'):
+        click.echo(f"  {click.style('✓', fg='green')} nvidia-smi available (GPU monitoring)")
+    else:
+        click.echo(f"  {click.style('○', fg='cyan')} nvidia-smi not found (no GPU monitoring)")
+    
+    if shutil.which('nfsiostat'):
+        click.echo(f"  {click.style('✓', fg='green')} nfsiostat available (NFS monitoring)")
+    else:
+        click.echo(f"  {click.style('○', fg='cyan')} nfsiostat not found (no NFS monitoring)")
     
     if Path('/proc/1/io').exists():
         click.echo(f"  {click.style('✓', fg='green')} /proc/[pid]/io accessible")
