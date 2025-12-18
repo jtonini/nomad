@@ -35,14 +35,11 @@ class JobInfo:
     start_time: datetime | None
     end_time: datetime | None
     exit_code: int | None
-    exit_signal: int | None  # Signal number (e.g., 9=SIGKILL, 11=SIGSEGV)
-    failure_reason: int  # Categorical: 0=success, 1=timeout, etc.
     req_cpus: int
     req_mem_mb: int
     req_gpus: int
     req_time_seconds: int | None
     runtime_seconds: int | None
-    wait_time_seconds: int | None = None
     
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,96 +54,12 @@ class JobInfo:
             'start_time': self.start_time.isoformat() if self.start_time else None,
             'end_time': self.end_time.isoformat() if self.end_time else None,
             'exit_code': self.exit_code,
-            'exit_signal': self.exit_signal,
-            'failure_reason': self.failure_reason,
             'req_cpus': self.req_cpus,
             'req_mem_mb': self.req_mem_mb,
             'req_gpus': self.req_gpus,
             'req_time_seconds': self.req_time_seconds,
             'runtime_seconds': self.runtime_seconds,
-            'wait_time_seconds': self.wait_time_seconds,
         }
-
-
-# Failure reason categories (factor variable)
-FAILURE_SUCCESS = 0        # Job completed successfully
-FAILURE_TIMEOUT = 1        # Time limit exceeded
-FAILURE_CANCELLED = 2      # User/admin cancelled
-FAILURE_FAILED = 3         # Generic failure (exit_code != 0)
-FAILURE_OOM = 4            # Out of memory (SIGKILL from cgroup, exit 137)
-FAILURE_SEGFAULT = 5       # Segmentation fault (SIGSEGV, exit 139)
-FAILURE_NODE_FAIL = 6      # Node failure
-FAILURE_DEPENDENCY = 7     # Dependency not satisfied
-
-# Signal numbers for reference
-SIGKILL = 9    # Kill signal (often OOM)
-SIGSEGV = 11   # Segmentation fault
-SIGTERM = 15   # Termination request
-SIGABRT = 6    # Abort
-
-
-def compute_failure_reason(state: str, exit_code: int | None, exit_signal: int | None) -> int:
-    """
-    Compute failure reason category from job state and exit codes.
-    
-    Args:
-        state: SLURM job state (COMPLETED, FAILED, TIMEOUT, etc.)
-        exit_code: Exit status (0-255)
-        exit_signal: Signal number if killed
-    
-    Returns:
-        Integer category (0-7) for failure_reason
-    """
-    state = state.upper() if state else ""
-    
-    # Success case
-    if state == 'COMPLETED' and (exit_code is None or exit_code == 0):
-        return FAILURE_SUCCESS
-    
-    # Timeout
-    if state == 'TIMEOUT':
-        return FAILURE_TIMEOUT
-    
-    # Cancelled
-    if state in ('CANCELLED', 'PREEMPTED'):
-        return FAILURE_CANCELLED
-    
-    # Node failure
-    if state == 'NODE_FAIL':
-        return FAILURE_NODE_FAIL
-    
-    # Dependency failure
-    if state == 'DEADLINE' or 'DEPEND' in state:
-        return FAILURE_DEPENDENCY
-    
-    # OOM - either explicit state or SIGKILL (9)
-    if state == 'OUT_OF_MEMORY':
-        return FAILURE_OOM
-    if exit_signal == SIGKILL:
-        return FAILURE_OOM
-    if exit_code == 137:  # 128 + 9 (SIGKILL)
-        return FAILURE_OOM
-    
-    # Segfault - SIGSEGV (11)
-    if exit_signal == SIGSEGV:
-        return FAILURE_SEGFAULT
-    if exit_code == 139:  # 128 + 11 (SIGSEGV)
-        return FAILURE_SEGFAULT
-    
-    # Abort - SIGABRT (6)
-    if exit_signal == SIGABRT or exit_code == 134:  # 128 + 6
-        return FAILURE_SEGFAULT  # Group with segfault as "code bug"
-    
-    # Generic failure
-    if state == 'FAILED' or (exit_code is not None and exit_code != 0):
-        return FAILURE_FAILED
-    
-    # If completed but with non-zero exit, still a failure
-    if state == 'COMPLETED' and exit_code is not None and exit_code != 0:
-        return FAILURE_FAILED
-    
-    # Default to success if we can't determine
-    return FAILURE_SUCCESS
 
 
 @dataclass  
@@ -177,12 +90,10 @@ class SlurmCollector(BaseCollector):
         job_history_days: Days of job history to collect (default: 7)
         collect_queue: Whether to collect queue state (default: True)
         collect_jobs: Whether to collect job details (default: True)
-        collect_completed: Whether to collect completed job history (default: True)
     
     Collected data:
         - Queue state per partition (pending/running counts)
         - Job metadata (user, resources, state, times)
-        - Completed jobs with exit codes and failure classification
     """
     
     name = "slurm"
@@ -196,7 +107,6 @@ class SlurmCollector(BaseCollector):
         self.job_history_days = config.get('job_history_days', 7)
         self.collect_queue = config.get('collect_queue', True)
         self.collect_jobs = config.get('collect_jobs', True)
-        self.collect_completed = config.get('collect_completed', True)
         
         logger.info(f"SlurmCollector monitoring partitions: {self.partitions or 'all'}")
     
@@ -216,7 +126,7 @@ class SlurmCollector(BaseCollector):
             except Exception as e:
                 logger.warning(f"Failed to collect queue state: {e}")
         
-        # Collect running/pending jobs from squeue
+        # Collect running/recent jobs
         if self.collect_jobs:
             try:
                 jobs = self._collect_jobs()
@@ -228,163 +138,10 @@ class SlurmCollector(BaseCollector):
             except Exception as e:
                 logger.warning(f"Failed to collect jobs: {e}")
         
-        # Collect completed jobs from sacct (with exit codes)
-        if self.collect_completed:
-            try:
-                completed_jobs = self._collect_completed_jobs()
-                for job in completed_jobs:
-                    data.append({
-                        'type': 'job',
-                        **job.to_dict()
-                    })
-            except Exception as e:
-                logger.warning(f"Failed to collect completed jobs: {e}")
-        
         if not data:
             raise CollectionError("No SLURM data collected")
         
         return data
-    
-    def _collect_completed_jobs(self) -> list[JobInfo]:
-        """Collect completed job information from sacct."""
-        try:
-            # sacct format includes ExitCode which gives us exit_status:signal
-            # Format: JobID|User|Group|Partition|JobName|State|NodeList|AllocCPUS|ReqMem|ReqGRES|Timelimit|Elapsed|Submit|Start|End|ExitCode
-            format_str = "JobID,User,Group,Partition,JobName,State,NodeList,AllocCPUS,ReqMem,ReqGRES,Timelimit,Elapsed,Submit,Start,End,ExitCode"
-            
-            result = subprocess.run(
-                [
-                    'sacct',
-                    '-n',  # No header
-                    '-P',  # Parseable (pipe-delimited)
-                    '-X',  # No job steps, only main job
-                    f'--starttime=now-{self.job_history_days}days',
-                    f'--format={format_str}',
-                ],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            
-            if result.returncode != 0:
-                raise CollectionError(f"sacct failed: {result.stderr}")
-            
-            jobs = []
-            for line in result.stdout.strip().split('\n'):
-                if not line.strip():
-                    continue
-                
-                job = self._parse_sacct_job(line)
-                if job:
-                    # Filter by partition if configured
-                    if self.partitions is None or job.partition in self.partitions:
-                        jobs.append(job)
-            
-            logger.debug(f"Collected {len(jobs)} completed jobs from sacct")
-            return jobs
-            
-        except subprocess.TimeoutExpired:
-            raise CollectionError("sacct command timed out")
-        except FileNotFoundError:
-            logger.warning("sacct command not found - skipping completed job collection")
-            return []
-    
-    def _parse_sacct_job(self, line: str) -> JobInfo | None:
-        """Parse a single sacct output line into JobInfo."""
-        try:
-            parts = line.split('|')
-            if len(parts) < 16:
-                return None
-            
-            job_id = parts[0].strip()
-            # Skip job steps (contain '.')
-            if '.' in job_id:
-                return None
-            
-            user_name = parts[1].strip()
-            group_name = parts[2].strip() or None
-            partition = parts[3].strip()
-            job_name = parts[4].strip()
-            state = parts[5].strip()
-            node_list = parts[6].strip() or None
-            req_cpus = self._parse_int(parts[7])
-            req_mem_mb = self._parse_memory(parts[8])
-            req_gpus = self._parse_gpus(parts[9])
-            time_limit = self._parse_time(parts[10])
-            runtime = self._parse_time(parts[11])
-            submit_time = self._parse_datetime(parts[12])
-            start_time = self._parse_datetime(parts[13])
-            end_time = self._parse_datetime(parts[14])
-            
-            # Parse ExitCode (format: "exit_status:signal")
-            exit_code, exit_signal = self._parse_exit_code(parts[15])
-            
-            # Compute failure reason
-            failure_reason = compute_failure_reason(state, exit_code, exit_signal)
-            
-            # Compute wait time
-            wait_time = None
-            if submit_time and start_time:
-                wait_time = int((start_time - submit_time).total_seconds())
-            
-            return JobInfo(
-                job_id=job_id,
-                user_name=user_name,
-                group_name=group_name,
-                partition=partition,
-                job_name=job_name,
-                state=state,
-                node_list=node_list,
-                submit_time=submit_time,
-                start_time=start_time,
-                end_time=end_time,
-                exit_code=exit_code,
-                exit_signal=exit_signal,
-                failure_reason=failure_reason,
-                req_cpus=req_cpus,
-                req_mem_mb=req_mem_mb,
-                req_gpus=req_gpus,
-                req_time_seconds=time_limit,
-                runtime_seconds=runtime,
-                wait_time_seconds=wait_time,
-            )
-            
-        except Exception as e:
-            logger.debug(f"Failed to parse sacct line: {line} - {e}")
-            return None
-    
-    def _parse_exit_code(self, value: str) -> tuple[int | None, int | None]:
-        """
-        Parse SLURM ExitCode format: "exit_status:signal"
-        
-        Examples:
-            "0:0" -> (0, 0) - clean exit
-            "1:0" -> (1, 0) - exit code 1
-            "0:9" -> (0, 9) - killed by SIGKILL
-            "0:15" -> (0, 15) - killed by SIGTERM
-        
-        Returns:
-            Tuple of (exit_code, signal)
-        """
-        try:
-            value = value.strip()
-            if not value or value == 'N/A':
-                return None, None
-            
-            parts = value.split(':')
-            if len(parts) == 2:
-                exit_code = int(parts[0]) if parts[0] else None
-                signal = int(parts[1]) if parts[1] else None
-                # If signal is non-zero, that's how it was killed
-                if signal and signal > 0:
-                    return exit_code, signal
-                return exit_code, None
-            elif len(parts) == 1:
-                return int(parts[0]), None
-            else:
-                return None, None
-        except (ValueError, AttributeError):
-            return None, None
     
     def _collect_queue_state(self) -> list[QueueState]:
         """Collect current queue state from squeue."""
@@ -501,15 +258,6 @@ class SlurmCollector(BaseCollector):
             submit_time = self._parse_datetime(parts[12])
             start_time = self._parse_datetime(parts[13])
             
-            # Compute wait time for running jobs
-            wait_time = None
-            if submit_time and start_time:
-                wait_time = int((start_time - submit_time).total_seconds())
-            
-            # Running jobs don't have exit codes yet
-            # failure_reason = 0 (success) for now, will be updated when job completes
-            failure_reason = FAILURE_SUCCESS
-            
             return JobInfo(
                 job_id=job_id,
                 user_name=user_name,
@@ -521,15 +269,12 @@ class SlurmCollector(BaseCollector):
                 submit_time=submit_time,
                 start_time=start_time,
                 end_time=None,  # Not available from squeue
-                exit_code=None,  # Not available until job completes
-                exit_signal=None,  # Not available until job completes
-                failure_reason=failure_reason,
+                exit_code=None,
                 req_cpus=req_cpus,
                 req_mem_mb=req_mem_mb,
                 req_gpus=req_gpus,
                 req_time_seconds=time_limit,
                 runtime_seconds=runtime,
-                wait_time_seconds=wait_time,
             )
             
         except Exception as e:
@@ -660,26 +405,21 @@ class SlurmCollector(BaseCollector):
                     )
                 
                 elif record_type == 'job':
-                    # Upsert job data with exit_signal, failure_reason, wait_time
+                    # Upsert job data
                     conn.execute(
                         """
                         INSERT INTO jobs
                         (job_id, user_name, group_name, partition, job_name, state,
                          node_list, submit_time, start_time, end_time, exit_code,
-                         exit_signal, failure_reason,
-                         req_cpus, req_mem_mb, req_gpus, req_time_seconds, 
-                         runtime_seconds, wait_time_seconds)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         req_cpus, req_mem_mb, req_gpus, req_time_seconds, runtime_seconds)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(job_id) DO UPDATE SET
                             state = excluded.state,
                             node_list = excluded.node_list,
                             start_time = excluded.start_time,
                             end_time = excluded.end_time,
                             exit_code = excluded.exit_code,
-                            exit_signal = excluded.exit_signal,
-                            failure_reason = excluded.failure_reason,
-                            runtime_seconds = excluded.runtime_seconds,
-                            wait_time_seconds = excluded.wait_time_seconds
+                            runtime_seconds = excluded.runtime_seconds
                         """,
                         (
                             record['job_id'],
@@ -693,14 +433,11 @@ class SlurmCollector(BaseCollector):
                             record['start_time'],
                             record['end_time'],
                             record['exit_code'],
-                            record['exit_signal'],
-                            record['failure_reason'],
                             record['req_cpus'],
                             record['req_mem_mb'],
                             record['req_gpus'],
                             record['req_time_seconds'],
                             record['runtime_seconds'],
-                            record['wait_time_seconds'],
                         )
                     )
             

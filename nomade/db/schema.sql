@@ -274,7 +274,13 @@ CREATE TABLE IF NOT EXISTS jobs (
     start_time DATETIME,
     end_time DATETIME,
     state TEXT,  -- PENDING, RUNNING, COMPLETED, FAILED, TIMEOUT, etc.
-    exit_code INTEGER,
+    exit_code INTEGER,      -- Exit status (0-255)
+    exit_signal INTEGER,    -- Signal number if killed (e.g., 9=SIGKILL, 11=SIGSEGV)
+    
+    -- Failure classification (categorical factor)
+    -- 0=success, 1=timeout, 2=cancelled, 3=failed_generic, 
+    -- 4=oom, 5=segfault, 6=node_fail, 7=dependency
+    failure_reason INTEGER DEFAULT 0,
     
     -- Requested resources
     req_cpus INTEGER,
@@ -291,6 +297,7 @@ CREATE INDEX idx_jobs_user ON jobs(user_name);
 CREATE INDEX idx_jobs_partition ON jobs(partition);
 CREATE INDEX idx_jobs_submit ON jobs(submit_time);
 CREATE INDEX idx_jobs_state ON jobs(state);
+CREATE INDEX idx_jobs_failure ON jobs(failure_reason);
 
 -- Job metrics (time-series during job)
 CREATE TABLE IF NOT EXISTS job_metrics (
@@ -559,6 +566,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 INSERT INTO schema_version (version, description) VALUES (1, 'Initial schema');
 INSERT OR IGNORE INTO schema_version (version, description) VALUES (2, 'Added mpstat, vmstat, node_state, gpu_stats, nfs_stats tables');
+INSERT OR IGNORE INTO schema_version (version, description) VALUES (3, 'Added exit_signal, failure_reason to jobs table');
 
 -- ============================================
 -- VIEWS (Convenience)
