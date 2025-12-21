@@ -1,0 +1,210 @@
+# NØMADE Cluster Configuration - Large (300 nodes)
+# For paper figures, scalability testing, stress testing
+
+[cluster]
+name = "nomade-large"
+description = "Large heterogeneous cluster for papers and stress testing"
+
+# ============================================================================
+# Node Definitions
+# ============================================================================
+
+[nodes.cpu]
+prefix = "cpu"
+count = 180
+cores = 64
+memory_gb = 256
+local_disk_gb = 500
+partitions = ["compute", "short", "batch"]
+
+[nodes.highmem]
+prefix = "highmem"
+count = 40
+cores = 64
+memory_gb = 1536  # 1.5 TB
+local_disk_gb = 1000
+partitions = ["highmem", "compute"]
+
+[nodes.gpu]
+prefix = "gpu"
+count = 60
+cores = 32
+memory_gb = 512
+local_disk_gb = 2000
+gpus = 4
+gpu_type = "A100-80GB"
+partitions = ["gpu", "ml"]
+
+[nodes.gpu_large]
+# High-end GPU nodes (8 GPUs)
+prefix = "gpul"
+count = 20
+cores = 64
+memory_gb = 1024
+local_disk_gb = 4000
+gpus = 8
+gpu_type = "H100-80GB"
+partitions = ["gpu", "ml", "llm"]
+
+# ============================================================================
+# Partition Definitions
+# ============================================================================
+
+[partitions.compute]
+nodes = ["cpu[001-180]", "highmem[01-40]"]
+default = true
+max_time = "7-00:00:00"
+
+[partitions.short]
+nodes = ["cpu[001-020]"]
+max_time = "4:00:00"
+priority = 100
+
+[partitions.batch]
+# Long-running batch jobs
+nodes = ["cpu[021-180]"]
+max_time = "14-00:00:00"
+priority = 50
+
+[partitions.highmem]
+nodes = ["highmem[01-40]"]
+max_time = "7-00:00:00"
+
+[partitions.gpu]
+nodes = ["gpu[01-60]", "gpul[01-20]"]
+max_time = "3-00:00:00"
+
+[partitions.ml]
+# Machine learning partition
+nodes = ["gpu[01-60]", "gpul[01-20]"]
+max_time = "5-00:00:00"
+
+[partitions.llm]
+# Large language model training (8-GPU nodes only)
+nodes = ["gpul[01-20]"]
+max_time = "7-00:00:00"
+
+[partitions.debug]
+nodes = ["cpu[001-004]"]
+max_time = "1:00:00"
+priority = 200
+
+# ============================================================================
+# Simulation Parameters
+# ============================================================================
+
+[simulation]
+# Failure-prone nodes (aging hardware, known issues)
+flaky_nodes = [
+    "cpu023", "cpu067", "cpu089", "cpu134", "cpu156",
+    "gpu07", "gpu19", "gpu31", "gpu52",
+    "highmem12", "highmem28",
+    "gpul05"
+]
+flaky_failure_rate = 0.20
+
+# Nodes with intermittent issues (less severe)
+intermittent_nodes = [
+    "cpu041", "cpu098", "cpu112", "cpu178",
+    "gpu14", "gpu38"
+]
+intermittent_failure_rate = 0.08
+
+[simulation.users]
+# Larger user base for realistic patterns
+names = [
+    # Research groups
+    "alice", "bob", "charlie", "diana", "eve", "frank", "grace", "henry",
+    "ivan", "julia", "kevin", "lisa", "mike", "nancy", "oscar", "paula",
+    "quinn", "rachel", "steve", "tina", "uma", "victor", "wendy", "xavier",
+    # Students
+    "student01", "student02", "student03", "student04", "student05",
+    "student06", "student07", "student08", "student09", "student10",
+    "student11", "student12", "student13", "student14", "student15",
+    # Classes (shared accounts)
+    "cs101", "bio201", "chem301", "phys401", "ml501",
+    # System/test accounts
+    "benchmark", "test", "admin"
+]
+
+[simulation.user_profiles.expert]
+# Power users: excellent resource estimates
+failure_rate = 0.03
+nfs_heavy_prob = 0.05
+time_overrequest = 1.1
+job_types = ["compute", "gpu", "highmem"]
+
+[simulation.user_profiles.careful]
+failure_rate = 0.06
+nfs_heavy_prob = 0.15
+time_overrequest = 1.3
+
+[simulation.user_profiles.normal]
+failure_rate = 0.12
+nfs_heavy_prob = 0.35
+time_overrequest = 1.6
+
+[simulation.user_profiles.careless]
+failure_rate = 0.28
+nfs_heavy_prob = 0.75
+time_overrequest = 2.5
+
+[simulation.user_profiles.student]
+# Students: learning, more failures, poor estimates
+failure_rate = 0.35
+nfs_heavy_prob = 0.80
+time_overrequest = 3.0
+job_types = ["short", "debug"]
+
+[simulation.user_profiles.ml_researcher]
+# ML researchers: GPU-heavy, moderate failures
+failure_rate = 0.18
+nfs_heavy_prob = 0.25
+time_overrequest = 1.4
+gpu_preference = true
+job_types = ["gpu", "ml", "llm"]
+
+# ============================================================================
+# Failure Injection Scenarios
+# ============================================================================
+
+[simulation.scenarios]
+# Probability weights for different failure scenarios
+[simulation.scenarios.normal]
+# Normal operation
+weight = 0.70
+node_failure_rate = 0.001
+network_issue_rate = 0.005
+
+[simulation.scenarios.maintenance]
+# Scheduled maintenance period
+weight = 0.15
+node_failure_rate = 0.05
+network_issue_rate = 0.02
+affected_nodes = ["cpu[150-180]"]
+
+[simulation.scenarios.incident]
+# Hardware incident (storage, network)
+weight = 0.10
+node_failure_rate = 0.02
+network_issue_rate = 0.15
+nfs_latency_multiplier = 3.0
+
+[simulation.scenarios.outage]
+# Major outage
+weight = 0.05
+node_failure_rate = 0.20
+network_issue_rate = 0.30
+
+# ============================================================================
+# Summary
+# ============================================================================
+# Total: 300 nodes
+#   - 180 CPU standard (64c, 256GB)
+#   - 40 CPU highmem (64c, 1.5TB)
+#   - 60 GPU (32c, 512GB, 4x A100)
+#   - 20 GPU large (64c, 1TB, 8x H100)
+# 
+# Cores: 180*64 + 40*64 + 60*32 + 20*64 = 16,960
+# GPUs: 60*4 + 20*8 = 400
+# Memory: 180*256 + 40*1536 + 60*512 + 20*1024 = 138,880 GB (~136 TB)

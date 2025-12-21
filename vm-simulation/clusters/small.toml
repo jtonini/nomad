@@ -1,0 +1,132 @@
+# NØMADE Cluster Configuration
+# Multi-cluster simulation with realistic sizes
+
+[cluster]
+name = "nomade-multi"
+description = "Multi-cluster simulation: minimal (1), small (10), large (100)"
+
+# ============================================================================
+# Node Definitions
+# ============================================================================
+
+[nodes.minimal]
+cluster = "minimal"
+prefix = "min"
+count = 1
+cores = 16
+memory_gb = 64
+local_disk_gb = 250
+partitions = ["debug"]
+
+[nodes.small_cpu]
+cluster = "small"
+prefix = "sm"
+count = 8
+cores = 64
+memory_gb = 256
+local_disk_gb = 500
+partitions = ["compute", "short"]
+
+[nodes.small_highmem]
+cluster = "small"
+prefix = "sm-hm"
+count = 2
+cores = 64
+memory_gb = 1024
+local_disk_gb = 500
+partitions = ["highmem", "compute"]
+
+[nodes.large_cpu]
+cluster = "large"
+prefix = "lg"
+count = 60
+cores = 64
+memory_gb = 256
+local_disk_gb = 500
+partitions = ["compute", "batch"]
+
+[nodes.large_highmem]
+cluster = "large"
+prefix = "lg-hm"
+count = 15
+cores = 64
+memory_gb = 1024
+local_disk_gb = 1000
+partitions = ["highmem", "compute"]
+
+[nodes.large_gpu]
+cluster = "large"
+prefix = "lg-gpu"
+count = 25
+cores = 32
+memory_gb = 512
+local_disk_gb = 2000
+gpus = 4
+gpu_type = "A100-80GB"
+partitions = ["gpu", "compute"]
+
+# ============================================================================
+# Partition Definitions
+# ============================================================================
+
+[partitions.debug]
+nodes = ["min1"]
+max_time = "1:00:00"
+priority = 200
+
+[partitions.compute]
+nodes = ["sm[1-8]", "sm-hm[1-2]", "lg[01-60]", "lg-hm[01-15]", "lg-gpu[01-25]"]
+default = true
+max_time = "7-00:00:00"
+
+[partitions.short]
+nodes = ["sm[1-4]"]
+max_time = "4:00:00"
+priority = 100
+
+[partitions.batch]
+nodes = ["lg[01-60]"]
+max_time = "14-00:00:00"
+
+[partitions.highmem]
+nodes = ["sm-hm[1-2]", "lg-hm[01-15]"]
+max_time = "7-00:00:00"
+
+[partitions.gpu]
+nodes = ["lg-gpu[01-25]"]
+max_time = "3-00:00:00"
+
+# ============================================================================
+# Simulation Parameters
+# ============================================================================
+
+[simulation]
+flaky_nodes = ["sm03", "lg12", "lg-gpu08", "lg-hm05"]
+flaky_failure_rate = 0.15
+
+[simulation.users]
+names = ["alice", "bob", "charlie", "diana", "eve", "frank", "grace", "henry",
+         "ivan", "julia", "kevin", "lisa", "mike", "nancy", "oscar", "paula"]
+
+[simulation.user_profiles.careful]
+failure_rate = 0.05
+nfs_heavy_prob = 0.1
+time_overrequest = 1.2
+
+[simulation.user_profiles.normal]
+failure_rate = 0.12
+nfs_heavy_prob = 0.3
+time_overrequest = 1.5
+
+[simulation.user_profiles.careless]
+failure_rate = 0.25
+nfs_heavy_prob = 0.7
+time_overrequest = 2.0
+
+# ============================================================================
+# Summary
+# ============================================================================
+# Total: 111 nodes
+#   minimal:   1 node  (debug)
+#   small:    10 nodes (8 CPU + 2 highmem)
+#   large:   100 nodes (60 CPU + 15 highmem + 25 GPU)
