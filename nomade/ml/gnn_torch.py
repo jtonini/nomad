@@ -1,6 +1,5 @@
 """
 PyTorch Geometric GNN for failure prediction.
-
 Optional dependency - falls back to pure Python if not available.
 """
 
@@ -18,7 +17,32 @@ except ImportError:
 
 
 if HAS_TORCH:
-    
+
+    class FocalLoss(nn.Module):
+        """
+        Focal Loss for imbalanced classification.
+        Down-weights easy examples, focuses on hard ones.
+        FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
+        """
+        
+        def __init__(self, alpha=None, gamma=2.0, reduction="mean"):
+            super().__init__()
+            self.alpha = alpha
+            self.gamma = gamma
+            self.reduction = reduction
+        
+        def forward(self, inputs, targets):
+            ce_loss = F.cross_entropy(inputs, targets, weight=self.alpha, reduction="none")
+            pt = torch.exp(-ce_loss)
+            focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+            
+            if self.reduction == "mean":
+                return focal_loss.mean()
+            elif self.reduction == "sum":
+                return focal_loss.sum()
+            return focal_loss
+
+
     class FailureGNN(nn.Module):
         """
         Graph Neural Network for job failure prediction.
@@ -37,41 +61,26 @@ if HAS_TORCH:
             self.dropout = dropout
             self.n_layers = n_layers
             
-            # Select convolution type
             ConvClass = {
                 'gcn': GCNConv,
                 'sage': SAGEConv,
                 'gat': GATConv
             }.get(conv_type.lower(), SAGEConv)
             
-            # Build layers
             self.convs = nn.ModuleList()
             self.bns = nn.ModuleList()
             
-            # Input layer
             self.convs.append(ConvClass(input_dim, hidden_dim))
             self.bns.append(nn.BatchNorm1d(hidden_dim))
             
-            # Hidden layers
             for _ in range(n_layers - 1):
                 self.convs.append(ConvClass(hidden_dim, hidden_dim))
                 self.bns.append(nn.BatchNorm1d(hidden_dim))
             
-            # Output layer
             self.classifier = nn.Linear(hidden_dim, output_dim)
             
         def forward(self, x, edge_index):
-            """
-            Forward pass.
-            
-            Args:
-                x: Node features [n_nodes, input_dim]
-                edge_index: Edge indices [2, n_edges]
-                
-            Returns:
-                Logits [n_nodes, output_dim]
-            """
-            for i, (conv, bn) in enumerate(zip(self.convs, self.bns)):
+            for conv, bn in zip(self.convs, self.bns):
                 x = conv(x, edge_index)
                 x = bn(x)
                 x = F.relu(x)
@@ -80,7 +89,6 @@ if HAS_TORCH:
             return self.classifier(x)
         
         def predict(self, x, edge_index):
-            """Get predictions with probabilities."""
             self.eval()
             with torch.no_grad():
                 logits = self.forward(x, edge_index)
@@ -90,13 +98,14 @@ if HAS_TORCH:
 
 
     class GNNTrainer:
-        """Trainer for PyTorch GNN."""
+        """Trainer for PyTorch GNN with Focal Loss."""
         
         def __init__(self, model: FailureGNN, lr: float = 0.01, 
-                     weight_decay: float = 5e-4, device: str = 'auto'):
+                     weight_decay: float = 5e-4, device: str = 'auto',
+                     gamma: float = 2.0):
             self.model = model
+            self.gamma = gamma
             
-            # Select device
             if device == 'auto':
                 self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             else:
@@ -113,21 +122,19 @@ if HAS_TORCH:
             self.history = []
             
         def train_epoch(self, data: Data, mask=None) -> dict:
-            """Train for one epoch."""
             self.model.train()
             self.optimizer.zero_grad()
             
             data = data.to(self.device)
             out = self.model(data.x, data.edge_index)
             
-            
-            # Get class weights if available
-            weights = data.class_weights.to(self.device) if hasattr(data, "class_weights") else None
+            weights = data.class_weights.to(self.device) if hasattr(data, 'class_weights') else None
+            focal = FocalLoss(alpha=weights, gamma=self.gamma)
             
             if mask is not None:
-                loss = F.cross_entropy(out[mask], data.y[mask], weight=weights)
+                loss = focal(out[mask], data.y[mask])
             else:
-                loss = F.cross_entropy(out, data.y, weight=weights)
+                loss = focal(out, data.y)
             
             loss.backward()
             self.optimizer.step()
@@ -136,7 +143,6 @@ if HAS_TORCH:
         
         @torch.no_grad()
         def evaluate(self, data: Data, mask=None) -> dict:
-            """Evaluate model."""
             self.model.eval()
             data = data.to(self.device)
             
@@ -153,7 +159,6 @@ if HAS_TORCH:
             
             acc = correct / total if total > 0 else 0
             
-            # Per-class accuracy
             per_class = {}
             for c in range(out.size(1)):
                 if mask is not None:
@@ -178,24 +183,10 @@ if HAS_TORCH:
         def train(self, data: Data, epochs: int = 100, 
                   train_mask=None, val_mask=None, 
                   verbose: bool = True) -> list:
-            """
-            Full training loop.
-            
-            Args:
-                data: PyG Data object
-                epochs: Number of epochs
-                train_mask: Mask for training nodes
-                val_mask: Mask for validation nodes
-                verbose: Print progress
-                
-            Returns:
-                Training history
-            """
             best_val_acc = 0
             
             for epoch in range(epochs):
                 train_result = self.train_epoch(data, train_mask)
-                
                 train_eval = self.evaluate(data, train_mask)
                 val_eval = self.evaluate(data, val_mask) if val_mask is not None else None
                 
@@ -222,61 +213,36 @@ if HAS_TORCH:
             return self.history
 
 
-    def prepare_pyg_data(jobs: list, edges: list, 
-                         feature_names: list = None) -> Data:
-        """
-        Convert job data to PyTorch Geometric format.
-        
-        Args:
-            jobs: List of job dicts
-            edges: List of edge dicts with 'source', 'target'
-            feature_names: Features to use
-            
-        Returns:
-            PyG Data object
-        """
+    def prepare_pyg_data(jobs: list, edges: list, feature_names: list = None) -> Data:
+        """Convert job data to PyTorch Geometric format."""
         if feature_names is None:
             feature_names = [
-                'nfs_write_gb', 'local_write_gb', 'io_wait_pct',
-                'runtime_sec', 'req_mem_mb', 'req_cpus', 'wait_time_sec'
+                'req_gpus', 'req_time_seconds',
+                'runtime_seconds', 'req_mem_mb', 'req_cpus', 'wait_time_seconds'
             ]
         
-        # Available features (some may be missing)
-        available = []
-        for f in feature_names:
-            if any(j.get(f) is not None for j in jobs):
-                available.append(f)
-        
+        available = [f for f in feature_names if any(j.get(f) is not None for j in jobs)]
         if not available:
-            available = ['runtime_sec']  # Fallback
+            available = ['runtime_sec']
         
-        # Extract features
         features = []
         for job in jobs:
-            feat = []
-            for f in available:
-                val = job.get(f, 0) or 0
-                feat.append(float(val))
+            feat = [float(job.get(f, 0) or 0) for f in available]
             features.append(feat)
         
-        # Convert to tensor and normalize
         x = torch.tensor(features, dtype=torch.float)
         x = (x - x.mean(dim=0)) / (x.std(dim=0) + 1e-8)
         
-        # Labels
         labels = [job.get('failure_reason', 0) for job in jobs]
         y = torch.tensor(labels, dtype=torch.long)
         
-        # Edge index
         edge_src = [e['source'] for e in edges]
         edge_dst = [e['target'] for e in edges]
-        # Make bidirectional
         edge_index = torch.tensor([
             edge_src + edge_dst,
             edge_dst + edge_src
         ], dtype=torch.long)
         
-        # Create train/val/test masks (70/15/15 split)
         n = len(jobs)
         perm = torch.randperm(n)
         train_size = int(0.7 * n)
@@ -290,11 +256,10 @@ if HAS_TORCH:
         val_mask[perm[train_size:train_size+val_size]] = True
         test_mask[perm[train_size+val_size:]] = True
         
-        # Compute class weights for imbalanced data
-        class_counts = torch.bincount(y, minlength=8).float()
-        class_counts = class_counts.clamp(min=1)  # Avoid division by zero
-        class_weights = 1.0 / torch.sqrt(class_counts)  # Dampened weights
-        class_weights = class_weights / class_weights.sum() * len(class_counts)  # Normalize
+        # Class weights (sqrt dampened for balance)
+        class_counts = torch.bincount(y, minlength=8).float().clamp(min=1)
+        class_weights = 1.0 / torch.sqrt(class_counts)
+        class_weights = class_weights / class_weights.sum() * len(class_weights)
         
         return Data(
             x=x,
@@ -308,26 +273,10 @@ if HAS_TORCH:
         )
 
 
-    def train_failure_gnn(jobs: list, edges: list, 
-                          epochs: int = 100,
-                          hidden_dim: int = 64,
-                          conv_type: str = 'sage',
-                          verbose: bool = True) -> dict:
-        """
-        Train GNN on job failure data.
-        
-        Args:
-            jobs: List of job dicts
-            edges: Similarity edges
-            epochs: Training epochs
-            hidden_dim: Hidden dimension
-            conv_type: 'gcn', 'sage', or 'gat'
-            verbose: Print progress
-            
-        Returns:
-            Dict with model, history, and metrics
-        """
-        # Prepare data
+    def train_failure_gnn(jobs: list, edges: list, epochs: int = 100,
+                          hidden_dim: int = 64, conv_type: str = 'sage',
+                          gamma: float = 2.0, verbose: bool = True) -> dict:
+        """Train GNN on job failure data."""
         data = prepare_pyg_data(jobs, edges)
         
         if verbose:
@@ -337,16 +286,14 @@ if HAS_TORCH:
             print(f"Train/Val/Test: {data.train_mask.sum()}/{data.val_mask.sum()}/{data.test_mask.sum()}")
             print()
         
-        # Create model
         model = FailureGNN(
             input_dim=data.x.size(1),
             hidden_dim=hidden_dim,
-            output_dim=8,  # 8 failure classes
+            output_dim=8,
             conv_type=conv_type
         )
         
-        # Train
-        trainer = GNNTrainer(model, lr=0.01)
+        trainer = GNNTrainer(model, lr=0.01, gamma=gamma)
         history = trainer.train(
             data, 
             epochs=epochs,
@@ -355,7 +302,6 @@ if HAS_TORCH:
             verbose=verbose
         )
         
-        # Final evaluation on test set
         test_results = trainer.evaluate(data, data.test_mask)
         
         if verbose:
@@ -376,38 +322,37 @@ if HAS_TORCH:
 
 
 else:
-    # Fallback when PyTorch not available
+    class FocalLoss:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("PyTorch required")
+    
     class FailureGNN:
         def __init__(self, *args, **kwargs):
-            raise ImportError("PyTorch Geometric required. Use pure Python GNN instead.")
+            raise ImportError("PyTorch Geometric required")
     
     class GNNTrainer:
         def __init__(self, *args, **kwargs):
-            raise ImportError("PyTorch Geometric required. Use pure Python GNN instead.")
+            raise ImportError("PyTorch Geometric required")
     
     def train_failure_gnn(*args, **kwargs):
-        raise ImportError("PyTorch Geometric required. Use pure Python GNN instead.")
+        raise ImportError("PyTorch Geometric required")
     
     def prepare_pyg_data(*args, **kwargs):
-        raise ImportError("PyTorch Geometric required. Use pure Python GNN instead.")
+        raise ImportError("PyTorch Geometric required")
 
 
 def is_torch_available() -> bool:
-    """Check if PyTorch Geometric is available."""
     return HAS_TORCH
 
 
 if __name__ == '__main__':
     if not HAS_TORCH:
-        print("PyTorch not available. Skipping test.")
+        print("PyTorch not available")
     else:
-        print("Testing PyTorch GNN...")
+        print("Testing PyTorch GNN with Focal Loss...")
         print(f"Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
         
-        # Generate test data
-        n_nodes = 500
-        n_edges = 2000
-        n_features = 7
+        n_nodes, n_edges, n_features = 500, 2000, 7
         
         x = torch.randn(n_nodes, n_features)
         y = torch.randint(0, 8, (n_nodes,))
@@ -415,15 +360,16 @@ if __name__ == '__main__':
         
         data = Data(x=x, edge_index=edge_index, y=y)
         
-        # Random masks
         perm = torch.randperm(n_nodes)
         data.train_mask = torch.zeros(n_nodes, dtype=torch.bool)
         data.val_mask = torch.zeros(n_nodes, dtype=torch.bool)
         data.train_mask[perm[:350]] = True
         data.val_mask[perm[350:425]] = True
         
-        # Train
+        class_counts = torch.bincount(y, minlength=8).float().clamp(min=1)
+        data.class_weights = 1.0 / torch.sqrt(class_counts)
+        
         model = FailureGNN(input_dim=n_features, hidden_dim=32, conv_type='sage')
-        trainer = GNNTrainer(model)
+        trainer = GNNTrainer(model, gamma=2.0)
         trainer.train(data, epochs=50, train_mask=data.train_mask, 
                      val_mask=data.val_mask, verbose=True)
