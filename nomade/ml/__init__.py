@@ -1,9 +1,9 @@
 """
 NØMADE Machine Learning Module
 
-Provides GNN-based failure prediction:
-- Pure Python implementation (no dependencies)
-- PyTorch Geometric implementation (optional, for GPU training)
+- GNN: What fails (network structure)
+- LSTM: When it fails (temporal patterns)  
+- Autoencoder: Is this normal (anomaly detection)
 """
 
 from .gnn import (
@@ -15,30 +15,42 @@ from .gnn import (
     FAILURE_NAMES
 )
 
-# Try to import PyTorch version
 try:
     from .gnn_torch import (
         is_torch_available,
+        FocalLoss,
         FailureGNN,
         GNNTrainer,
         train_failure_gnn,
         prepare_pyg_data
+    )
+    from .lstm import (
+        FailureLSTM,
+        LSTMTrainer,
+        train_failure_lstm,
+        JobTrajectoryDataset,
+        generate_synthetic_trajectories
+    )
+    from .autoencoder import (
+        JobAutoencoder,
+        AutoencoderTrainer,
+        train_anomaly_detector,
+        prepare_autoencoder_data
     )
 except ImportError:
     is_torch_available = lambda: False
 
 __all__ = [
     # Pure Python
-    'SimpleGNN',
-    'GNNConfig', 
-    'prepare_job_features',
-    'build_adjacency_from_edges',
-    'evaluate_gnn',
-    'FAILURE_NAMES',
-    # PyTorch (optional)
-    'is_torch_available',
-    'FailureGNN',
-    'GNNTrainer', 
-    'train_failure_gnn',
-    'prepare_pyg_data'
+    'SimpleGNN', 'GNNConfig', 'prepare_job_features',
+    'build_adjacency_from_edges', 'evaluate_gnn', 'FAILURE_NAMES',
+    # PyTorch GNN
+    'is_torch_available', 'FocalLoss', 'FailureGNN', 'GNNTrainer',
+    'train_failure_gnn', 'prepare_pyg_data',
+    # LSTM
+    'FailureLSTM', 'LSTMTrainer', 'train_failure_lstm',
+    'JobTrajectoryDataset', 'generate_synthetic_trajectories',
+    # Autoencoder
+    'JobAutoencoder', 'AutoencoderTrainer', 'train_anomaly_detector',
+    'prepare_autoencoder_data'
 ]
