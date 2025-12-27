@@ -1018,6 +1018,204 @@ def dashboard(ctx, host, port, data):
     
     serve_dashboard(host, port, data_source)
 
+
+@cli.command()
+@click.option("--db", type=click.Path(), help="Database path")
+@click.option("--epochs", "-e", type=int, default=100, help="Training epochs")
+@click.option("--verbose", "-v", is_flag=True, help="Show training progress")
+@click.pass_context
+def train(ctx, db, epochs, verbose):
+    """Train ML ensemble models on job data.
+    
+    Trains GNN, LSTM, and Autoencoder models on historical job data
+    and saves predictions to the database.
+    
+    Examples:
+        nomade train                    # Train with default settings
+        nomade train --epochs 50        # Fewer epochs (faster)
+        nomade train --db data.db       # Specify database
+    """
+    from nomade.ml import train_and_save_ensemble, is_torch_available
+    
+    if not is_torch_available():
+        click.echo(click.style("Error: PyTorch not available", fg="red"))
+        click.echo("Install with: pip install torch torch-geometric")
+        return
+    
+    db_path = db
+    if not db_path:
+        config = ctx.obj.get("config", {})
+        db_path = str(get_db_path(config))
+    
+    if not Path(db_path).exists():
+        click.echo(click.style(f"Database not found: {db_path}", fg="red"))
+        return
+    
+    click.echo(click.style("=" * 60, fg="cyan"))
+    click.echo(click.style("  NOMADE ML Training", fg="white", bold=True))
+    click.echo(click.style("=" * 60, fg="cyan"))
+    click.echo(f"  Database: {db_path}")
+    click.echo(f"  Epochs: {epochs}")
+    click.echo()
+    
+    result = train_and_save_ensemble(db_path, epochs=epochs, verbose=verbose)
+    
+    click.echo()
+    click.echo(click.style("=" * 60, fg="green"))
+    click.echo(click.style("  Training Complete", fg="white", bold=True))
+    click.echo(click.style("=" * 60, fg="green"))
+    click.echo(f"  Prediction ID: {result.get('prediction_id', '-')}")
+    click.echo(f"  High-risk jobs: {len(result.get('high_risk', []))}")
+    click.echo(f"  Anomalies: {result.get('n_anomalies', 0)}")
+    if result.get("summary"):
+        s = result["summary"]
+        click.echo(f"  GNN Accuracy: {s.get('gnn_accuracy', 0)*100:.1f}%")
+        click.echo(f"  LSTM Accuracy: {s.get('lstm_accuracy', 0)*100:.1f}%")
+
+
+@cli.command()
+@click.option("--db", type=click.Path(), help="Database path")
+@click.option("--top", "-n", type=int, default=20, help="Number of high-risk jobs to show")
+@click.pass_context
+def predict(ctx, db, top):
+    """Show ML predictions for jobs.
+    
+    Displays high-risk jobs identified by the ensemble model.
+    Run 'nomade train' first to generate predictions.
+    
+    Examples:
+        nomade predict                  # Show top 20 high-risk jobs
+        nomade predict --top 50         # Show top 50
+    """
+    from nomade.ml import load_predictions_from_db
+    
+    db_path = db
+    if not db_path:
+        config = ctx.obj.get("config", {})
+        db_path = str(get_db_path(config))
+    
+    if not Path(db_path).exists():
+        click.echo(click.style(f"Database not found: {db_path}", fg="red"))
+        return
+    
+    predictions = load_predictions_from_db(db_path)
+    
+    if not predictions:
+        click.echo(click.style("No predictions found. Run 'nomade train' first.", fg="yellow"))
+        return
+    
+    click.echo(click.style("=" * 60, fg="cyan"))
+    click.echo(click.style("  NOMADE ML Predictions", fg="white", bold=True))
+    click.echo(click.style("=" * 60, fg="cyan"))
+    click.echo(f"  Status: {predictions.get('status', 'unknown')}")
+    click.echo(f"  Jobs analyzed: {predictions.get('n_jobs', 0)}")
+    click.echo(f"  Anomalies: {predictions.get('n_anomalies', 0)}")
+    click.echo(f"  Threshold: {predictions.get('threshold', 0):.4f}")
+    click.echo()
+    
+    high_risk = predictions.get("high_risk", [])[:top]
+    if high_risk:
+        click.echo(click.style(f"  Top {len(high_risk)} High-Risk Jobs:", fg="red", bold=True))
+        click.echo(f"  {'Job ID':<12} {'Score':<10} {'Anomaly':<8} {'Failure'}")
+        click.echo(f"  {'-'*12} {'-'*10} {'-'*8} {'-'*10}")
+        for job in high_risk:
+            anomaly = "Yes" if job.get("is_anomaly") else "No"
+            failure = job.get("predicted_name", job.get("failure_reason", "-"))
+            click.echo(f"  {str(job.get('job_id', '-')):<12} {job.get('anomaly_score', 0):<10.2f} {anomaly:<8} {failure}")
+
+
+@cli.command()
+@click.option("--db", type=click.Path(), help="Database path")
+@click.option("--output", "-o", type=click.Path(), help="Output file (default: stdout)")
+@click.pass_context
+def report(ctx, db, output):
+    """Generate ML analysis report.
+    
+    Creates a summary report of job failures and ML predictions.
+    
+    Examples:
+        nomade report                   # Print to stdout
+        nomade report -o report.txt     # Save to file
+    """
+    from nomade.ml import load_predictions_from_db, FAILURE_NAMES
+    import sqlite3
+    
+    db_path = db
+    if not db_path:
+        config = ctx.obj.get("config", {})
+        db_path = str(get_db_path(config))
+    
+    if not Path(db_path).exists():
+        click.echo(click.style(f"Database not found: {db_path}", fg="red"))
+        return
+    
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    jobs = [dict(row) for row in conn.execute("SELECT * FROM jobs").fetchall()]
+    conn.close()
+    
+    predictions = load_predictions_from_db(db_path)
+    
+    lines = []
+    lines.append("=" * 60)
+    lines.append("  NOMADE Analysis Report")
+    lines.append("=" * 60)
+    lines.append(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"  Database: {db_path}")
+    lines.append("")
+    
+    total = len(jobs)
+    success = sum(1 for j in jobs if j.get("failure_reason", 0) == 0)
+    failed = total - success
+    lines.append("  JOB SUMMARY")
+    lines.append(f"  Total jobs: {total}")
+    lines.append(f"  Success: {success} ({100*success/total:.1f}%)")
+    lines.append(f"  Failed: {failed} ({100*failed/total:.1f}%)")
+    lines.append("")
+    
+    if failed > 0:
+        lines.append("  FAILURE BREAKDOWN")
+        failure_counts = {}
+        for j in jobs:
+            fr = j.get("failure_reason", 0)
+            if fr > 0:
+                name = FAILURE_NAMES.get(fr, f"Type {fr}")
+                failure_counts[name] = failure_counts.get(name, 0) + 1
+        for name, count in sorted(failure_counts.items(), key=lambda x: -x[1]):
+            lines.append(f"    {name}: {count} ({100*count/failed:.1f}%)")
+        lines.append("")
+    
+    if predictions:
+        lines.append("  ML PREDICTIONS")
+        lines.append(f"  Status: {predictions.get('status', 'unknown')}")
+        lines.append(f"  Anomalies detected: {predictions.get('n_anomalies', 0)}")
+        if predictions.get("summary"):
+            s = predictions["summary"]
+            lines.append(f"  GNN Accuracy: {s.get('gnn_accuracy', 0)*100:.1f}%")
+            lines.append(f"  LSTM Accuracy: {s.get('lstm_accuracy', 0)*100:.1f}%")
+            lines.append(f"  AE Precision: {s.get('ae_precision', 0)*100:.1f}%")
+        lines.append("")
+        
+        high_risk = predictions.get("high_risk", [])[:10]
+        if high_risk:
+            lines.append("  TOP 10 HIGH-RISK JOBS")
+            for job in high_risk:
+                lines.append(f"    Job {job.get('job_id', '-')}: score={job.get('anomaly_score', 0):.2f}")
+    else:
+        lines.append("  ML PREDICTIONS: Not available (run 'nomade train')")
+    
+    lines.append("")
+    lines.append("=" * 60)
+    
+    report_text = "\n".join(lines)
+    
+    if output:
+        Path(output).write_text(report_text)
+        click.echo(f"Report saved to {output}")
+    else:
+        click.echo(report_text)
+
+
 def main() -> None:
     """Entry point for CLI."""
     cli(obj={})
