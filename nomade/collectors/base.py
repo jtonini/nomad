@@ -16,6 +16,13 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Alert integration (optional)
+try:
+    from nomade.alerts.thresholds import check_and_alert
+    HAS_ALERTS = True
+except ImportError:
+    HAS_ALERTS = False
+
 
 @dataclass
 class CollectionResult:
@@ -139,6 +146,17 @@ class BaseCollector(ABC):
             # Store data
             if data:
                 self.store(data)
+                
+                # Check thresholds and trigger alerts
+                if HAS_ALERTS and self.config.get('alerts_enabled', True):
+                    try:
+                        import socket
+                        host = socket.gethostname()
+                        # Get full config from registry if available
+                        full_config = getattr(registry, '_config', {})
+                        check_and_alert(self.name, data, full_config, host=host)
+                    except Exception as e:
+                        logger.debug(f"Alert check skipped: {e}")
             
             duration = time.time() - start_time
             self._last_run = timestamp
