@@ -22,7 +22,7 @@ bibliography: paper.bib
 
 # Summary
 
-NØMADE (NOde MAnagement DEvice) is a lightweight monitoring and predictive analytics tool for High-Performance Computing (HPC) clusters. It collects system metrics from SLURM-managed environments, stores time-series data in SQLite, and employs machine learning to predict job failures before they occur. The tool provides a real-time web dashboard and supports alerts via email, Slack, or webhooks. NØMADE requires no external databases or complex infrastructure—only Python and standard system tools.
+NØMADE (NOde MAnagement DEvice) is a lightweight monitoring and predictive analytics tool for High-Performance Computing (HPC) clusters and workstations. It collects system metrics from SLURM-managed environments, stores time-series data in SQLite, and employs machine learning to predict job failures before they occur. The tool provides a real-time web dashboard and supports alerts via email, Slack, or webhooks. NØMADE requires no external databases or complex infrastructure—only Python and standard system tools.
 
 A key innovation is the application of biogeographical network analysis concepts to HPC monitoring. Inspired by methods for identifying transition zones between bioregions [@vilhena2015], NØMADE treats HPC resource domains (compute, storage, network) as interconnected regions where failures cluster at domain boundaries—such as transitions between local scratch and network-attached storage (NAS), or between CPU and GPU workloads. This enables failure pattern recognition that emerges from the data rather than from predefined rules.
 
@@ -44,11 +44,11 @@ These failures often exhibit warning signs minutes to hours before critical thre
 - **Predictive alerts**: Derivative analysis detects accelerating resource consumption
 - **Domain-aware analysis**: Recognizes HPC-specific failure patterns at resource boundaries
 
-The tool is suited for small-to-medium HPC centers, research groups managing clusters, or as a complement to existing monitoring infrastructure.
+The tool is suited for small-to-medium HPC centers, research groups managing clusters or workstations, or as a complement to existing monitoring infrastructure.
 
 # Implementation
 
-NØMADE is implemented in Python and follows a modular architecture (\autoref{fig:architecture}):
+NØMADE is implemented in Python using scikit-learn [@scikit-learn], PyTorch [@pytorch], and PyTorch Geometric [@pytorch_geometric] for machine learning. It integrates with SLURM [@slurm] for job scheduling data and follows a modular architecture (\autoref{fig:architecture}):
 
 ![NØMADE architecture showing the data flow from collectors through the prediction engine to alert dispatch.\label{fig:architecture}](figures/architecture.png){ width=100% }
 
@@ -95,6 +95,6 @@ The dashboard displays real-time cluster health, job risk assessments, and histo
 
 # Acknowledgements
 
-The author thanks George Flanagin for advice and inspiration on HPC system administration, and the University of Richmond Research Computing group for cluster access and testing.
+The author thanks George Flanagin for advice and inspiration on HPC system administration, and the University of Richmond's Office of the Provost for financial and resource support.
 
 # References
