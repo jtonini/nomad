@@ -247,7 +247,7 @@ NØMADE builds job similarity networks using a comprehensive feature vector that
 
 - **Raw quantitative metrics**: No arbitrary thresholds or binary labels
 - **Non-redundant features**: `vram_gb > 0` implies GPU used (no separate flag)
-- **Simpson similarity**: Biogeographical approach on discretized feature bins
+- **Cosine similarity**: Z-score normalized feature vectors, threshold ≥ 0.7
 - **Continuous health score**: 0 (catastrophic) → 1 (perfect), not binary
 - **Time-correlated system state**: iostat/mpstat/vmstat data aligned to job runtime
 
@@ -299,7 +299,7 @@ Traditional threshold alerts only trigger when a value crosses a limit. By monit
 |--------|---------------------|---------------------|
 | Disk usage | ! Exponential fill | OK Cleanup in progress |
 | Queue depth | ! System issue | OK Draining normally |
-| Failure rate | 🔴 Cascading problem | OK Issue resolving |
+| Failure rate |  Cascading problem | OK Issue resolving |
 | NFS latency | ! I/O storm developing | OK Load decreasing |
 | Job memory | ! Memory leak / OOM | OK Normal variation |
 | GPU temp | ! Cooling issue | OK Throttling working |
@@ -488,7 +488,7 @@ queue_acceleration_warning = 5   # jobs/hour²
 [prediction]
 # Prediction engine settings
 enabled = true
-similarity_threshold = 0.85
+similarity_threshold = 0.7
 health_threshold = 0.5
 retrain_interval_days = 7
 
@@ -748,7 +748,7 @@ Just as biogeographical regions emerge from species distribution data rather tha
 - [x] Basic dashboard
 
 ### Phase 2: Prediction Engine ✓
-- [x] Simpson similarity network (Vilhena & Antonelli biogeography method)
+- [x] Cosine similarity network (default), Simpson available for biogeographical analysis
 - [x] Failure classification (8 classes: SUCCESS, TIMEOUT, FAILED, OOM, etc.)
 - [x] Simulation framework (VM-based SLURM simulation)
 - [x] Clustering analysis (assortativity, SES.MNTD, neighborhood purity)
