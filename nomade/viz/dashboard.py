@@ -1536,7 +1536,7 @@ class DataManager:
                         )
                         self._edges = network_result['edges']
                         self._network_stats = network_result['stats']
-                        self._discretization = network_result['discretization']
+                        self._discretization = network_result.get('discretization')
                         logger.info(f"Built cosine network: {len(self._edges)} edges (threshold ≥ 0.7)")
                 else:
                     # Use demo jobs
@@ -1550,7 +1550,7 @@ class DataManager:
                     network_result = build_similarity_network(self._jobs, method='cosine', threshold=0.7)
                     self._edges = network_result['edges']
                     self._network_stats = network_result['stats']
-                    self._discretization = network_result['discretization']
+                    self._discretization = network_result.get('discretization')
                     logger.info("Using demo job data for network view")
                     
                 return
@@ -1570,7 +1570,7 @@ class DataManager:
         network_result = build_similarity_network(self._jobs, method='cosine', threshold=0.7)
         self._edges = network_result['edges']
         self._network_stats = network_result['stats']
-        self._discretization = network_result['discretization']
+        self._discretization = network_result.get('discretization')
     
     @property
     def clusters(self):
@@ -1629,6 +1629,78 @@ class DataManager:
             "edges": len(self._edges)
         }
 
+    def get_failed_jobs(self, hours: int = 24, limit: int = 10) -> dict:
+        """Get recent failed jobs with failure reasons."""
+        
+        # Failure states mapping
+        failure_labels = {
+            1: 'TIMEOUT',
+            2: 'CANCELLED',
+            3: 'FAILED',
+            4: 'OUT_OF_MEMORY',
+            5: 'SEGFAULT',
+            6: 'NODE_FAIL',
+            7: 'DEPENDENCY'
+        }
+        
+        # Filter failed jobs from self.jobs
+        failed = [
+            j for j in self._jobs 
+            if j.get('failure_reason', 0) != 0  # 0 = SUCCESS
+        ]
+        
+        # Sort by job_id descending (most recent first)
+        failed.sort(key=lambda x: x.get('job_id', 0), reverse=True)
+        
+        # Build response
+        failed_jobs = []
+        for job in failed[:limit]:
+            fr = job.get('failure_reason', 3)
+            failed_jobs.append({
+                'job_id': job.get('job_id'),
+                'partition': job.get('partition', '—'),
+                'state': failure_labels.get(fr, 'FAILED'),
+                'exit_code': job.get('exit_code'),
+                'exit_signal': job.get('exit_signal'),
+                'runtime_sec': job.get('runtime_sec'),
+                'req_cpus': job.get('req_cpus'),
+                'req_mem_mb': job.get('req_mem_mb'),
+                'health_score': job.get('health_score'),
+                'failure_reason': self._get_failure_explanation(job)
+            })
+        
+        # Summary by reason
+        by_reason = {}
+        for job in failed:
+            fr = job.get('failure_reason', 3)
+            label = failure_labels.get(fr, 'FAILED')
+            by_reason[label] = by_reason.get(label, 0) + 1
+        
+        return {
+            'failed_jobs': failed_jobs,
+            'summary': {
+                'total_failed': len(failed),
+                'by_reason': by_reason
+            }
+        }
+
+    def _get_failure_explanation(self, job: dict) -> str:
+        """Generate human-readable failure explanation."""
+        fr = job.get('failure_reason', 3)
+        exit_code = job.get('exit_code')
+        exit_signal = job.get('exit_signal')
+        
+        explanations = {
+            1: "Job exceeded time limit",
+            2: "Job was cancelled",
+            3: f"Job failed with exit code {exit_code or 'unknown'}",
+            4: f"Job killed: out of memory (requested {job.get('req_mem_mb', '?')} MB)",
+            5: f"Segmentation fault (signal {exit_signal or 11})",
+            6: "Node failure during execution",
+            7: "Dependency job failed"
+        }
+        
+        return explanations.get(fr, f"Unknown failure (code {fr})")
 
 # ============================================================================
 # HTML Dashboard
@@ -2551,6 +2623,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             const [showStats, setShowStats] = useState(false);
             const [showCorrelation, setShowCorrelation] = useState(false);
             const [showMethod, setShowMethod] = useState(false);
+            const [showFailedModal, setShowFailedModal] = React.useState(false);
+            const [failedJobs, setFailedJobs] = React.useState(null);
             const [forceIterations, setForceIterations] = useState(0);
             const forcePositionsRef = useRef(null);
             const animationRef = useRef(null);
@@ -3127,6 +3201,17 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 };
             }, [jobs, edges]);
             
+            const fetchFailedJobs = async () => {
+                try {
+                    const response = await fetch('/api/failed_jobs?limit=10');
+                    const data = await response.json();
+                    setFailedJobs(data);
+                    setShowFailedModal(true);
+                } catch (error) {
+                    console.error('Failed to fetch failed jobs:', error);
+                }
+            };
+            
             const formatFeatureName = (name) => {
                 return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
             };
@@ -3624,37 +3709,187 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 <span className="network-stat-value" style={{ color: 'var(--green)' }}>{stats.successRate}%</span>
                             </div>
                         </div>
-                        
-                        <div className="network-legend">
+                    <div className="network-legend">
                             <div className="legend-item">
                                 <div className="legend-dot" style={{ background: '#3fb950' }}></div>
                                 <span>Completed ({stats.completed})</span>
                             </div>
-                            {stats.timeout > 0 && <div className="legend-item">
+                            {stats.timeout > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
                                 <div className="legend-dot" style={{ background: '#d29922' }}></div>
-                                <span>Timeout ({stats.timeout})</span>
+                                <span style={{ textDecoration: 'underline dotted' }}>Timeout ({stats.timeout})</span>
                             </div>}
-                            {stats.failed > 0 && <div className="legend-item">
+                            {stats.failed > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
                                 <div className="legend-dot" style={{ background: '#f85149' }}></div>
-                                <span>Failed ({stats.failed})</span>
+                                <span style={{ textDecoration: 'underline dotted' }}>Failed ({stats.failed})</span>
                             </div>}
-                            {stats.oom > 0 && <div className="legend-item">
+                            {stats.oom > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
                                 <div className="legend-dot" style={{ background: '#a371f7' }}></div>
-                                <span>OOM ({stats.oom})</span>
+                                <span style={{ textDecoration: 'underline dotted' }}>OOM ({stats.oom})</span>
                             </div>}
-                            {stats.segfault > 0 && <div className="legend-item">
+                            {stats.segfault > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
                                 <div className="legend-dot" style={{ background: '#da3633' }}></div>
-                                <span>Segfault ({stats.segfault})</span>
+                                <span style={{ textDecoration: 'underline dotted' }}>Segfault ({stats.segfault})</span>
                             </div>}
-                            {stats.nodeFail > 0 && <div className="legend-item">
+                            {stats.nodeFail > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
                                 <div className="legend-dot" style={{ background: '#db6d28' }}></div>
-                                <span>Node Fail ({stats.nodeFail})</span>
+                                <span style={{ textDecoration: 'underline dotted' }}>Node Fail ({stats.nodeFail})</span>
                             </div>}
-                            {stats.cancelled > 0 && <div className="legend-item">
+                            {stats.cancelled > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
                                 <div className="legend-dot" style={{ background: '#6e7681' }}></div>
-                                <span>Cancelled ({stats.cancelled})</span>
+                                <span style={{ textDecoration: 'underline dotted' }}>Cancelled ({stats.cancelled})</span>
                             </div>}
                         </div>
+                    {/* Failed Jobs Modal */}
+                    {showFailedModal && failedJobs && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: 'rgba(0, 0, 0, 0.8)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 1000
+                        }} onClick={() => setShowFailedModal(false)}>
+                            <div style={{
+                                background: 'var(--bg-elevated)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '12px',
+                                padding: '24px',
+                                maxWidth: '800px',
+                                width: '90%',
+                                maxHeight: '80vh',
+                                overflow: 'auto'
+                            }} onClick={e => e.stopPropagation()}>
+                                {/* Header */}
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    marginBottom: '16px'
+                                }}>
+                                    <h2 style={{ margin: 0, color: 'var(--red)' }}>
+                                        Failed Jobs ({failedJobs.summary.total_failed})
+                                    </h2>
+                                    <button 
+                                        onClick={() => setShowFailedModal(false)}
+                                        style={{
+                                            background: 'transparent',
+                                            border: 'none',
+                                            color: 'var(--text-muted)',
+                                            fontSize: '24px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >×</button>
+                                </div>
+                                
+                                {/* Summary by reason */}
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '12px',
+                                    marginBottom: '20px',
+                                    flexWrap: 'wrap'
+                                }}>
+                                    {Object.entries(failedJobs.summary.by_reason).map(([reason, count]) => {
+                                        const colors = {
+                                            'OUT_OF_MEMORY': '#a371f7',
+                                            'TIMEOUT': '#d29922',
+                                            'FAILED': '#f85149',
+                                            'SEGFAULT': '#da3633',
+                                            'NODE_FAIL': '#db6d28',
+                                            'CANCELLED': '#6e7681',
+                                            'DEPENDENCY': '#79c0ff'
+                                        };
+                                        return (
+                                            <div key={reason} style={{
+                                                background: (colors[reason] || '#f85149') + '22',
+                                                color: colors[reason] || '#f85149',
+                                                padding: '6px 12px',
+                                                borderRadius: '6px',
+                                                fontSize: '12px',
+                                                fontWeight: '600'
+                                            }}>
+                                                {reason}: {count}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                
+                                {/* Jobs table */}
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                    <thead>
+                                        <tr style={{ 
+                                            borderBottom: '1px solid var(--border)',
+                                            color: 'var(--text-muted)'
+                                        }}>
+                                            <th style={{ textAlign: 'left', padding: '8px 4px' }}>Job ID</th>
+                                            <th style={{ textAlign: 'left', padding: '8px 4px' }}>Partition</th>
+                                            <th style={{ textAlign: 'left', padding: '8px 4px' }}>State</th>
+                                            <th style={{ textAlign: 'right', padding: '8px 4px' }}>Runtime</th>
+                                            <th style={{ textAlign: 'left', padding: '8px 4px' }}>Reason</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {failedJobs.failed_jobs.map(job => {
+                                            const colors = {
+                                                'OUT_OF_MEMORY': '#a371f7',
+                                                'TIMEOUT': '#d29922',
+                                                'FAILED': '#f85149',
+                                                'SEGFAULT': '#da3633',
+                                                'NODE_FAIL': '#db6d28',
+                                                'CANCELLED': '#6e7681',
+                                                'DEPENDENCY': '#79c0ff'
+                                            };
+                                            const stateColor = colors[job.state] || '#f85149';
+                                            return (
+                                                <tr key={job.job_id} style={{ 
+                                                    borderBottom: '1px solid var(--border)'
+                                                }}>
+                                                    <td style={{ 
+                                                        padding: '10px 4px',
+                                                        fontFamily: 'IBM Plex Mono, monospace'
+                                                    }}>
+                                                        {job.job_id}
+                                                    </td>
+                                                    <td style={{ padding: '10px 4px' }}>
+                                                        {job.partition}
+                                                    </td>
+                                                    <td style={{ padding: '10px 4px' }}>
+                                                        <span style={{
+                                                            background: stateColor + '22',
+                                                            color: stateColor,
+                                                            padding: '2px 8px',
+                                                            borderRadius: '4px',
+                                                            fontSize: '10px',
+                                                            fontWeight: '600'
+                                                        }}>
+                                                            {job.state}
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ 
+                                                        padding: '10px 4px',
+                                                        textAlign: 'right',
+                                                        fontFamily: 'IBM Plex Mono, monospace'
+                                                    }}>
+                                                        {job.runtime_sec ? `${Math.floor(job.runtime_sec / 60)}m` : '—'}
+                                                    </td>
+                                                    <td style={{ 
+                                                        padding: '10px 4px',
+                                                        color: 'var(--text-secondary)',
+                                                        fontSize: '11px'
+                                                    }}>
+                                                        {job.failure_reason}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}  
                     </div>
                 </div>
             );
@@ -3717,10 +3952,25 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(DashboardHandler.data_manager.get_stats()).encode())
+
+        elif parsed.path.startswith('/api/failed_jobs'):
+            # Parse query parameters
+            query = parse_qs(parsed.query)
+            hours = int(query.get('hours', [24])[0])
+            limit = int(query.get('limit', [10])[0])
             
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            dm = DashboardHandler.data_manager
+            failed_jobs = dm.get_failed_jobs(hours=hours, limit=limit)
+            self.wfile.write(json.dumps(failed_jobs).encode())
+
         else:
             self.send_error(404)
-    
+
     def log_message(self, format, *args):
         pass  # Quiet logging
 
