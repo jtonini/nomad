@@ -782,24 +782,24 @@ def load_similarity_edges_from_db(db_path: Path, job_ids: list, threshold: float
 def generate_demo_clusters():
     """Generate demo cluster data."""
     clusters = {
-        "spydur": {
-            "name": "Spydur",
-            "description": "48-node CPU cluster",
-            "nodes": [f"spydur{i:02d}" for i in range(1, 49)],
+        "compute": {
+            "name": "compute",
+            "description": "6-node CPU partition",
+            "nodes": [f"node{i:02d}" for i in range(1, 7)],
             "type": "cpu"
         },
-        "arachne": {
-            "name": "Arachne", 
-            "description": "6-node hybrid cluster (3 CPU + 3 GPU)",
-            "nodes": ["arachne01", "arachne02", "arachne03", "arachne04", "arachne05", "arachne06"],
-            "gpu_nodes": ["arachne04", "arachne05", "arachne06"],
-            "type": "hybrid"
+        "gpu": {
+            "name": "gpu",
+            "description": "2-node GPU partition",
+            "nodes": ["gpu01", "gpu02"],
+            "gpu_nodes": ["gpu01", "gpu02"],
+            "type": "gpu"
         },
-        "chemistry": {
-            "name": "Chemistry",
-            "description": "Chemistry department workstations",
-            "nodes": ["chem-ws01", "chem-ws02", "chem-ws03", "chem-ws04"],
-            "type": "workstation"
+        "highmem": {
+            "name": "highmem",
+            "description": "2-node high-memory partition",
+            "nodes": ["node07", "node08"],
+            "type": "highmem"
         }
     }
     return clusters
@@ -893,7 +893,7 @@ def generate_demo_node_data(clusters):
 def generate_demo_jobs(count=150):
     """Generate demo job data for network visualization."""
     jobs = []
-    partitions = ["compute", "gpu", "short", "long"]
+    partitions = ["compute", "gpu", "highmem"]
     
     # State to failure_reason mapping
     # 0=success, 1=timeout, 2=cancelled, 3=failed_generic, 4=oom, 5=segfault, 6=node_fail, 7=dependency
@@ -4001,9 +4001,15 @@ def serve_dashboard(host='localhost', port=8050, config_path=None):
     print("=" * 60)
     print("  Press Ctrl+C to stop")
     print()
+    print("  SSH Tunnel: ssh -L 8050:localhost:8050 user@hostname")
+    print("  Then open:  http://localhost:8050")
+    print()
     
-    with socketserver.TCPServer((host, port), DashboardHandler) as httpd:
-        httpd.serve_forever()
+    try:
+        with socketserver.TCPServer((host, port), DashboardHandler) as httpd:
+            httpd.serve_forever()
+    except KeyboardInterrupt:
+        print('\nDashboard stopped.')
 
 
 if __name__ == '__main__':
