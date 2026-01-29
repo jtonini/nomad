@@ -1,4 +1,5 @@
 """
+from __future__ import annotations
 Alert Dispatcher - Routes alerts to configured backends.
 
 Usage:

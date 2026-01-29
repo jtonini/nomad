@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 NØMADE NFS I/O Collector
 
