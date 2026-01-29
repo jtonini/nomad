@@ -6,15 +6,42 @@ Usage: nomade-interactive-report [--quiet] [--json]
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Direct import to avoid loading framework
+script_dir = os.path.dirname(os.path.abspath(__file__))
+nomade_dir = os.path.dirname(script_dir)
+sys.path.insert(0, nomade_dir)
 
-from collectors.interactive import get_report, print_report
+# Import directly from file, not package
+import importlib.util
+spec = importlib.util.spec_from_file_location(
+    "interactive", 
+    os.path.join(nomade_dir, "collectors", "interactive.py")
+)
+interactive = importlib.util.module_from_spec(spec)
+
+# Mock the framework imports before loading
+sys.modules['nomade'] = type(sys)('nomade')
+sys.modules['nomade.collectors'] = type(sys)('nomade.collectors')
+sys.modules['nomade.collectors.base'] = type(sys)('nomade.collectors.base')
+
+# Create dummy BaseCollector and registry
+class DummyBase:
+    pass
+
+class DummyRegistry:
+    def register(self, cls):
+        return cls
+
+sys.modules['nomade.collectors.base'].BaseCollector = DummyBase
+sys.modules['nomade.collectors.base'].registry = DummyRegistry()
+
+spec.loader.exec_module(interactive)
 
 def main():
     quiet = '--quiet' in sys.argv or '-q' in sys.argv
     as_json = '--json' in sys.argv
     
-    data = get_report()
+    data = interactive.get_report()
     
     if as_json:
         import json
@@ -50,7 +77,7 @@ def main():
             print("No alerts - all sessions within thresholds")
         return
     
-    print_report(data)
+    interactive.print_report(data)
 
 if __name__ == '__main__':
     main()
