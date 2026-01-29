@@ -13,11 +13,16 @@ from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# Configurable thresholds
+IDLE_SESSION_HOURS = 24      # Sessions idle longer than this are "stale"
+MEMORY_HOG_MB = 4096         # Sessions using more than this are "memory hogs"
+MAX_IDLE_SESSIONS = 5        # Users with more idle sessions than this get flagged
+
 
 def get_process_memory(pid: int) -> Dict[str, float]:
     """Get memory info from /proc/[pid]/status."""
     try:
-        with open(f'/proc/{pid}/status', 'r') as f:
+        with open('/proc/{}/status'.format(pid), 'r') as f:
             content = f.read()
         
         rss = 0
@@ -46,7 +51,7 @@ def get_process_start_time(pid: int) -> Optional[str]:
                     boot_time = int(line.split()[1])
                     break
         
-        with open(f'/proc/{pid}/stat', 'r') as f:
+        with open('/proc/{}/stat'.format(pid), 'r') as f:
             stat = f.read().split()
             starttime_ticks = int(stat[21])
         
@@ -127,7 +132,7 @@ def collect_sessions() -> Dict[str, Any]:
             })
     
     except Exception as e:
-        logger.warning(f"Failed to collect sessions: {e}")
+        logger.warning("Failed to collect sessions: {}".format(e))
     
     return build_result(sessions)
 
@@ -140,18 +145,48 @@ def build_result(sessions: List[Dict]) -> Dict[str, Any]:
     total_memory = 0
     idle_count = 0
     
+    # Count by type
+    by_type = {
+        'RStudio': {'total': 0, 'idle': 0, 'memory_mb': 0},
+        'Jupyter (Python)': {'total': 0, 'idle': 0, 'memory_mb': 0},
+        'Jupyter (R)': {'total': 0, 'idle': 0, 'memory_mb': 0},
+        'Jupyter Server': {'total': 0, 'idle': 0, 'memory_mb': 0}
+    }
+    
     for s in sessions:
         user = s['user']
+        session_type = s['type']
+        mem = s['mem_mb']
+        
         if user not in users:
-            users[user] = {'sessions': 0, 'memory_mb': 0, 'idle': 0}
+            users[user] = {
+                'sessions': 0, 
+                'memory_mb': 0, 
+                'idle': 0,
+                'rstudio': 0,
+                'jupyter': 0
+            }
         
         users[user]['sessions'] += 1
-        users[user]['memory_mb'] += s['mem_mb']
-        total_memory += s['mem_mb']
+        users[user]['memory_mb'] += mem
+        total_memory += mem
+        
+        # Track by type for user
+        if session_type == 'RStudio':
+            users[user]['rstudio'] += 1
+        else:
+            users[user]['jupyter'] += 1
+        
+        # Track by type overall
+        if session_type in by_type:
+            by_type[session_type]['total'] += 1
+            by_type[session_type]['memory_mb'] += mem
         
         if s['is_idle']:
             idle_count += 1
             users[user]['idle'] += 1
+            if session_type in by_type:
+                by_type[session_type]['idle'] += 1
     
     # Sort users by memory
     user_list = [
@@ -162,13 +197,19 @@ def build_result(sessions: List[Dict]) -> Dict[str, Any]:
     # Find old idle sessions (>24h)
     stale_sessions = [
         s for s in sessions
-        if s['is_idle'] and s.get('age_hours', 0) and s['age_hours'] >= 24
+        if s['is_idle'] and s.get('age_hours', 0) and s['age_hours'] >= IDLE_SESSION_HOURS
     ]
     
     # Find memory hogs (>4GB)
     memory_hogs = [
         s for s in sessions
-        if s['mem_mb'] >= 4096
+        if s['mem_mb'] >= MEMORY_HOG_MB
+    ]
+    
+    # Find users with too many idle sessions
+    idle_session_hogs = [
+        u for u in user_list
+        if u['idle'] > MAX_IDLE_SESSIONS
     ]
     
     return {
@@ -180,11 +221,13 @@ def build_result(sessions: List[Dict]) -> Dict[str, Any]:
             'total_memory_gb': round(total_memory / 1024, 2),
             'unique_users': len(users)
         },
+        'by_type': by_type,
         'users': user_list,
         'sessions': sorted(sessions, key=lambda x: -x['mem_mb']),
         'alerts': {
             'stale_sessions': sorted(stale_sessions, key=lambda x: -x.get('age_hours', 0)),
-            'memory_hogs': sorted(memory_hogs, key=lambda x: -x['mem_mb'])
+            'memory_hogs': sorted(memory_hogs, key=lambda x: -x['mem_mb']),
+            'idle_session_hogs': idle_session_hogs
         }
     }
 
@@ -197,35 +240,65 @@ def collect(config: dict = None) -> Dict[str, Any]:
 def print_report(data: Dict[str, Any]):
     """Print a human-readable report."""
     summary = data['summary']
+    by_type = data['by_type']
     
-    print("=" * 60)
-    print("         Interactive Sessions Report")
-    print("=" * 60)
-    print(f"  Timestamp:      {data['timestamp']}")
-    print(f"  Total Sessions: {summary['total_sessions']}")
-    print(f"  Idle Sessions:  {summary['idle_sessions']}")
-    print(f"  Total Memory:   {summary['total_memory_gb']} GB")
-    print(f"  Unique Users:   {summary['unique_users']}")
-    print("-" * 60)
+    print("=" * 70)
+    print("              Interactive Sessions Report")
+    print("=" * 70)
+    print("  Timestamp:      {}".format(data['timestamp']))
+    print("  Total Sessions: {}".format(summary['total_sessions']))
+    print("  Idle Sessions:  {}".format(summary['idle_sessions']))
+    print("  Total Memory:   {} GB".format(summary['total_memory_gb']))
+    print("  Unique Users:   {}".format(summary['unique_users']))
+    print("-" * 70)
+    
+    # Sessions by type
+    print("\n  SESSIONS BY TYPE:")
+    print("  {:<20} {:>8} {:>8} {:>12}".format('Type', 'Total', 'Idle', 'Memory (MB)'))
+    print("  {:<20} {:>8} {:>8} {:>12}".format('-'*20, '-'*8, '-'*8, '-'*12))
+    for stype, stats in by_type.items():
+        if stats['total'] > 0:
+            print("  {:<20} {:>8} {:>8} {:>12.0f}".format(
+                stype, stats['total'], stats['idle'], stats['memory_mb']
+            ))
     
     if data['users']:
         print("\n  TOP USERS BY MEMORY:")
-        print(f"  {'User':<15} {'Sessions':>10} {'Memory (MB)':>12} {'Idle':>6}")
-        print(f"  {'-'*15} {'-'*10} {'-'*12} {'-'*6}")
+        print("  {:<12} {:>8} {:>8} {:>8} {:>10} {:>6}".format(
+            'User', 'Sessions', 'RStudio', 'Jupyter', 'Mem (MB)', 'Idle'))
+        print("  {:<12} {:>8} {:>8} {:>8} {:>10} {:>6}".format(
+            '-'*12, '-'*8, '-'*8, '-'*8, '-'*10, '-'*6))
         for u in data['users'][:10]:
-            print(f"  {u['user']:<15} {u['sessions']:>10} {u['memory_mb']:>12.0f} {u['idle']:>6}")
+            print("  {:<12} {:>8} {:>8} {:>8} {:>10.0f} {:>6}".format(
+                u['user'][:12], u['sessions'], u['rstudio'], u['jupyter'], 
+                u['memory_mb'], u['idle']
+            ))
     
-    if data['alerts']['stale_sessions']:
-        print(f"\n  ⚠ STALE SESSIONS (idle >24h): {len(data['alerts']['stale_sessions'])}")
-        for s in data['alerts']['stale_sessions'][:5]:
-            print(f"    - {s['user']}: {s['type']}, {s['age_hours']:.0f}h old, {s['mem_mb']:.0f} MB")
+    # Alerts
+    alerts = data['alerts']
     
-    if data['alerts']['memory_hogs']:
-        print(f"\n  ⚠ MEMORY HOGS (>4GB): {len(data['alerts']['memory_hogs'])}")
-        for s in data['alerts']['memory_hogs'][:5]:
-            print(f"    - {s['user']}: {s['type']}, {s['mem_mb']/1024:.1f} GB")
+    if alerts['idle_session_hogs']:
+        print("\n  [!] USERS WITH >{} IDLE SESSIONS:".format(MAX_IDLE_SESSIONS))
+        for u in alerts['idle_session_hogs']:
+            print("    - {}: {} idle sessions ({} RStudio, {} Jupyter), {:.0f} MB".format(
+                u['user'], u['idle'], u['rstudio'], u['jupyter'], u['memory_mb']
+            ))
     
-    print("=" * 60)
+    if alerts['stale_sessions']:
+        print("\n  [!] STALE SESSIONS (idle >{}h): {}".format(
+            IDLE_SESSION_HOURS, len(alerts['stale_sessions'])))
+        for s in alerts['stale_sessions'][:5]:
+            print("    - {}: {}, {:.0f}h old, {:.0f} MB".format(
+                s['user'], s['type'], s['age_hours'], s['mem_mb']))
+    
+    if alerts['memory_hogs']:
+        print("\n  [!] MEMORY HOGS (>{}GB): {}".format(
+            MEMORY_HOG_MB/1024, len(alerts['memory_hogs'])))
+        for s in alerts['memory_hogs'][:5]:
+            print("    - {}: {}, {:.1f} GB".format(
+                s['user'], s['type'], s['mem_mb']/1024))
+    
+    print("=" * 70)
 
 
 if __name__ == '__main__':
