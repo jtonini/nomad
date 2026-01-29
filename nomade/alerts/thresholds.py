@@ -52,6 +52,16 @@ DEFAULT_THRESHOLDS = {
     'job': {
         'failure_rate_warning': 0.2,   # 20% failure rate
         'failure_rate_critical': 0.5,  # 50% failure rate
+    },
+    'interactive': {
+        'idle_sessions_warning': 50,       # Total idle sessions
+        'idle_sessions_critical': 100,
+        'memory_gb_warning': 32,           # Total memory held
+        'memory_gb_critical': 64,
+        'stale_sessions_warning': 5,       # Sessions idle >24h
+        'stale_sessions_critical': 20,
+        'user_idle_sessions_warning': 5,   # Per-user idle sessions
+        'user_idle_sessions_critical': 10,
     }
 }
 

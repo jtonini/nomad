@@ -1691,3 +1691,71 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
+
+@cli.command('report-interactive')
+@click.option('--server-id', default='local', help='Server identifier')
+@click.option('--idle-hours', type=int, default=24, help='Hours to consider session stale')
+@click.option('--memory-threshold', type=int, default=4096, help='Memory hog threshold (MB)')
+@click.option('--max-idle', type=int, default=5, help='Max idle sessions per user before alert')
+@click.option('--json', 'as_json', is_flag=True, help='Output as JSON')
+@click.option('--quiet', '-q', is_flag=True, help='Only show alerts')
+def report_interactive(server_id, idle_hours, memory_threshold, max_idle, as_json, quiet):
+    """Report on interactive sessions (RStudio/Jupyter).
+    
+    Monitors running sessions and identifies:
+    - Users with many idle sessions
+    - Sessions idle for extended periods (stale)
+    - Sessions consuming excessive memory (memory hogs)
+    
+    Examples:
+        nomade report-interactive              # Full report
+        nomade report-interactive --json       # JSON output
+        nomade report-interactive --quiet      # Only show alerts
+    """
+    import json as json_module
+    
+    try:
+        from nomade.collectors.interactive import get_report, print_report
+    except (ImportError, SyntaxError):
+        click.echo("Error: Interactive collector requires Python 3.7+", err=True)
+        raise SystemExit(1)
+    
+    data = get_report(
+        server_id=server_id,
+        idle_hours=idle_hours,
+        memory_hog_mb=memory_threshold,
+        max_idle=max_idle
+    )
+    
+    if as_json:
+        click.echo(json_module.dumps(data, indent=2))
+        return
+    
+    if quiet:
+        alerts = data.get('alerts', {})
+        has_alerts = False
+        
+        if alerts.get('idle_session_hogs'):
+            has_alerts = True
+            click.echo(f"[!] Users with >{max_idle} idle sessions:")
+            for u in alerts['idle_session_hogs']:
+                click.echo(f"    {u['user']}: {u['idle']} idle ({u['rstudio']} RStudio, {u['jupyter']} Jupyter), {u['memory_mb']:.0f} MB")
+        
+        if alerts.get('stale_sessions'):
+            has_alerts = True
+            click.echo(f"\n[!] Stale sessions (idle >{idle_hours}h): {len(alerts['stale_sessions'])}")
+            for s in alerts['stale_sessions'][:10]:
+                click.echo(f"    {s['user']}: {s['session_type']}, {s['age_hours']:.0f}h old, {s['mem_mb']:.0f} MB")
+        
+        if alerts.get('memory_hogs'):
+            has_alerts = True
+            click.echo(f"\n[!] Memory hogs (>{memory_threshold/1024:.0f}GB): {len(alerts['memory_hogs'])}")
+            for s in alerts['memory_hogs'][:10]:
+                click.echo(f"    {s['user']}: {s['session_type']}, {s['mem_mb']/1024:.1f} GB")
+        
+        if not has_alerts:
+            click.echo("No alerts - all sessions within thresholds")
+        return
+    
+    print_report(data)
