@@ -78,7 +78,7 @@ def collect_sessions() -> Dict[str, Any]:
     try:
         ps_output = subprocess.check_output(
             ['ps', 'aux'],
-            text=True,
+            universal_newlines=True,
             stderr=subprocess.DEVNULL
         )
         
