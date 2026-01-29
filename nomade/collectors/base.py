@@ -1,5 +1,5 @@
-"""
 from __future__ import annotations
+"""
 NOMADE Base Collector Framework
 
 All collectors inherit from BaseCollector and implement the collect() method.
