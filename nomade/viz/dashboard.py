@@ -118,7 +118,7 @@ def get_db_connection(db_path: Path) -> sqlite3.Connection:
 # Data Loaders - Real Data from Database
 # ============================================================================
 
-def load_clusters_from_db(db_path: Path) -> dict:
+def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
     """
     Auto-detect clusters from node_state or node_status tables.
     Groups nodes by partition or cluster field.
@@ -271,9 +271,21 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                     
                     has_gpu = row['gres'] and 'gpu' in row['gres'].lower()
                     
+                    # Determine partition from node_state data
+                    node_partition = None
+                    if cluster_id:
+                        cluster_data = clusters.get(cluster_id, {})
+                        for pid, pdata in cluster_data.get("partitions", {}).items():
+                            if node_name in pdata.get("nodes", []):
+                                node_partition = pid
+                                break
+                    if not node_partition:
+                        node_partition = (row['partitions'] or 'default').split(',')[0].lower().replace(' ', '-')
+
                     nodes[node_name] = {
                         "name": node_name,
                         "cluster": cluster_id,
+                        "partition": node_partition,
                         "status": "down" if is_down else "online",
                         "slurm_state": row['state'],
                         "success_rate": success_rate,
@@ -330,9 +342,21 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                               node_name in ('node51', 'node52', 'node53') or \
                               (node_name.startswith('arachne') and node_name[-2:] in ['04', '05', '06'])
                     
+                    # Determine partition from node_state data
+                    node_partition = None
+                    if cluster_id:
+                        cluster_data = clusters.get(cluster_id, {})
+                        for pid, pdata in cluster_data.get("partitions", {}).items():
+                            if node_name in pdata.get("nodes", []):
+                                node_partition = pid
+                                break
+                    if not node_partition:
+                        node_partition = (row['partitions'] or 'default').split(',')[0].lower().replace(' ', '-')
+
                     nodes[node_name] = {
                         "name": node_name,
                         "cluster": cluster_id,
+                        "partition": node_partition,
                         "status": "down" if is_down else "online",
                         "slurm_state": row['slurm_state'],
                         "success_rate": 0.9 if not is_down else 0,  # Placeholder
@@ -780,28 +804,94 @@ def load_similarity_edges_from_db(db_path: Path, job_ids: list, threshold: float
 # ============================================================================
 
 def generate_demo_clusters():
-    """Generate demo cluster data."""
+    """Generate demo cluster data with partitions."""
     clusters = {
-        "compute": {
-            "name": "compute",
-            "description": "6-node CPU partition",
-            "nodes": [f"node{i:02d}" for i in range(1, 7)],
-            "type": "cpu"
+        "cluster-1": {
+            "name": "Cluster-1",
+            "description": "Primary HPC cluster — 12 nodes",
+            "partitions": {
+                "general": {
+                    "name": "general",
+                    "description": "General-purpose CPU partition",
+                    "nodes": [f"c1-node{i:02d}" for i in range(1, 9)],
+                    "type": "cpu"
+                },
+                "gpu": {
+                    "name": "gpu",
+                    "description": "GPU-accelerated partition",
+                    "nodes": ["c1-gpu01", "c1-gpu02"],
+                    "gpu_nodes": ["c1-gpu01", "c1-gpu02"],
+                    "type": "gpu"
+                },
+                "highmem": {
+                    "name": "highmem",
+                    "description": "High-memory partition",
+                    "nodes": ["c1-himem01", "c1-himem02"],
+                    "type": "highmem"
+                }
+            }
         },
-        "gpu": {
-            "name": "gpu",
-            "description": "2-node GPU partition",
-            "nodes": ["gpu01", "gpu02"],
-            "gpu_nodes": ["gpu01", "gpu02"],
-            "type": "gpu"
+        "cluster-2": {
+            "name": "Cluster-2",
+            "description": "Secondary HPC cluster — 6 nodes",
+            "partitions": {
+                "compute": {
+                    "name": "compute",
+                    "description": "CPU compute partition",
+                    "nodes": [f"c2-node{i:02d}" for i in range(1, 4)],
+                    "type": "cpu"
+                },
+                "gpu": {
+                    "name": "gpu",
+                    "description": "GPU partition",
+                    "nodes": ["c2-gpu01", "c2-gpu02", "c2-gpu03"],
+                    "gpu_nodes": ["c2-gpu01", "c2-gpu02", "c2-gpu03"],
+                    "type": "gpu"
+                }
+            }
         },
-        "highmem": {
-            "name": "highmem",
-            "description": "2-node high-memory partition",
-            "nodes": ["node07", "node08"],
-            "type": "highmem"
+        "workstations": {
+            "name": "Workstations",
+            "description": "Faculty lab workstations by department",
+            "partitions": {
+                "biology": {
+                    "name": "Biology",
+                    "description": "Biology dept.",
+                    "nodes": ["bio-ws01", "bio-ws02", "bio-ws03"],
+                    "type": "cpu"
+                },
+                "chemistry": {
+                    "name": "Chemistry",
+                    "description": "Chemistry dept.",
+                    "nodes": ["chem-ws01", "chem-ws02"],
+                    "gpu_nodes": ["chem-ws02"],
+                    "type": "gpu"
+                },
+                "physics": {
+                    "name": "Physics",
+                    "description": "Physics dept.",
+                    "nodes": ["phys-ws01", "phys-ws02"],
+                    "type": "cpu"
+                },
+                "cs": {
+                    "name": "Comp Sci",
+                    "description": "CS dept.",
+                    "nodes": ["cs-ws01", "cs-ws02", "cs-ws03"],
+                    "gpu_nodes": ["cs-ws01", "cs-ws02", "cs-ws03"],
+                    "type": "gpu"
+                }
+            }
         }
     }
+    # Build flat node lists and backward-compatible fields
+    for cid, cluster in clusters.items():
+        all_nodes = []
+        all_gpu_nodes = []
+        for pid, part in cluster["partitions"].items():
+            all_nodes.extend(part["nodes"])
+            all_gpu_nodes.extend(part.get("gpu_nodes", []))
+        cluster["nodes"] = all_nodes
+        cluster["gpu_nodes"] = all_gpu_nodes
     return clusters
 
 
@@ -810,6 +900,12 @@ def generate_demo_node_data(clusters):
     nodes = {}
     failure_types = ["OOM", "Timeout", "Cancelled", "NodeFail", "DiskFull"]
     users = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "henry"]
+    # Build node-to-partition mapping
+    node_partition_map = {}
+    for _cid, _cl in clusters.items():
+        for _pid, _part in _cl.get("partitions", {}).items():
+            for _n in _part["nodes"]:
+                node_partition_map[_n] = _pid
     
     for cluster_id, cluster in clusters.items():
         for node_name in cluster["nodes"]:
@@ -820,6 +916,7 @@ def generate_demo_node_data(clusters):
                 nodes[node_name] = {
                     "name": node_name,
                     "cluster": cluster_id,
+                    "partition": node_partition_map.get(node_name, "default"),
                     "status": "down",
                     "success_rate": 0,
                     "jobs_today": 0,
@@ -870,6 +967,7 @@ def generate_demo_node_data(clusters):
                 nodes[node_name] = {
                     "name": node_name,
                     "cluster": cluster_id,
+                    "partition": node_partition_map.get(node_name, "default"),
                     "status": "online",
                     "success_rate": success_rate,
                     "jobs_today": jobs_total,
@@ -893,7 +991,7 @@ def generate_demo_node_data(clusters):
 def generate_demo_jobs(count=150):
     """Generate demo job data for network visualization."""
     jobs = []
-    partitions = ["compute", "gpu", "highmem"]
+    partitions = ["general", "gpu", "highmem", "compute"]
     
     # State to failure_reason mapping
     # 0=success, 1=timeout, 2=cancelled, 3=failed_generic, 4=oom, 5=segfault, 6=node_fail, 7=dependency
@@ -1618,7 +1716,7 @@ class DataManager:
             logger.info(f"Found database: {self.db_path}")
             
             # Load clusters
-            self._clusters = load_clusters_from_db(self.db_path)
+            self._clusters = load_clusters_from_db(self.db_path, self.config)
             
             if self._clusters:
                 self.data_source = f"database ({self.db_path.name})"
@@ -2674,12 +2772,29 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
         }
 
         function ClusterView({ cluster, nodes, selectedNode, onSelectNode }) {
+            const getHealthColor = (rate) => {
+                if (rate >= 0.85) return 'green';
+                if (rate >= 0.60) return 'yellow';
+                return 'red';
+            };
+
+            const getNodeColor = (node) => {
+                const successColor = getHealthColor(node.success_rate || 0);
+                const cpu = node.cpu_util || 0;
+                const mem = node.mem_util || 0;
+                const worst = Math.max(cpu, mem);
+                const utilColor = worst > 90 ? 'red' : worst > 75 ? 'yellow' : 'green';
+                // Return the worst of success rate and utilization
+                const priority = { red: 2, yellow: 1, green: 0 };
+                return priority[utilColor] > priority[successColor] ? utilColor : successColor;
+            };
+
             const stats = useMemo(() => {
                 const online = nodes.filter(n => n.status === 'online');
                 const totalJobs = online.reduce((sum, n) => sum + (n.jobs_today || 0), 0);
                 const successJobs = online.reduce((sum, n) => sum + (n.jobs_success || 0), 0);
-                const avgSuccess = online.length > 0 
-                    ? online.reduce((sum, n) => sum + (n.success_rate || 0), 0) / online.length 
+                const avgSuccess = online.length > 0
+                    ? online.reduce((sum, n) => sum + (n.success_rate || 0), 0) / online.length
                     : 0;
                 return {
                     online: online.length,
@@ -2690,20 +2805,72 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     avgSuccess
                 };
             }, [nodes]);
-            
-            const getHealthColor = (rate) => {
-                if (rate >= 0.85) return 'green';
-                if (rate >= 0.60) return 'yellow';
-                return 'red';
+
+            const partitions = useMemo(() => {
+                const groups = {};
+                nodes.forEach(node => {
+                    const pid = node.partition || 'default';
+                    if (!groups[pid]) groups[pid] = [];
+                    groups[pid].push(node);
+                });
+                return Object.entries(groups).map(([pid, pnodes]) => {
+                    const online = pnodes.filter(n => n.status === 'online');
+                    const totalJobs = online.reduce((sum, n) => sum + (n.jobs_today || 0), 0);
+                    const successJobs = online.reduce((sum, n) => sum + (n.jobs_success || 0), 0);
+                    const avgCpu = online.length > 0
+                        ? online.reduce((sum, n) => sum + (n.cpu_util || 0), 0) / online.length : 0;
+                    const avgMem = online.length > 0
+                        ? online.reduce((sum, n) => sum + (n.mem_util || 0), 0) / online.length : 0;
+                    const avgSuccess = online.length > 0
+                        ? online.reduce((sum, n) => sum + (n.success_rate || 0), 0) / online.length : 0;
+                    const hasGpu = pnodes.some(n => n.has_gpu);
+                    const avgGpu = hasGpu && online.filter(n => n.has_gpu).length > 0
+                        ? online.filter(n => n.has_gpu).reduce((sum, n) => sum + (n.gpu_util || 0), 0) / online.filter(n => n.has_gpu).length : 0;
+                    const partInfo = cluster.partitions ? cluster.partitions[pid] : null;
+                    return {
+                        id: pid,
+                        name: partInfo ? partInfo.name : pid,
+                        description: partInfo ? partInfo.description : '',
+                        nodes: pnodes,
+                        online: online.length,
+                        down: pnodes.length - online.length,
+                        totalJobs,
+                        successJobs,
+                        failedJobs: totalJobs - successJobs,
+                        avgCpu: Math.round(avgCpu),
+                        avgMem: Math.round(avgMem),
+                        avgGpu: Math.round(avgGpu),
+                        avgSuccess,
+                        hasGpu
+                    };
+                });
+            }, [nodes, cluster]);
+
+            const UtilBadge = ({ label, value }) => {
+                const color = value > 90 ? 'var(--red)' : value > 70 ? 'var(--yellow)' : 'var(--cyan)';
+                return (
+                    <span style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        background: 'var(--bg-deep)',
+                        border: '1px solid var(--border)',
+                        color: color,
+                        fontFamily: 'var(--font-mono, monospace)',
+                        whiteSpace: 'nowrap'
+                    }}>
+                        {label} <span style={{ fontWeight: 600 }}>{value}%</span>
+                    </span>
+                );
             };
-            
+
             return (
                 <div className="content">
                     <div className="cluster-header">
                         <h1 className="cluster-title">{cluster.name}</h1>
                         <p className="cluster-desc">{cluster.description}</p>
                     </div>
-                    
+
                     <div className="stats-bar">
                         <div className="stat">
                             <div className="stat-value green">{stats.online}</div>
@@ -2732,29 +2899,72 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <div className="stat-label">Avg Success</div>
                         </div>
                     </div>
-                    
-                    <div className="node-grid">
-                        {nodes.map(node => (
-                            <div
-                                key={node.name}
-                                className={`node-card ${node.status === 'down' ? 'down' : ''} ${selectedNode === node.name ? 'selected' : ''}`}
-                                onClick={() => onSelectNode(node.name)}
-                            >
-                                <div className="node-name">{node.name}</div>
-                                <div className={`node-indicator ${node.status === 'down' ? 'offline' : getHealthColor(node.success_rate || 0)}`}>
-                                    {node.status === 'down' ? '—' : `${Math.round((node.success_rate || 0) * 100)}%`}
+
+                    {partitions.map(part => (
+                        <div key={part.id} style={{ marginBottom: '24px' }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '12px 16px',
+                                background: 'var(--bg-surface)',
+                                borderRadius: '8px 8px 0 0',
+                                border: '1px solid var(--border)',
+                                borderBottom: 'none'
+                            }}>
+                                <div>
+                                    <span style={{ fontWeight: '600', fontSize: '15px' }}>{part.name}</span>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '13px', marginLeft: '12px' }}>
+                                        {part.description}
+                                    </span>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '12px', marginLeft: '12px' }}>
+                                        {part.online}/{part.nodes.length} nodes
+                                    </span>
+                                    {part.down > 0 && (
+                                        <span style={{ color: 'var(--red)', fontSize: '12px', marginLeft: '8px' }}>
+                                            ({part.down} down)
+                                        </span>
+                                    )}
                                 </div>
-                                <div className="node-jobs">
-                                    {node.status === 'down' ? (node.slurm_state || 'OFFLINE') : `${node.jobs_today || 0} jobs`}
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    <UtilBadge label="CPU" value={part.avgCpu} />
+                                    <UtilBadge label="MEM" value={part.avgMem} />
+                                    {part.hasGpu && <UtilBadge label="GPU" value={part.avgGpu} />}
+                                    <span style={{ marginLeft: '4px' }}>{part.totalJobs} jobs</span>
+                                    <span style={{ color: 'var(--green)' }}>{part.successJobs} ok</span>
+                                    {part.failedJobs > 0 && <span style={{ color: 'var(--red)' }}>{part.failedJobs} fail</span>}
                                 </div>
-                                {node.has_gpu && <div className="node-gpu-badge">GPU</div>}
                             </div>
-                        ))}
-                    </div>
+
+                            <div className="node-grid" style={{
+                                border: '1px solid var(--border)',
+                                borderTop: 'none',
+                                borderRadius: '0 0 8px 8px',
+                                padding: '12px'
+                            }}>
+                                {part.nodes.map(node => (
+                                    <div
+                                        key={node.name}
+                                        className={`node-card ${node.status === 'down' ? 'down' : ''} ${selectedNode === node.name ? 'selected' : ''}`}
+                                        onClick={() => onSelectNode(node.name)}
+                                    >
+                                        <div className="node-name">{node.name}</div>
+                                        <div className={`node-indicator ${node.status === 'down' ? 'offline' : getNodeColor(node)}`}>
+                                            {node.status === 'down' ? '\u2014' : `${Math.round((node.success_rate || 0) * 100)}%`}
+                                        </div>
+                                        <div className="node-jobs">
+                                            {node.status === 'down' ? (node.slurm_state || 'OFFLINE') : `${node.jobs_today || 0} jobs`}
+                                        </div>
+                                        {node.has_gpu && <div className="node-gpu-badge">GPU</div>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
                 </div>
             );
         }
-        
+
         function NodeSidebar({ node }) {
             if (!node) {
                 return (
@@ -2771,6 +2981,17 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 if (rate >= 0.85) return 'green';
                 if (rate >= 0.60) return 'yellow';
                 return 'red';
+            };
+
+            const getNodeColor = (node) => {
+                const successColor = getHealthColor(node.success_rate || 0);
+                const cpu = node.cpu_util || 0;
+                const mem = node.mem_util || 0;
+                const worst = Math.max(cpu, mem);
+                const utilColor = worst > 90 ? 'red' : worst > 75 ? 'yellow' : 'green';
+                // Return the worst of success rate and utilization
+                const priority = { red: 2, yellow: 1, green: 0 };
+                return priority[utilColor] > priority[successColor] ? utilColor : successColor;
             };
             
             return (
