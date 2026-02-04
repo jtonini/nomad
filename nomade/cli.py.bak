@@ -1846,7 +1846,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
             gpu_info = (f" ({len(pdata['gpu_nodes'])} GPU)"
                         if pdata.get("gpu_nodes") else "")
             click.echo(
-                f"    {part_label}:    {pid}"
+                f"    {part_label}:  "
+                f"   {pid}"
                 f" — {len(pdata['nodes'])} nodes{gpu_info}")
         click.echo(
             f"    Filesystems:  "
@@ -2841,12 +2842,9 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
             loc = " (SSH to each node)"
         else:
             loc = " (local)"
-        plabel = ("partitions"
-                  if c.get("type") == "hpc"
-                  else "groups")
         click.echo(
             f"    • {c['name']}:"
-            f" {pcount} {plabel},"
+            f" {pcount} groups,"
             f" {ncount} nodes{loc}")
     click.echo()
 
