@@ -17,10 +17,12 @@ NØMADE is a lightweight, self-contained monitoring and prediction system for HP
 ### Key Features
 
 - **Multi-Cluster Dashboard**: Monitor multiple HPC clusters and workstations from a single interface, with nodes grouped by partition and real-time utilization badges
+- **Educational Analytics**: Measure computational proficiency development over time — not just resource consumption, but learning outcomes
 - **Interactive Session Monitoring**: Track RStudio and Jupyter sessions across clusters — identify idle sessions, memory hogs, and stale notebooks
 - **Real-time Monitoring**: Track disk usage, SLURM queues, node health, license servers, and job metrics
 - **Derivative Analysis**: Detect accelerating trends before they become critical (not just threshold alerts)
 - **Predictive Analytics**: ML-based job health prediction using cosine similarity networks
+- **Community Dataset**: Export anonymized job fingerprints for cross-institutional research
 - **3D Visualization**: Interactive Fruchterman-Reingold force-directed network visualization with safe/danger zones
 - **Actionable Recommendations**: Data-driven defaults and user-specific suggestions
 - **Lightweight**: SQLite database, minimal dependencies, no external services required
@@ -42,7 +44,7 @@ pip install nomade-hpc
 nomade demo
 ```
 
-This generates synthetic data and launches the dashboard at http://localhost:5000, complete with multi-cluster views, partition grouping, and interactive session monitoring.
+This generates synthetic data and launches the dashboard at http://localhost:8050, complete with multi-cluster views, partition grouping, and interactive session monitoring.
 
 **For production HPC deployment:**
 ```bash
@@ -62,6 +64,162 @@ nomade demo  # Test with synthetic data
 
 ---
 
+## NØMADE Edu — Educational Analytics
+
+NØMADE bridges the gap between infrastructure monitoring and educational outcomes by capturing per-job behavioral fingerprints — CPU efficiency, memory pressure, I/O patterns, and core utilization — that enable administrators and faculty to measure not just HPC adoption, but the development of computational proficiency over time.
+
+### Job Analysis
+
+Explain any job in plain language with proficiency scores and actionable recommendations:
+
+```bash
+nomade edu explain 12345
+```
+
+```
+  NØMADE Job Analysis — 12345
+  ────────────────────────────────────────────────────────
+  User: student01    Partition: compute    Node: node04
+  State: COMPLETED    Runtime: 6h 34m / 8h 00m requested
+
+  Proficiency Scores
+  ────────────────────────────────────────────────────────
+    CPU Efficiency       ███████░░░   65.2%   Good
+    Memory Efficiency    █████████░   89.9%   Excellent
+    Time Estimation      █████████░   87.3%   Excellent
+    I/O Awareness        █████████░   90.3%   Excellent
+    ────────────────────────────────────────────────────
+    Overall Score        ████████░░   83.2%   Good
+
+  Your Progress (last 30 jobs)
+  ────────────────────────────────────────────────────────
+    CPU Efficiency        48.3% →  65.2%  ↑ improving
+    Memory Efficiency     84.0% →  89.9%  ↑ improving
+```
+
+### Proficiency Dimensions
+
+Each job is scored across five dimensions (0-100 scale):
+
+| Dimension | What It Measures | Common Issues |
+|-----------|------------------|---------------|
+| **CPU Efficiency** | Cores used vs requested | Requesting 32 cores for single-threaded code |
+| **Memory Efficiency** | Peak memory vs requested | Copy-pasting `--mem=64G` for 2GB jobs |
+| **Time Estimation** | Runtime vs walltime request | Requesting 48h for 20-minute jobs |
+| **I/O Awareness** | Local scratch vs NFS usage | Heavy writes to network filesystem |
+| **GPU Utilization** | Whether requested GPUs were used | Requesting GPU for CPU-only code |
+
+### User Trajectory
+
+Track a student's proficiency development over time:
+
+```bash
+nomade edu trajectory student01 --days 90
+```
+
+```
+  NØMADE Proficiency Trajectory — student01
+  ────────────────────────────────────────────────────────
+  Jobs analyzed: 149    Period: 2026-01-15 → 2026-04-15
+  Strong improvement (+18% overall)
+
+  Score Progression
+  ────────────────────────────────────────────────────────
+    2026-01-15  ████░░░░  52.3%  (12 jobs)
+    2026-02-01  █████░░░  61.8%  (28 jobs)
+    2026-03-01  ██████░░  68.4%  (35 jobs)
+    2026-04-01  ███████░  70.1%  (42 jobs)
+```
+
+### Course Reports
+
+Generate aggregate proficiency reports for courses or lab groups:
+
+```bash
+nomade edu report bio301 --days 120
+```
+
+```
+  NØMADE Group Report — bio301
+  ────────────────────────────────────────────────────────
+  Members: 20    Jobs: 1,847
+  Period: 2026-01-15 → 2026-05-15
+
+  Key Insight
+  ────────────────────────────────────────────────────────
+    15/20 students improved overall proficiency
+
+  Group Proficiency
+  ────────────────────────────────────────────────────────
+    Memory Efficiency    █████████░   85.2%  ↑ +12.3%
+    Time Estimation      ████████░░   78.9%  ↑ +8.4%
+    I/O Awareness        ███████░░░   72.7%  ↑ +15.1%
+    CPU Efficiency       █████░░░░░   53.3%  ↑ +4.2%
+
+    Weakest area:   CPU Efficiency  |  Strongest: Memory Efficiency
+```
+
+This is the kind of insight that matters for grant reports and curriculum development: **measuring learning outcomes, not just resource consumption**.
+
+---
+
+## NØMADE Community — Cross-Institutional Research
+
+Export anonymized job fingerprints for cross-institutional HPC research. Sensitive information (usernames, job names, paths) is cryptographically hashed while preserving the behavioral patterns needed for analysis.
+
+### Export Anonymized Data
+
+```bash
+# Generate a unique salt for your institution (keep this secret!)
+openssl rand -hex 32 > ~/.nomade_salt
+
+# Export anonymized data
+nomade community export \
+  --output jobs_2026q1.parquet \
+  --salt-file ~/.nomade_salt \
+  --institution-type academic \
+  --cluster-type mixed_medium \
+  --start-date 2026-01-01 \
+  --end-date 2026-03-31
+```
+
+### Preview Before Sharing
+
+```bash
+nomade community preview jobs_2026q1.parquet
+```
+
+Shows sample records, field distributions, and confirms no sensitive data leakage.
+
+### Verify Export
+
+```bash
+nomade community verify jobs_2026q1.parquet
+```
+
+Validates the export meets community dataset standards (field completeness, anonymization verification, schema compliance).
+
+### What's Anonymized
+
+| Original Field | Anonymized As |
+|----------------|---------------|
+| `user_name` | `user_hash` (SHA-256 with salt) |
+| `job_name` | `job_name_hash` |
+| `node_list` | `node_hash` |
+| `submit_time` | Rounded to day, offset by random hours |
+
+### What's Preserved
+
+Behavioral fingerprints that enable cross-institutional research:
+
+- CPU/memory efficiency metrics
+- I/O patterns (NFS ratio, write intensity)
+- Runtime characteristics
+- Resource request patterns
+- Job health scores
+
+---
+
 ## Dashboard
 
 NØMADE's web dashboard provides a comprehensive overview of your HPC infrastructure through multiple views:
@@ -71,11 +229,28 @@ NØMADE's web dashboard provides a comprehensive overview of your HPC infrastruc
 Each cluster appears as a top-level tab. Within each cluster, nodes are grouped by partition with:
 
 - **Partition headers** showing name, description, node count, and down-node alerts
-- **Utilization badges** — compact CPU, MEM, and GPU usage indicators per partition
+- **Utilization bars** — CPU, Memory, and GPU usage per partition
 - **Job summary** — total jobs, succeeded, and failed counts at a glance
-- **Node cards** — color-coded circles reflecting the worst of job success rate and resource pressure (CPU/MEM >75% yellow, >90% red)
+- **Node cards** — color-coded circles reflecting job success rate
 
 Click any node to open a detailed sidebar with job statistics, resource utilization bars, failure breakdown, and top users.
+
+### Resources Tab
+
+View resource consumption by group and user:
+
+- **Filter by cluster, group, and time period**
+- **CPU-hours and GPU-hours** by group with visual bar charts
+- **Per-user breakdown** with sortable columns
+- **Group membership** from SLURM accounting or LDAP
+
+### Activity Tab
+
+Visualize job submission patterns:
+
+- **7×24 heatmap** showing jobs by day-of-week and hour
+- **Peak usage identification** for capacity planning
+- **Filter by cluster and group**
 
 ### Interactive Sessions Tab
 
@@ -194,14 +369,16 @@ c.JupyterHub.services = [
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │                 WEB DASHBOARD (Flask)                           │    │
-│  │   Cluster Tabs · Partition Groups · Interactive · Network 3D   │    │
+│  │   Cluster Tabs · Resources · Activity · Interactive · Network  │    │
 │  └─────────────────────────────┬───────────────────────────────────┘    │
 │                                │                                        │
-│  ┌─────────────────────────────┴───────────────────────────────────┐    │
-│  │                      ALERT ENGINE                               │    │
-│  │       Rules · Derivatives · Deduplication · Cooldowns           │    │
-│  │          Email · Slack · Webhook · Dashboard                    │    │
-│  └─────────────────────────────┬───────────────────────────────────┘    │
+│  ┌──────────────┬──────────────┴──────────────┬──────────────────┐      │
+│  │  EDU MODULE  │       ALERT ENGINE          │ COMMUNITY EXPORT │      │
+│  │  Proficiency │  Rules · Derivatives        │ Anonymization    │      │
+│  │  Trajectories│  Email · Slack · Webhook    │ Parquet/JSON     │      │
+│  └──────┬───────┴──────────────┬──────────────┴────────┬─────────┘      │
+│         │                      │                       │                │
+│         └──────────────────────┼───────────────────────┘                │
 │                                │                                        │
 │         ┌──────────────────────┴──────────────────────┐                 │
 │         ▼                                             ▼                 │
@@ -221,7 +398,7 @@ c.JupyterHub.services = [
 │  ┌────────────────────────────┴─────────────────────────────────────┐   │
 │  │                        COLLECTORS                                │   │
 │  │  disk · slurm · job_metrics · iostat · mpstat · vmstat           │   │
-│  │  node_state · gpu · nfs · interactive                            │   │
+│  │  node_state · gpu · nfs · interactive · groups                   │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -250,10 +427,11 @@ c.JupyterHub.services = [
 | `disk` | `shutil.disk_usage` | Filesystem total/used/free, projections | No |
 | `slurm` | `squeue`, `sinfo` | Queue depth, partition stats, wait times | No |
 | `job_metrics` | `sacct` | Job history, CPU/mem efficiency, health scores | No |
+| `node_state` | `scontrol show node` | Node allocation, drain reasons, CPU load | No |
+| `groups` | `getent group`, `sacct` | Group membership, job accounting by user | No |
 | `iostat` | `iostat -x` | %iowait, device utilization, latency | No |
 | `mpstat` | `mpstat -P ALL` | Per-core CPU, imbalance ratio, saturation | No |
 | `vmstat` | `vmstat` | Memory pressure, swap, blocked processes | No |
-| `node_state` | `scontrol show node` | Node allocation, drain reasons, CPU load | No |
 | `gpu` | `nvidia-smi` | GPU util, memory, temp, power | Yes (if no GPU) |
 | `nfs` | `nfsiostat` | NFS ops/sec, throughput, RTT | Yes (if no NFS) |
 | `job_monitor` | `/proc/[pid]/io` | Per-job NFS vs local I/O attribution | No |
@@ -336,9 +514,10 @@ NØMADE uses a TOML configuration file (`~/.config/nomade/nomade.toml` or `/etc/
 [general]
 log_level = "info"
 data_dir = "/var/lib/nomade"
+cluster_name = "my-cluster"  # Used for multi-cluster identification
 
 [collectors]
-enabled = ["disk", "slurm", "node_state"]
+enabled = ["disk", "slurm", "node_state", "groups"]
 interval = 60
 
 [collectors.disk]
@@ -347,18 +526,10 @@ filesystems = ["/", "/home", "/scratch", "/localscratch"]
 [collectors.slurm]
 partitions = []  # Empty = all partitions
 
-# Cluster topology (optional — auto-detected from database if not defined)
-# [clusters]
-# name = "my-cluster"
-#
-# [clusters.partitions.general]
-# description = "General CPU partition"
-# nodes = ["node01", "node02", "node03"]
-#
-# [clusters.partitions.gpu]
-# description = "GPU partition"
-# nodes = ["gpu01", "gpu02"]
-# gpu_nodes = ["gpu01", "gpu02"]
+[collectors.groups]
+min_gid = 1000  # Skip system groups
+group_filters = ["cs", "bio", "phys"]  # Only these prefixes (empty = all)
+accounting_days = 30  # Job accounting lookback
 
 [alerts]
 enabled = true
@@ -389,11 +560,21 @@ nomade syscheck            # Verify requirements
 
 # Data collection
 nomade collect --once      # Single collection cycle
-nomade collect -C disk,slurm   # Specific collectors
+nomade collect -C disk,slurm,groups  # Specific collectors
 
 # Dashboard
 nomade dashboard           # Launch web interface
 nomade demo                # Launch with demo data
+
+# Educational analytics
+nomade edu explain 12345           # Explain a job
+nomade edu trajectory student01    # User proficiency over time
+nomade edu report bio301           # Course/group report
+
+# Community dataset
+nomade community export -o data.parquet --salt-file ~/.nomade_salt
+nomade community preview data.parquet
+nomade community verify data.parquet
 
 # Interactive session monitoring
 nomade report-interactive          # Full report
@@ -446,6 +627,22 @@ Optional:
 - nvidia-smi (for GPU monitoring)
 - nfs-common with nfsiostat (for NFS monitoring)
 
+### Install from PyPI
+
+```bash
+pip install nomade-hpc
+```
+
+This installs the `nomade` command globally (or in your virtual environment).
+
+### Install from Source
+
+```bash
+git clone https://github.com/jtonini/nomade.git
+cd nomade
+pip install -e .
+```
+
 ### System Check
 
 ```bash
@@ -486,10 +683,14 @@ However, NØMADE uses **cosine similarity on continuous feature vectors** rather
 
 See [ROADMAP.md](ROADMAP.md) for the full development plan. Highlights:
 
-### Completed (v1.1.0)
+### Completed (v1.2.0)
 - [x] Multi-cluster tabs with partition grouping
 - [x] Interactive session monitoring (RStudio/Jupyter)
 - [x] Dashboard Interactive tab with alerts
+- [x] Resources and Activity dashboard tabs
+- [x] Educational analytics (`nomade edu`)
+- [x] Community dataset export (`nomade community`)
+- [x] Group membership and job accounting collector
 - [x] Standalone report script for Python 3.6 systems
 - [x] JupyterHub idle-culler integration
 - [x] Node health reflects CPU/memory pressure
@@ -498,10 +699,12 @@ See [ROADMAP.md](ROADMAP.md) for the full development plan. Highlights:
 - [x] ML prediction models (GNN, LSTM, Autoencoder, Ensemble)
 
 ### Next Up
+- [ ] Dashboard Edu tab (classroom view for faculty)
+- [ ] Job templates with educational comments
+- [ ] `nomade learn` student onboarding wizard
 - [ ] Job queue panel per partition (squeue-like view)
 - [ ] Partition utilization sparkline history
 - [ ] User leaderboard and fairshare status
-- [ ] Job efficiency analysis (requested vs used)
 - [ ] Multi-site federation
 - [ ] Real-time SLURM prolog scoring hook
 
