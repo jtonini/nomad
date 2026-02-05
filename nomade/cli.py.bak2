@@ -175,8 +175,6 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
     node_state_config = config.get('collectors', {}).get('node_state', {})
     if not collector or 'node_state' in collector:
         if node_state_config.get('enabled', True):
-            if 'cluster_name' not in node_state_config:
-                node_state_config['cluster_name'] = config.get('cluster_name', 'default')
             collectors.append(NodeStateCollector(node_state_config, db_path))
     
     # GPU collector (graceful skip if no GPU)

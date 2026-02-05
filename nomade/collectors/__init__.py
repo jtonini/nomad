@@ -20,6 +20,7 @@ from .vmstat import VMStatCollector
 from .node_state import NodeStateCollector
 from .gpu import GPUCollector
 from .nfs import NFSCollector
+from .groups import GroupCollector
 
 __all__ = [
     'BaseCollector',
@@ -36,4 +37,5 @@ __all__ = [
     'NodeStateCollector',
     'GPUCollector',
     'NFSCollector',
+    'GroupCollector',
 ]

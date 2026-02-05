@@ -1674,6 +1674,223 @@ def build_bipartite_network(jobs: list, features: list = None,
         'stats': stats
     }
 
+def normalize_features(jobs: list, features: list = None) -> tuple:
+    """
+    Extract and normalize feature vectors from jobs using z-score.
+    
+    Returns:
+        Tuple of (normalized_vectors, feature_names, normalization_params)
+    """
+    if not jobs:
+        return [], [], {}
+    
+    # Auto-detect numeric features
+    if features is None:
+        sample = jobs[0]
+        features = [k for k, v in sample.items() 
+                   if isinstance(v, (int, float)) and k not in ('job_id', 'success', 'exit_code')]
+    
+    # Extract raw vectors
+    raw_vectors = []
+    for job in jobs:
+        vec = [job.get(f, 0) or 0 for f in features]
+        raw_vectors.append(vec)
+    
+    # Compute mean and std for each feature
+    n_features = len(features)
+    n_jobs = len(jobs)
+    
+    if n_jobs == 0 or n_features == 0:
+        return [], features, {}
+    
+    means = [0.0] * n_features
+    for vec in raw_vectors:
+        for i, v in enumerate(vec):
+            means[i] += v
+    means = [m / n_jobs for m in means]
+    
+    stds = [0.0] * n_features
+    for vec in raw_vectors:
+        for i, v in enumerate(vec):
+            stds[i] += (v - means[i]) ** 2
+    stds = [math.sqrt(s / n_jobs) if n_jobs > 0 else 1.0 for s in stds]
+    stds = [s if s > 1e-10 else 1.0 for s in stds]  # Avoid division by zero
+    
+    # Z-score normalization
+    normalized = []
+    for vec in raw_vectors:
+        norm_vec = [(v - means[i]) / stds[i] for i, v in enumerate(vec)]
+        normalized.append(norm_vec)
+    
+    params = {
+        'features': features,
+        'means': means,
+        'stds': stds,
+        'normalized': True
+    }
+    
+    return normalized, features, params
+
+
+def cosine_similarity(vec1: list, vec2: list) -> float:
+    """
+    Compute cosine similarity between two vectors.
+    
+    cosine_sim = (A · B) / (||A|| * ||B||)
+    
+    Returns value in [-1, 1] where:
+        1 = identical direction
+        0 = orthogonal
+       -1 = opposite direction
+    """
+    if len(vec1) != len(vec2) or len(vec1) == 0:
+        return 0.0
+    
+    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    mag1 = math.sqrt(sum(x * x for x in vec1))
+    mag2 = math.sqrt(sum(x * x for x in vec2))
+    
+    if mag1 < 1e-10 or mag2 < 1e-10:
+        return 0.0
+    
+    return dot_product / (mag1 * mag2)
+
+
+def build_cosine_network(
+    jobs: list,
+    features: list = None,
+    threshold: float = 0.7,
+    normalize: bool = True,
+    max_edges: int = 10000
+) -> dict:
+    """
+    Build job similarity network using cosine similarity on continuous features.
+    
+    Unlike Simpson (which discretizes), this operates on raw continuous vectors.
+    Jobs are connected if their resource usage vectors point in similar directions.
+    
+    Args:
+        jobs: List of job dicts with numeric features
+        features: List of feature names to use (None = auto-detect)
+        threshold: Cosine similarity threshold for edge creation (0.7 default)
+        normalize: Whether to z-score normalize features (recommended)
+        max_edges: Maximum edges to prevent memory issues
+    
+    Returns:
+        dict with:
+        - 'edges': List of edge dicts with source, target, similarity
+        - 'normalization': Info about how features were normalized
+        - 'stats': Network statistics
+    """
+    if not jobs:
+        return {'edges': [], 'normalization': {}, 'stats': {}}
+    
+    # Normalize features
+    if normalize:
+        vectors, feature_names, norm_params = normalize_features(jobs, features)
+    else:
+        if features is None:
+            sample = jobs[0]
+            features = [k for k, v in sample.items() 
+                       if isinstance(v, (int, float)) and k not in ('job_id', 'success', 'exit_code')]
+        vectors = [[job.get(f, 0) or 0 for f in features] for job in jobs]
+        feature_names = features
+        norm_params = {'features': features, 'normalized': False}
+    
+    if not vectors or not vectors[0]:
+        return {'edges': [], 'normalization': norm_params, 'stats': {'error': 'No valid features'}}
+    
+    # Compute pairwise cosine similarity
+    edges = []
+    n_jobs = len(jobs)
+    n_comparisons = 0
+    similarity_sum = 0
+    n_above_threshold = 0
+    
+    for i in range(n_jobs):
+        for j in range(i + 1, n_jobs):
+            sim = cosine_similarity(vectors[i], vectors[j])
+            n_comparisons += 1
+            similarity_sum += sim
+            
+            if sim >= threshold:
+                n_above_threshold += 1
+                if len(edges) < max_edges:
+                    edges.append({
+                        "source": i,
+                        "target": j,
+                        "similarity": round(sim, 4)
+                    })
+    
+    # Compute network statistics
+    avg_similarity = similarity_sum / n_comparisons if n_comparisons > 0 else 0
+    edge_density = len(edges) / n_comparisons if n_comparisons > 0 else 0
+    
+    stats = {
+        'n_jobs': n_jobs,
+        'n_features': len(feature_names),
+        'n_comparisons': n_comparisons,
+        'n_edges': len(edges),
+        'n_above_threshold': n_above_threshold,
+        'avg_similarity': round(avg_similarity, 4),
+        'edge_density': round(edge_density, 4),
+        'threshold': threshold,
+        'method': 'cosine',
+        'truncated': len(edges) >= max_edges
+    }
+    
+    return {
+        'edges': edges,
+        'normalization': norm_params,
+        'stats': stats
+    }
+
+
+def build_similarity_network(
+    jobs: list,
+    method: str = 'cosine',
+    features: list = None,
+    threshold: float = None,
+    **kwargs
+) -> dict:
+    """
+    Build job similarity network using specified method.
+    
+    This is the unified interface - use this instead of calling
+    build_cosine_network or build_bipartite_network directly.
+    
+    Args:
+        jobs: List of job dicts with numeric features
+        method: 'cosine' (default) or 'simpson'
+        features: List of feature names to use
+        threshold: Similarity threshold (default: 0.7 for cosine, 0.5 for simpson)
+        **kwargs: Additional arguments passed to specific method
+    
+    Returns:
+        dict with edges, stats, and method-specific info
+    """
+    if method == 'cosine':
+        if threshold is None:
+            threshold = 0.7
+        return build_cosine_network(
+            jobs, 
+            features=features, 
+            threshold=threshold,
+            **kwargs
+        )
+    
+    elif method == 'simpson':
+        if threshold is None:
+            threshold = 0.5
+        return build_bipartite_network(
+            jobs,
+            features=features,
+            threshold=threshold,
+            **kwargs
+        )
+    
+    else:
+        raise ValueError(f"Unknown method: {method}. Use 'cosine' or 'simpson'.")
 
 def compute_bipartite_matrix(jobs: list, features: list = None, n_bins: int = 3) -> dict:
     """
@@ -1785,17 +2002,16 @@ class DataManager:
                     self._edges = load_similarity_edges_from_db(self.db_path, job_ids)
                     
                     if not self._edges:
-                        # Build bipartite network using Vilhena & Antonelli method
-                        network_result = build_bipartite_network(
-                            self._jobs, 
+                        network_result = build_similarity_network(
+                            self._jobs,
+                            method='cosine',
                             features=self._suggested_axes,
-                            threshold=0.5,  # Simpson similarity threshold
-                            n_bins=3        # low/med/high bins
+                            threshold=0.7
                         )
                         self._edges = network_result['edges']
                         self._network_stats = network_result['stats']
-                        self._discretization = network_result['discretization']
-                        logger.info(f"Built bipartite network: {len(self._edges)} edges (Simpson β-sim ≥ 0.5)")
+                        self._discretization = network_result.get('discretization') or network_result.get('normalization')
+                        logger.info(f"Built cosine network: {len(self._edges)} edges (threshold ≥ 0.7)")
                         
                         # Compute clustering quality metrics
                         self._clustering_quality = compute_clustering_quality(self._jobs, self._edges)
@@ -1814,10 +2030,10 @@ class DataManager:
                         self._feature_stats,
                         self._correlation_data
                     )
-                    network_result = build_bipartite_network(self._jobs, threshold=0.5)
+                    network_result = build_similarity_network(self._jobs, method='cosine', threshold=0.7)
                     self._edges = network_result['edges']
                     self._network_stats = network_result['stats']
-                    self._discretization = network_result['discretization']
+                    self._discretization = network_result.get('discretization') or network_result.get('normalization')
                     self._clustering_quality = compute_clustering_quality(self._jobs, self._edges)
                     logger.info("Using demo job data for network view")
                     
@@ -1837,10 +2053,10 @@ class DataManager:
             self._feature_stats,
             self._correlation_data
         )
-        network_result = build_bipartite_network(self._jobs, threshold=0.5)
+        network_result = build_similarity_network(self._jobs, method='cosine', threshold=0.7)
         self._edges = network_result['edges']
         self._network_stats = network_result['stats']
-        self._discretization = network_result['discretization']
+        self._discretization = network_result.get('discretization') or network_result.get('normalization')
         self._clustering_quality = compute_clustering_quality(self._jobs, self._edges)
         self.run_ml_predictions()
     
@@ -3893,21 +4109,19 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 <div style={{ fontWeight: '600', marginBottom: '12px', color: 'var(--cyan)', fontSize: '12px' }}>
                                     NETWORK METHOD
                                 </div>
-                                
-                                <div style={{ marginBottom: '12px' }}>
+                                    <div style={{ marginBottom: '12px' }}>
                                     <div style={{ color: 'var(--text-primary)', fontWeight: '600', marginBottom: '4px' }}>
-                                        Simpson's β-diversity (Bipartite)
+                                        Cosine Similarity (Continuous)
                                     </div>
                                     <div style={{ color: 'var(--text-muted)', fontSize: '10px', lineHeight: '1.5' }}>
-                                        Based on Vilhena & Antonelli (2015, Nature Communications).
-                                        Jobs are connected based on shared resource usage patterns,
-                                        treating each resource bin as a "site" in biogeographical terms.
+                                        Jobs are connected based on similar resource usage vectors.
+                                        Features are z-score normalized before comparison.
                                     </div>
                                 </div>
-                                
-                                <div style={{ 
-                                    background: 'var(--bg-hover)', 
-                                    borderRadius: '6px', 
+
+                                <div style={{
+                                    background: 'var(--bg-hover)',
+                                    borderRadius: '6px',
                                     padding: '10px',
                                     marginBottom: '12px',
                                     fontFamily: 'IBM Plex Mono, monospace',
@@ -3915,22 +4129,20 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 }}>
                                     <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Formula:</div>
                                     <div style={{ color: 'var(--green)' }}>
-                                        Simpson = a / (a + min(b, c))
+                                        cos(θ) = (A · B) / (||A|| × ||B||)
                                     </div>
                                     <div style={{ color: 'var(--text-muted)', marginTop: '8px', fontSize: '9px' }}>
-                                        a = shared bins<br/>
-                                        b = unique to job₁<br/>
-                                        c = unique to job₂
+                                        A, B = job feature vectors<br/>
+                                        Result: 1 = identical, 0 = orthogonal
                                     </div>
                                 </div>
-                                
+
                                 <div style={{ color: 'var(--text-muted)', fontSize: '10px', marginBottom: '12px' }}>
-                                    <strong style={{ color: 'var(--text-secondary)' }}>Why Simpson?</strong><br/>
-                                    Unlike Jaccard or cosine similarity, Simpson focuses on the
-                                    <em> proportion of the smaller set</em> that is shared. This avoids
-                                    bias when comparing jobs with different resource footprints.
-                                </div>
-                                
+                                    <strong style={{ color: 'var(--text-secondary)' }}>Why Cosine?</strong><br/>
+                                    Works on continuous features without discretization.
+                                    Standard in ML, measures direction similarity regardless of magnitude.
+                                </div>                               
+
                                 {networkStats && (
                                     <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
                                         <div style={{ color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '600' }}>
@@ -4277,6 +4489,276 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 </body>
 </html>'''
 
+EXIT_CODE_NAMES = {
+    0: 'SUCCESS', 1: 'FAILED', 2: 'TIMEOUT', 3: 'OOM',
+    4: 'SEGFAULT', 5: 'NODE_FAIL', 6: 'CANCELLED', 7: 'UNKNOWN'
+}
+
+EXIT_CODE_ICONS = {
+    'success': '✓', 'failed': '❌', 'timeout': '⏱', 'oom': '💾',
+    'segfault': '💥', 'node_fail': '🖥', 'cancelled': '🚫', 'unknown': '❓'
+}
+
+
+def get_failure_name(job):
+    """Get failure reason name from job, handling both string and int."""
+    reason = job.get('failure_reason') or job.get('exit_code', 0)
+    if isinstance(reason, int):
+        return EXIT_CODE_NAMES.get(reason, f'CODE_{reason}')
+    return str(reason).upper() if reason else 'UNKNOWN'
+
+
+def generate_failure_list_v2(failures):
+    """Generate HTML for mobile failure list with proper exit code names."""
+    if not failures:
+        return ''
+    html = ''
+    for job in failures[:5]:
+        reason = get_failure_name(job)
+        icon = EXIT_CODE_ICONS.get(reason.lower(), '❓')
+        job_id = job.get('job_id', 'N/A')
+        runtime = job.get('runtime_sec', 0)
+        runtime_str = f"{int(runtime//60)}m {int(runtime%60)}s" if runtime else 'N/A'
+        html += f'<div class="alert-item"><div class="alert-icon red">{icon}</div><div class="alert-content"><div class="alert-title">Job {job_id}</div><div class="alert-subtitle">{reason} • {runtime_str}</div></div></div>'
+    return html
+
+
+def generate_risk_list_v2(predictions):
+    """Generate HTML for high-risk job list."""
+    if not predictions:
+        return ''
+    html = ''
+    for pred in predictions[:5]:
+        job_id = pred.get('job_id', 'N/A')
+        risk_pct = int(pred.get('risk_score', 0) * 100)
+        reason = pred.get('top_reason', 'unknown pattern')
+        html += f'<div class="alert-item"><div class="alert-icon yellow">⚡</div><div class="alert-content"><div class="alert-title">Job {job_id}</div><div class="alert-subtitle">{reason}</div></div><div class="risk-score">{risk_pct}%</div></div>'
+    return html
+
+
+def generate_cluster_data(dm):
+    """Generate per-cluster stats for mobile view."""
+    cluster_data = {}
+    for cluster_name in dm.clusters:
+        # Get nodes for this cluster
+        cluster_nodes = [n for n in dm.nodes.values() if n.get('cluster') == cluster_name]
+        online = sum(1 for n in cluster_nodes if n.get('status') == 'online')
+        total = len(cluster_nodes)
+        
+        # Get jobs for this cluster (by node)
+        cluster_node_names = {n.get('name') for n in cluster_nodes}
+        cluster_jobs = [j for j in dm.jobs if j.get('node') in cluster_node_names]
+        job_success = sum(1 for j in cluster_jobs if j.get('success', True))
+        job_total = len(cluster_jobs)
+        job_rate = int(100 * job_success / job_total) if job_total > 0 else 100
+        
+        # Recent failures in cluster
+        cluster_failures = [j for j in cluster_jobs if not j.get('success', True)][-3:]
+        cluster_failures.reverse()
+        
+        # Status
+        node_health = int(100 * online / total) if total > 0 else 0
+        if node_health >= 95 and job_rate >= 80:
+            status = 'healthy'
+        elif node_health >= 80 and job_rate >= 60:
+            status = 'warning'
+        else:
+            status = 'critical'
+        
+        cluster_data[cluster_name] = {
+            'nodes_online': online,
+            'nodes_total': total,
+            'node_health': node_health,
+            'jobs_success': job_success,
+            'jobs_total': job_total,
+            'job_rate': job_rate,
+            'failures': cluster_failures,
+            'status': status
+        }
+    return cluster_data
+
+def generate_mobile_html(dm, stats):
+    """Generate enhanced mobile dashboard HTML."""
+    high_risk_jobs = []
+    if hasattr(dm, '_predictions') and dm._predictions:
+        high_risk_jobs = [p for p in dm._predictions if p.get('risk_score', 0) > 0.7][:5]
+    recent_failures = [j for j in dm.jobs if not j.get('success', True)][-5:]
+    recent_failures.reverse()
+    total_nodes = stats.get('nodes_total', 0)
+    online_nodes = stats.get('nodes_online', 0)
+    node_health = int(100 * online_nodes / total_nodes) if total_nodes > 0 else 0
+    total_jobs = stats.get('jobs', 0)
+    success_jobs = stats.get('jobs_success', 0)
+    job_success_rate = int(100 * success_jobs / total_jobs) if total_jobs > 0 else 0
+    if node_health >= 95 and job_success_rate >= 80:
+        overall_status, status_color = "healthy", "#22c55e"
+    elif node_health >= 80 and job_success_rate >= 60:
+        overall_status, status_color = "warning", "#f59e0b"
+    else:
+        overall_status, status_color = "critical", "#ef4444"
+    node_color = 'green' if node_health >= 95 else 'yellow' if node_health >= 80 else 'red'
+    job_color = 'green' if job_success_rate >= 80 else 'yellow' if job_success_rate >= 60 else 'red'
+    cluster_data = generate_cluster_data(dm)
+    cluster_chips_html = ''
+    for name, data in cluster_data.items():
+        status_icon = '✓' if data['status'] == 'healthy' else '⚠' if data['status'] == 'warning' else '✗'
+        cluster_chips_html += f'<button class="chip chip-{data["status"]}" onclick="toggleCluster(\'{name}\')">{name} {status_icon}</button>'
+    cluster_details_html = ''
+    for name, data in cluster_data.items():
+        failures_html = ''
+        for job in data['failures'][:3]:
+            reason = get_failure_name(job)
+            job_id = job.get('job_id', 'N/A')
+            failures_html += f'<div class="cluster-failure">Job {job_id} - {reason}</div>'
+        if not failures_html:
+            failures_html = '<div class="cluster-failure dim">No recent failures</div>'
+        cluster_details_html += f'<div id="cluster-{name}" class="cluster-detail" style="display:none;"><div class="cluster-header">{name.upper()}</div><div class="cluster-stats"><div class="cluster-stat"><span class="stat-label">Nodes</span><span class="stat-value">{data["nodes_online"]}/{data["nodes_total"]}</span></div><div class="cluster-stat"><span class="stat-label">Success</span><span class="stat-value">{data["job_rate"]}%</span></div><div class="cluster-stat"><span class="stat-label">Jobs</span><span class="stat-value">{data["jobs_total"]}</span></div></div><div class="cluster-failures-title">Recent failures:</div>{failures_html}</div>'
+    pattern_html = ''
+    cq = dm.clustering_quality
+    if cq and not cq.get('error'):
+        r = cq.get('assortativity', {}).get('binary', 0)
+        z = cq.get('assortativity', {}).get('z_score', 0)
+        is_sig = abs(z) > 2
+        if r > 0.1 and is_sig:
+            pattern_html = f'<div class="card card-full" style="margin-bottom:20px;"><div class="card-label">📊 Pattern Analysis</div><div class="pattern-item"><span class="pattern-icon">🔗</span><span>Failures cluster together (r={r:.2f})</span></div>'
+            hotspots = compute_failure_hotspots(dm.jobs) if dm.jobs else []
+            if hotspots:
+                top = hotspots[0]
+                pattern_html += f'<div class="pattern-item"><span class="pattern-icon">🔥</span><span>Hotspot: {top["feature"]}={top["bin"]} ({int(top["failure_rate"])}% fail)</span></div>'
+            pattern_html += '</div>'
+    failure_html = generate_failure_list_v2(recent_failures) if recent_failures else '<div class="empty-state">No recent failures ✓</div>'
+    risk_html = generate_risk_list_v2(high_risk_jobs) if high_risk_jobs else '<div class="empty-state">No high-risk jobs ✓</div>'
+    return f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>NØMADE</title>
+    <style>
+        :root {{ --bg:#0f172a; --bg-card:#1e293b; --bg-hover:#334155; --text:#f1f5f9; --text-muted:#94a3b8; --green:#22c55e; --yellow:#f59e0b; --red:#ef4444; --cyan:#06b6d4; --purple:#a855f7; }}
+        * {{ box-sizing:border-box; margin:0; padding:0; }}
+        body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding:16px; padding-bottom:80px; }}
+        .header {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--bg-hover); }}
+        .logo {{ font-size:24px; font-weight:700; letter-spacing:-0.5px; }}
+        .logo span {{ color:var(--cyan); }}
+        .status-badge {{ display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; background:{status_color}22; color:{status_color}; }}
+        .status-dot {{ width:8px; height:8px; border-radius:50%; background:{status_color}; animation:pulse 2s infinite; }}
+        @keyframes pulse {{ 0%,100%{{opacity:1;}} 50%{{opacity:0.5;}} }}
+        .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }}
+        .card {{ background:var(--bg-card); border-radius:12px; padding:16px; }}
+        .card-full {{ grid-column:1/-1; }}
+        .card-label {{ font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }}
+        .card-value {{ font-size:32px; font-weight:700; line-height:1; }}
+        .card-value.green {{ color:var(--green); }}
+        .card-value.yellow {{ color:var(--yellow); }}
+        .card-value.red {{ color:var(--red); }}
+        .card-value.cyan {{ color:var(--cyan); }}
+        .card-subtitle {{ font-size:12px; color:var(--text-muted); margin-top:4px; }}
+        .progress-bar {{ height:6px; background:var(--bg-hover); border-radius:3px; margin-top:12px; overflow:hidden; }}
+        .progress-fill {{ height:100%; border-radius:3px; }}
+        .section-title {{ font-size:14px; font-weight:600; color:var(--text-muted); margin-bottom:12px; }}
+        .alert-list {{ display:flex; flex-direction:column; gap:8px; }}
+        .alert-item {{ display:flex; align-items:center; gap:12px; padding:12px; background:var(--bg-hover); border-radius:8px; font-size:13px; }}
+        .alert-icon {{ width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }}
+        .alert-icon.red {{ background:#ef444422; }}
+        .alert-icon.yellow {{ background:#f59e0b22; }}
+        .alert-content {{ flex:1; min-width:0; }}
+        .alert-title {{ font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+        .alert-subtitle {{ font-size:11px; color:var(--text-muted); }}
+        .risk-score {{ font-size:12px; font-weight:600; padding:4px 8px; border-radius:4px; background:#ef444422; color:var(--red); }}
+        .refresh-btn {{ position:fixed; bottom:20px; right:20px; width:56px; height:56px; border-radius:50%; background:var(--cyan); color:var(--bg); border:none; font-size:24px; cursor:pointer; box-shadow:0 4px 12px rgba(6,182,212,0.4); }}
+        .refresh-btn:active {{ transform:scale(0.95); }}
+        .empty-state {{ text-align:center; padding:20px; color:var(--text-muted); font-size:13px; }}
+        .cluster-chips {{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }}
+        .chip {{ padding:6px 12px; border-radius:12px; font-size:12px; background:var(--bg-hover); border:none; color:var(--text); cursor:pointer; transition:all 0.2s; }}
+        .chip:active {{ transform:scale(0.95); }}
+        .chip-healthy {{ border-left:3px solid var(--green); }}
+        .chip-warning {{ border-left:3px solid var(--yellow); }}
+        .chip-critical {{ border-left:3px solid var(--red); }}
+        .chip.active {{ background:#06b6d422; color:var(--cyan); }}
+        .cluster-detail {{ background:var(--bg-hover); border-radius:8px; padding:12px; margin-top:12px; animation:slideDown 0.2s ease; }}
+        @keyframes slideDown {{ from {{ opacity:0; transform:translateY(-10px); }} to {{ opacity:1; transform:translateY(0); }} }}
+        .cluster-header {{ font-size:12px; font-weight:600; color:var(--cyan); margin-bottom:8px; }}
+        .cluster-stats {{ display:flex; gap:16px; margin-bottom:8px; }}
+        .cluster-stat {{ display:flex; flex-direction:column; }}
+        .stat-label {{ font-size:10px; color:var(--text-muted); }}
+        .stat-value {{ font-size:14px; font-weight:600; }}
+        .cluster-failures-title {{ font-size:10px; color:var(--text-muted); margin-top:8px; margin-bottom:4px; }}
+        .cluster-failure {{ font-size:11px; color:var(--text-muted); padding:2px 0; }}
+        .cluster-failure.dim {{ opacity:0.6; }}
+        .data-source {{ text-align:center; font-size:11px; color:var(--text-muted); margin-top:20px; }}
+        .desktop-link {{ display:block; text-align:center; margin-top:16px; color:var(--cyan); font-size:12px; text-decoration:none; }}
+        .pattern-item {{ display:flex; align-items:center; gap:8px; font-size:12px; margin-top:8px; }}
+        .pattern-icon {{ font-size:14px; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">N<span>Ø</span>MADE</div>
+        <div class="status-badge"><div class="status-dot"></div>{overall_status.upper()}</div>
+    </div>
+    <div class="grid">
+        <div class="card">
+            <div class="card-label">Nodes Online</div>
+            <div class="card-value {node_color}">{online_nodes}</div>
+            <div class="card-subtitle">of {total_nodes} total</div>
+            <div class="progress-bar"><div class="progress-fill" style="width:{node_health}%;background:var(--{node_color});"></div></div>
+        </div>
+        <div class="card">
+            <div class="card-label">Job Success</div>
+            <div class="card-value {job_color}">{job_success_rate}%</div>
+            <div class="card-subtitle">{success_jobs:,} of {total_jobs:,}</div>
+            <div class="progress-bar"><div class="progress-fill" style="width:{job_success_rate}%;background:var(--{job_color});"></div></div>
+        </div>
+        <div class="card">
+            <div class="card-label">Failed Jobs</div>
+            <div class="card-value red">{stats.get('jobs_failed', 0)}</div>
+            <div class="card-subtitle">requires attention</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Network Edges</div>
+            <div class="card-value cyan">{stats.get('edges', 0):,}</div>
+            <div class="card-subtitle">job connections</div>
+        </div>
+    </div>
+    <div class="card card-full" style="margin-bottom:20px;">
+        <div class="card-label">Clusters (tap to expand)</div>
+        <div class="cluster-chips">{cluster_chips_html}</div>
+        {cluster_details_html}
+    </div>
+    {pattern_html}
+    <div class="section-title">🎯 High Risk Jobs</div>
+    <div class="card card-full" style="margin-bottom:20px;">
+        <div class="alert-list">{risk_html}</div>
+    </div>
+    <div class="section-title">⚠️ Recent Failures</div>
+    <div class="card card-full">
+        <div class="alert-list">{failure_html}</div>
+    </div>
+    <div class="data-source">Data: {stats.get('data_source', 'unknown')}</div>
+    <a href="/" class="desktop-link">Open Full Dashboard →</a>
+    <button class="refresh-btn" onclick="location.reload()">↻</button>
+    <script>
+        let activeCluster = null;
+        function toggleCluster(name) {{
+            const detail = document.getElementById('cluster-' + name);
+            const chips = document.querySelectorAll('.chip');
+            document.querySelectorAll('.cluster-detail').forEach(d => d.style.display = 'none');
+            chips.forEach(c => c.classList.remove('active'));
+            if (activeCluster === name) {{
+                activeCluster = null;
+            }} else {{
+                detail.style.display = 'block';
+                event.target.classList.add('active');
+                activeCluster = name;
+            }}
+        }}
+        setTimeout(()=>location.reload(),60000);
+    </script>
+</body>
+</html>'''
 
 # ============================================================================
 # HTTP Server
@@ -4314,7 +4796,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 "suggested_axes": dm.suggested_axes,
                 "network_stats": dm.network_stats,
                 "clustering_quality": dm.clustering_quality,
-                "network_method": "simpson_bipartite",
+                "network_method": dm.network_stats.get("method", "cosine") if dm.network_stats else "cosine",
                 "ml_predictions": dm.ml_predictions or {"status": "not_ready"}
             }
             self.wfile.write(json.dumps(data).encode())
@@ -4365,7 +4847,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(DashboardHandler.data_manager.get_stats()).encode())
-            
+        elif parsed.path == '/mobile':
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            stats = dm.get_stats()
+            mobile_html = generate_mobile_html(dm, stats)
+            self.wfile.write(mobile_html.encode())
         else:
             self.send_error(404)
     

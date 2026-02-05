@@ -67,6 +67,14 @@ def load_config(config_path: Optional[Path] = None) -> dict:
     if config_path is None:
         config_path = find_config_file()
     
+    # Convert string path to Path object if needed
+    # Skip if path is a directory (not a config file)
+    if config_path and Path(config_path).is_dir():
+        logger.debug(f"Skipping directory: {config_path}")
+        return config
+    if config_path and isinstance(config_path, str):
+        config_path = Path(config_path)
+    
     if config_path and config_path.exists() and tomllib:
         logger.info(f"Loading config from {config_path}")
         try:
@@ -114,11 +122,20 @@ def get_db_connection(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def row_get(row, key, default=None):
+    """Safely get a value from sqlite3.Row (which doesn't have .get())."""
+    try:
+        val = row[key]
+        return val if val is not None else default
+    except (IndexError, KeyError):
+        return default
+
+
 # ============================================================================
 # Data Loaders - Real Data from Database
 # ============================================================================
 
-def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
+def load_clusters_from_db(db_path: Path) -> dict:
     """
     Auto-detect clusters from node_state or node_status tables.
     Groups nodes by partition or cluster field.
@@ -131,7 +148,8 @@ def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
         # Try NOMADE's node_state table first
         try:
             rows = conn.execute("""
-                SELECT DISTINCT node_name, partitions, gres
+                SELECT DISTINCT node_name, partitions, gres,
+                       COALESCE(cluster, 'default') as cluster
                 FROM node_state
                 WHERE timestamp = (SELECT MAX(timestamp) FROM node_state)
             """).fetchall()
@@ -199,6 +217,49 @@ def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
         
     except Exception as e:
         logger.warning(f"Failed to load clusters from database: {e}")
+    
+    # Fallback: Try simulator's simple nodes table
+    if not clusters:
+        try:
+            conn = get_db_connection(db_path)
+            rows = conn.execute("""
+                SELECT hostname, cluster, partition, status, cpu_count, gpu_count, memory_mb
+                FROM nodes
+            """).fetchall()
+            if rows:
+            
+                # Group by cluster
+                cluster_nodes = defaultdict(list)
+                gpu_nodes = set()
+                cluster_partitions = defaultdict(set)
+                
+                for row in rows:
+                    node = row["hostname"]
+                    cluster_name = row["cluster"] or "default"
+                    partitions = row["partition"] or ""
+                    
+                    cluster_nodes[cluster_name].append(node)
+                    cluster_partitions[cluster_name].update(partitions.split(","))
+                    
+                    if row["gpu_count"] and row["gpu_count"] > 0:
+                        gpu_nodes.add(node)
+                
+                for cluster_name, nodes in cluster_nodes.items():
+                    cluster_id = cluster_name.lower().replace(" ", "-")
+                    part_list = sorted(p for p in cluster_partitions[cluster_name] if p)
+                    clusters[cluster_id] = {
+                        "name": cluster_name,
+                        "description": f"{len(nodes)}-node cluster (" + ", ".join(part_list) + ")",
+                        "description": f"{len(nodes)}-node partition",
+                        "nodes": sorted(nodes),
+                        "gpu_nodes": [n for n in nodes if n in gpu_nodes],
+                        "type": "gpu" if any(n in gpu_nodes for n in nodes) else "cpu"
+                    }
+                
+                logger.info(f"Loaded clusters from simulator nodes table")
+            conn.close()
+        except Exception as e:
+            logger.debug(f"No simulator nodes table: {e}")
     
     return clusters
 
@@ -271,21 +332,9 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                     
                     has_gpu = row['gres'] and 'gpu' in row['gres'].lower()
                     
-                    # Determine partition from node_state data
-                    node_partition = None
-                    if cluster_id:
-                        cluster_data = clusters.get(cluster_id, {})
-                        for pid, pdata in cluster_data.get("partitions", {}).items():
-                            if node_name in pdata.get("nodes", []):
-                                node_partition = pid
-                                break
-                    if not node_partition:
-                        node_partition = (row['partitions'] or 'default').split(',')[0].lower().replace(' ', '-')
-
                     nodes[node_name] = {
                         "name": node_name,
                         "cluster": cluster_id,
-                        "partition": node_partition,
                         "status": "down" if is_down else "online",
                         "slurm_state": row['state'],
                         "success_rate": success_rate,
@@ -342,21 +391,9 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                               node_name in ('node51', 'node52', 'node53') or \
                               (node_name.startswith('arachne') and node_name[-2:] in ['04', '05', '06'])
                     
-                    # Determine partition from node_state data
-                    node_partition = None
-                    if cluster_id:
-                        cluster_data = clusters.get(cluster_id, {})
-                        for pid, pdata in cluster_data.get("partitions", {}).items():
-                            if node_name in pdata.get("nodes", []):
-                                node_partition = pid
-                                break
-                    if not node_partition:
-                        node_partition = (row['partitions'] or 'default').split(',')[0].lower().replace(' ', '-')
-
                     nodes[node_name] = {
                         "name": node_name,
                         "cluster": cluster_id,
-                        "partition": node_partition,
                         "status": "down" if is_down else "online",
                         "slurm_state": row['slurm_state'],
                         "success_rate": 0.9 if not is_down else 0,  # Placeholder
@@ -377,6 +414,81 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
         except sqlite3.OperationalError:
             pass
             
+        # Fallback: Try simulator's simple nodes table
+        if not nodes:
+            try:
+                rows = conn.execute("""
+                    SELECT hostname, cluster, partition, status, cpu_count, gpu_count, memory_mb
+                    FROM nodes
+                """).fetchall()
+                
+                if rows:
+                    # Get job statistics per node
+                    job_stats = {}
+                    try:
+                        job_rows = conn.execute("""
+                            SELECT 
+                                node_list, state, failure_reason,
+                                COUNT(*) as count
+                            FROM jobs
+                            GROUP BY node_list, state, failure_reason
+                        """).fetchall()
+                        
+                        for row in job_rows:
+                            if row['node_list']:
+                                node = row['node_list'].strip()
+                                if node not in job_stats:
+                                    job_stats[node] = {'success': 0, 'failed': 0, 'failures': {}}
+                                if row['state'] == 'COMPLETED':
+                                    job_stats[node]['success'] += row['count']
+                                else:
+                                    job_stats[node]['failed'] += row['count']
+                                    # Track failure types
+                                    fr = row_get(row, 'failure_reason', 3)
+                                    fr_names = {1:'timeout', 2:'cancelled', 3:'failed', 4:'oom', 5:'segfault', 6:'node_fail', 7:'dependency'}
+                                    fr_name = fr_names.get(fr, 'other')
+                                    job_stats[node]['failures'][fr_name] = job_stats[node]['failures'].get(fr_name, 0) + row['count']
+                    except:
+                        pass
+                    
+                    for row in rows:
+                        node_name = row['hostname']
+                        partitions = row['partition'] or 'default'
+                        primary_partition = partitions.split(',')[0]
+                        cluster_id = (row["cluster"] or "default").lower().replace(' ', '-')
+                        
+                        has_gpu = row['gpu_count'] and row['gpu_count'] > 0
+                        is_down = row['status'] and row['status'].upper() in ('DOWN', 'DRAIN', 'FAIL')
+                        
+                        # Get job stats
+                        stats = job_stats.get(node_name, {'success': 0, 'failed': 0, 'failures': {}})
+                        total_jobs = stats['success'] + stats['failed']
+                        success_rate = stats['success'] / total_jobs if total_jobs > 0 else 1.0
+                        
+                        nodes[node_name] = {
+                            "name": node_name,
+                            "cluster": cluster_id,
+                            "status": "down" if is_down else "online",
+                            "slurm_state": row['status'],
+                            "success_rate": success_rate,
+                            "jobs_today": total_jobs,
+                            "jobs_success": stats['success'],
+                            "jobs_failed": stats['failed'],
+                            "failures": stats['failures'],
+                            "top_users": [],
+                            "has_gpu": has_gpu,
+                            "gpu_util": random.randint(40, 95) if has_gpu and not is_down else 0,
+                            "gpu_name": f"GPU x{row['gpu_count']}" if has_gpu else None,
+                            "cpu_util": random.randint(30, 90) if not is_down else 0,
+                            "mem_util": random.randint(20, 80) if not is_down else 0,
+                            "load_avg": round(random.uniform(0.5, 16), 2) if not is_down else 0,
+                            "last_seen": datetime.now().isoformat()
+                        }
+                    
+                    logger.info(f"Loaded nodes from simulator nodes table")
+            except Exception as e:
+                logger.debug(f"No simulator nodes table: {e}")
+            
         conn.close()
         
     except Exception as e:
@@ -385,7 +497,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
     return nodes
 
 
-def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
+def load_jobs_from_db(db_path: Path, limit: int = 5000) -> list:
     """Load job data for network visualization with all available features."""
     jobs = []
     
@@ -404,6 +516,9 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                     j.req_cpus,
                     j.req_mem_mb,
                     j.req_time_seconds,
+                    j.failure_reason,
+                    j.exit_code,
+                    j.exit_signal,
                     js.total_nfs_write_gb,
                     js.total_local_write_gb,
                     js.avg_io_wait_percent,
@@ -447,7 +562,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                     io_info = io_data.get(job_id, {})
                     
                     # Get failure_reason from job if available, otherwise compute from state
-                    failure_reason = row.get('failure_reason', 0)
+                    failure_reason = row_get(row, 'failure_reason', 0)
                     if failure_reason is None:
                         # Compute from state if not set
                         state = row['state'] or ''
@@ -470,8 +585,8 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                         "partition": row['partition'],
                         "success": row['state'] == 'COMPLETED',
                         "failure_reason": failure_reason,
-                        "exit_code": row.get('exit_code'),
-                        "exit_signal": row.get('exit_signal'),
+                        "exit_code": row_get(row, 'exit_code'),
+                        "exit_signal": row_get(row, 'exit_signal'),
                         # Time features
                         "runtime_sec": row['runtime_seconds'] or 0,
                         "wait_time_sec": row['wait_time_seconds'] or 0,
@@ -516,7 +631,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
             if rows:
                 for row in rows:
                     # Get failure_reason from job if available, otherwise compute from state
-                    failure_reason = row.get('failure_reason', 0)
+                    failure_reason = row_get(row, 'failure_reason', 0)
                     if failure_reason is None:
                         state = row['state'] or ''
                         if state == 'COMPLETED':
@@ -538,8 +653,8 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                         "partition": row['partition'],
                         "success": row['state'] == 'COMPLETED',
                         "failure_reason": failure_reason,
-                        "exit_code": row.get('exit_code'),
-                        "exit_signal": row.get('exit_signal'),
+                        "exit_code": row_get(row, 'exit_code'),
+                        "exit_signal": row_get(row, 'exit_signal'),
                         "runtime_sec": row['runtime_seconds'] or 0,
                         "wait_time_sec": row['wait_time_seconds'] or 0,
                         "nfs_write_gb": 0,
@@ -710,8 +825,343 @@ def suggest_decorrelated_axes(feature_stats: dict, correlation_data: dict, n: in
     Suggest N features that are both high-variance AND decorrelated from each other.
     Uses a greedy selection approach.
     """
+    if not feature_stats or not correlation_data.get("features"):
+        return ["runtime_sec", "nfs_write_gb", "io_wait_pct"]
+    
+    features = correlation_data["features"]
+    matrix = correlation_data["matrix"]
+    variance_rank = {f: feature_stats.get(f, {}).get("variance", 0) for f in features}
+    
+    selected = []
+    remaining = sorted(features, key=lambda f: -variance_rank.get(f, 0))
+    
+    while len(selected) < n and remaining:
+        candidate = remaining.pop(0)
+        dominated = False
+        for sel in selected:
+            try:
+                i1 = features.index(candidate)
+                i2 = features.index(sel)
+                if abs(matrix[i1][i2]) > 0.7:
+                    dominated = True
+                    break
+            except (ValueError, IndexError):
+                pass
+        if not dominated:
+            selected.append(candidate)
+    
+    return selected if selected else ["runtime_sec", "nfs_write_gb", "io_wait_pct"]
     if not feature_stats or not correlation_data.get('features'):
         return suggest_best_axes(feature_stats, n)
+
+
+def compute_failure_hotspots(jobs: list, n_bins: int = 3) -> list:
+    """
+    Identify resource bins that are over-represented in failures.
+    Returns list of hotspots with feature, bin, failure_rate, and baseline_rate.
+    """
+    if not jobs:
+        return []
+    
+    # Features to analyze
+    features = ["nfs_write_gb", "local_write_gb", "io_wait_pct", "runtime_sec", "req_mem_mb"]
+    available_features = [f for f in features if any(j.get(f) is not None for j in jobs)]
+    
+    if not available_features:
+        return []
+    
+    hotspots = []
+    
+    for feature in available_features:
+        # Get values
+        values = [j.get(feature, 0) or 0 for j in jobs]
+        if max(values) == min(values):
+            continue
+        
+        # Compute quantile boundaries
+        sorted_vals = sorted(values)
+        n = len(sorted_vals)
+        boundaries = [sorted_vals[int(n * i / n_bins)] for i in range(1, n_bins)]
+        
+        # Assign bins
+        def get_bin(v):
+            for i, b in enumerate(boundaries):
+                if v <= b:
+                    return ["low", "med", "high"][i]
+            return "high"
+        
+        # Count failures per bin
+        bin_counts = {"low": {"total": 0, "failed": 0}, "med": {"total": 0, "failed": 0}, "high": {"total": 0, "failed": 0}}
+        
+        for j, v in zip(jobs, values):
+            b = get_bin(v)
+            bin_counts[b]["total"] += 1
+            if j.get("failure_reason", 0) != 0:
+                bin_counts[b]["failed"] += 1
+        
+        # Calculate rates and find hotspots
+        total_jobs = len(jobs)
+        total_failures = sum(1 for j in jobs if j.get("failure_reason", 0) != 0)
+        baseline_rate = total_failures / total_jobs if total_jobs > 0 else 0
+        
+        for bin_name, counts in bin_counts.items():
+            if counts["total"] < 10:  # Skip small samples
+                continue
+            failure_rate = counts["failed"] / counts["total"]
+            # Check if significantly higher than baseline
+            if failure_rate > baseline_rate * 1.3:  # 30% higher than baseline
+                hotspots.append({
+                    "feature": feature,
+                    "bin": bin_name,
+                    "failure_rate": round(failure_rate * 100, 1),
+                    "baseline_rate": round(baseline_rate * 100, 1),
+                    "n_jobs": counts["total"],
+                    "n_failures": counts["failed"],
+                    "ratio": round(failure_rate / baseline_rate, 2) if baseline_rate > 0 else 0
+                })
+    
+    # Sort by ratio (most over-represented first)
+    hotspots.sort(key=lambda x: -x["ratio"])
+    return hotspots[:5]  # Top 5 hotspots
+
+
+def compute_clustering_quality(jobs: list, edges: list) -> dict:
+    """
+    Compute metrics measuring how well failure types cluster in the network.
+    
+    Inspired by phylogenetic community structure metrics:
+    - MNTD (Mean Nearest Taxon Distance) → Mean nearest same-class distance
+    - NTI/NRI (z-score vs null) → Compare to randomized labels
+    - Assortativity → Do same-type nodes connect preferentially?
+    
+    Returns dict with:
+        - assortativity: Coefficient measuring same-type connectivity (-1 to +1)
+        - neighborhood_purity: Average fraction of same-class neighbors
+        - mntd_ratio: Mean nearest same-class distance / mean nearest any distance
+        - z_scores: Significance vs null model for each metric
+        - interpretation: Human-readable summary
+    """
+    import random as rand
+    
+    if not jobs or not edges:
+        return {"error": "Insufficient data", "assortativity": 0, "neighborhood_purity": 0}
+    
+    n_jobs = len(jobs)
+    
+    # Build adjacency list
+    neighbors = {i: set() for i in range(n_jobs)}
+    for edge in edges:
+        src, tgt = edge['source'], edge['target']
+        if src < n_jobs and tgt < n_jobs:
+            neighbors[src].add(tgt)
+            neighbors[tgt].add(src)
+    
+    # Get failure labels (binary: success vs any failure)
+    labels_binary = [0 if j.get('failure_reason', 0) == 0 else 1 for j in jobs]
+    
+    # Get detailed failure labels (0-7)
+    labels_detailed = [j.get('failure_reason', 0) for j in jobs]
+    
+    # Count label frequencies
+    n_success = sum(1 for l in labels_binary if l == 0)
+    n_failure = n_jobs - n_success
+    
+    # =========================================================================
+    # 1. Assortativity Coefficient (binary: success vs failure)
+    # =========================================================================
+    # Measures tendency of nodes to connect to same-type nodes
+    # Range: -1 (disassortative) to +1 (assortative)
+    
+    def compute_assortativity(labels):
+        """Compute assortativity coefficient for categorical labels."""
+        e_same = 0  # Edges between same type
+        e_total = len(edges)
+        
+        if e_total == 0:
+            return 0
+        
+        for edge in edges:
+            src, tgt = edge['source'], edge['target']
+            if src < len(labels) and tgt < len(labels):
+                if labels[src] == labels[tgt]:
+                    e_same += 1
+        
+        # Observed fraction of same-type edges
+        observed = e_same / e_total
+        
+        # Expected fraction under random mixing
+        # Sum of (fraction of each type)^2
+        label_counts = {}
+        for l in labels:
+            label_counts[l] = label_counts.get(l, 0) + 1
+        
+        expected = sum((c / len(labels)) ** 2 for c in label_counts.values())
+        
+        # Assortativity coefficient
+        if expected >= 1:
+            return 0
+        
+        r = (observed - expected) / (1 - expected)
+        return round(max(-1, min(1, r)), 4)
+    
+    assortativity_binary = compute_assortativity(labels_binary)
+    assortativity_detailed = compute_assortativity(labels_detailed)
+    
+    # =========================================================================
+    # 2. Neighborhood Purity (local clustering)
+    # =========================================================================
+    # For each node, what fraction of neighbors share its label?
+    
+    def compute_purity(labels):
+        """Average fraction of same-label neighbors."""
+        purities = []
+        for i in range(len(labels)):
+            if len(neighbors[i]) == 0:
+                continue
+            same_label = sum(1 for j in neighbors[i] if j < len(labels) and labels[j] == labels[i])
+            purities.append(same_label / len(neighbors[i]))
+        
+        if not purities:
+            return 0
+        return round(sum(purities) / len(purities), 4)
+    
+    purity_binary = compute_purity(labels_binary)
+    purity_detailed = compute_purity(labels_detailed)
+    
+    # =========================================================================
+    # 3. Mean Nearest Same-Class Distance (MNTD analog)
+    # =========================================================================
+    # Ratio of distance to nearest same-class vs nearest any-class
+    # < 1 means same-class nodes are closer (clustering)
+    # > 1 means same-class nodes are farther (overdispersion)
+    
+    def compute_mntd_ratio(labels):
+        """Compute ratio of same-class to any-class nearest distances."""
+        # Use edge weights as inverse distance (higher similarity = closer)
+        # Build distance matrix from edges
+        distances = {}
+        for edge in edges:
+            src, tgt = edge['source'], edge['target']
+            dist = 1 - edge.get('similarity', 0.5)  # Convert similarity to distance
+            distances[(src, tgt)] = dist
+            distances[(tgt, src)] = dist
+        
+        same_class_dists = []
+        any_class_dists = []
+        
+        for i in range(len(labels)):
+            # Find nearest same-class neighbor
+            same_class_nearest = float('inf')
+            any_class_nearest = float('inf')
+            
+            for j in neighbors[i]:
+                if j >= len(labels):
+                    continue
+                dist = distances.get((i, j), 1.0)
+                
+                if dist < any_class_nearest:
+                    any_class_nearest = dist
+                
+                if labels[j] == labels[i] and dist < same_class_nearest:
+                    same_class_nearest = dist
+            
+            if same_class_nearest < float('inf'):
+                same_class_dists.append(same_class_nearest)
+            if any_class_nearest < float('inf'):
+                any_class_dists.append(any_class_nearest)
+        
+        if not same_class_dists or not any_class_dists:
+            return 1.0
+        
+        mean_same = sum(same_class_dists) / len(same_class_dists)
+        mean_any = sum(any_class_dists) / len(any_class_dists)
+        
+        if mean_any == 0:
+            return 1.0
+        
+        return round(mean_same / mean_any, 4)
+    
+    mntd_ratio = compute_mntd_ratio(labels_binary)
+    
+    # =========================================================================
+    # 4. Z-scores against null model (NTI/NRI analog)
+    # =========================================================================
+    # Shuffle labels N times, compute metrics, get z-score
+    n_permutations = 999
+    null_assortativity = []
+    null_purity = []
+    null_mntd = []
+    
+    for _ in range(n_permutations):
+        shuffled = labels_binary.copy()
+        rand.shuffle(shuffled)
+        null_assortativity.append(compute_assortativity(shuffled))
+        null_purity.append(compute_purity(shuffled))
+        null_mntd.append(compute_mntd_ratio(shuffled))
+    
+    def z_score(observed, null_values):
+        if not null_values:
+            return 0
+        mean_null = sum(null_values) / len(null_values)
+        var_null = sum((x - mean_null) ** 2 for x in null_values) / len(null_values)
+        std_null = var_null ** 0.5 if var_null > 0 else 1
+        return round((observed - mean_null) / std_null, 2)
+    
+    z_assortativity = z_score(assortativity_binary, null_assortativity)
+    z_purity = z_score(purity_binary, null_purity)
+    ses_mntd = z_score(mntd_ratio, null_mntd)
+    
+    # =========================================================================
+    # 5. Interpretation
+    # =========================================================================
+    
+    interpretations = []
+    
+    # Assortativity interpretation
+    if assortativity_binary > 0.2:
+        interpretations.append(f"Strong clustering: failures tend to connect to other failures (r={assortativity_binary})")
+    elif assortativity_binary > 0.05:
+        interpretations.append(f"Moderate clustering: some tendency for failures to group (r={assortativity_binary})")
+    elif assortativity_binary < -0.1:
+        interpretations.append(f"Dispersed: failures are spread among successes (r={assortativity_binary})")
+    else:
+        interpretations.append(f"Random: no clear clustering pattern (r={assortativity_binary})")
+    
+    # Significance interpretation
+    if abs(z_assortativity) > 2:
+        interpretations.append(f"Pattern is statistically significant (z={z_assortativity})")
+    else:
+        interpretations.append(f"Pattern not significantly different from random (z={z_assortativity})")
+    
+    # MNTD interpretation
+    if mntd_ratio < 0.8:
+        interpretations.append(f"Same-type jobs are closer than expected (MNTD ratio={mntd_ratio})")
+    elif mntd_ratio > 1.2:
+        interpretations.append(f"Same-type jobs are farther than expected (MNTD ratio={mntd_ratio})")
+    
+    return {
+        "assortativity": {
+            "binary": assortativity_binary,  # Success vs failure
+            "detailed": assortativity_detailed,  # All 8 failure types
+            "z_score": z_assortativity,
+        },
+        "neighborhood_purity": {
+            "binary": purity_binary,
+            "detailed": purity_detailed,
+            "z_score": z_purity,
+        },
+        "mntd_ratio": mntd_ratio,
+        "ses_mntd": ses_mntd,
+        "sample_sizes": {
+            "n_jobs": n_jobs,
+            "n_edges": len(edges),
+            "n_success": n_success,
+            "n_failure": n_failure,
+        },
+        "interpretation": interpretations,
+        "is_clustered": assortativity_binary > 0.1 and z_assortativity > 1.5,
+        "hotspots": compute_failure_hotspots(jobs),
+    }
     
     corr_features = correlation_data['features']
     corr_matrix = correlation_data['matrix']
@@ -804,94 +1254,28 @@ def load_similarity_edges_from_db(db_path: Path, job_ids: list, threshold: float
 # ============================================================================
 
 def generate_demo_clusters():
-    """Generate demo cluster data with partitions."""
+    """Generate demo cluster data."""
     clusters = {
-        "cluster-1": {
-            "name": "Cluster-1",
-            "description": "Primary HPC cluster — 12 nodes",
-            "partitions": {
-                "general": {
-                    "name": "general",
-                    "description": "General-purpose CPU partition",
-                    "nodes": [f"c1-node{i:02d}" for i in range(1, 9)],
-                    "type": "cpu"
-                },
-                "gpu": {
-                    "name": "gpu",
-                    "description": "GPU-accelerated partition",
-                    "nodes": ["c1-gpu01", "c1-gpu02"],
-                    "gpu_nodes": ["c1-gpu01", "c1-gpu02"],
-                    "type": "gpu"
-                },
-                "highmem": {
-                    "name": "highmem",
-                    "description": "High-memory partition",
-                    "nodes": ["c1-himem01", "c1-himem02"],
-                    "type": "highmem"
-                }
-            }
+        "spydur": {
+            "name": "Spydur",
+            "description": "48-node CPU cluster",
+            "nodes": [f"spydur{i:02d}" for i in range(1, 49)],
+            "type": "cpu"
         },
-        "cluster-2": {
-            "name": "Cluster-2",
-            "description": "Secondary HPC cluster — 6 nodes",
-            "partitions": {
-                "compute": {
-                    "name": "compute",
-                    "description": "CPU compute partition",
-                    "nodes": [f"c2-node{i:02d}" for i in range(1, 4)],
-                    "type": "cpu"
-                },
-                "gpu": {
-                    "name": "gpu",
-                    "description": "GPU partition",
-                    "nodes": ["c2-gpu01", "c2-gpu02", "c2-gpu03"],
-                    "gpu_nodes": ["c2-gpu01", "c2-gpu02", "c2-gpu03"],
-                    "type": "gpu"
-                }
-            }
+        "arachne": {
+            "name": "Arachne", 
+            "description": "6-node hybrid cluster (3 CPU + 3 GPU)",
+            "nodes": ["arachne01", "arachne02", "arachne03", "arachne04", "arachne05", "arachne06"],
+            "gpu_nodes": ["arachne04", "arachne05", "arachne06"],
+            "type": "hybrid"
         },
-        "workstations": {
-            "name": "Workstations",
-            "description": "Faculty lab workstations by department",
-            "partitions": {
-                "biology": {
-                    "name": "Biology",
-                    "description": "Biology dept.",
-                    "nodes": ["bio-ws01", "bio-ws02", "bio-ws03"],
-                    "type": "cpu"
-                },
-                "chemistry": {
-                    "name": "Chemistry",
-                    "description": "Chemistry dept.",
-                    "nodes": ["chem-ws01", "chem-ws02"],
-                    "gpu_nodes": ["chem-ws02"],
-                    "type": "gpu"
-                },
-                "physics": {
-                    "name": "Physics",
-                    "description": "Physics dept.",
-                    "nodes": ["phys-ws01", "phys-ws02"],
-                    "type": "cpu"
-                },
-                "cs": {
-                    "name": "Comp Sci",
-                    "description": "CS dept.",
-                    "nodes": ["cs-ws01", "cs-ws02", "cs-ws03"],
-                    "gpu_nodes": ["cs-ws01", "cs-ws02", "cs-ws03"],
-                    "type": "gpu"
-                }
-            }
+        "chemistry": {
+            "name": "Chemistry",
+            "description": "Chemistry department workstations",
+            "nodes": ["chem-ws01", "chem-ws02", "chem-ws03", "chem-ws04"],
+            "type": "workstation"
         }
     }
-    # Build flat node lists and backward-compatible fields
-    for cid, cluster in clusters.items():
-        all_nodes = []
-        all_gpu_nodes = []
-        for pid, part in cluster["partitions"].items():
-            all_nodes.extend(part["nodes"])
-            all_gpu_nodes.extend(part.get("gpu_nodes", []))
-        cluster["nodes"] = all_nodes
-        cluster["gpu_nodes"] = all_gpu_nodes
     return clusters
 
 
@@ -900,12 +1284,6 @@ def generate_demo_node_data(clusters):
     nodes = {}
     failure_types = ["OOM", "Timeout", "Cancelled", "NodeFail", "DiskFull"]
     users = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "henry"]
-    # Build node-to-partition mapping
-    node_partition_map = {}
-    for _cid, _cl in clusters.items():
-        for _pid, _part in _cl.get("partitions", {}).items():
-            for _n in _part["nodes"]:
-                node_partition_map[_n] = _pid
     
     for cluster_id, cluster in clusters.items():
         for node_name in cluster["nodes"]:
@@ -916,7 +1294,6 @@ def generate_demo_node_data(clusters):
                 nodes[node_name] = {
                     "name": node_name,
                     "cluster": cluster_id,
-                    "partition": node_partition_map.get(node_name, "default"),
                     "status": "down",
                     "success_rate": 0,
                     "jobs_today": 0,
@@ -967,7 +1344,6 @@ def generate_demo_node_data(clusters):
                 nodes[node_name] = {
                     "name": node_name,
                     "cluster": cluster_id,
-                    "partition": node_partition_map.get(node_name, "default"),
                     "status": "online",
                     "success_rate": success_rate,
                     "jobs_today": jobs_total,
@@ -991,7 +1367,7 @@ def generate_demo_node_data(clusters):
 def generate_demo_jobs(count=150):
     """Generate demo job data for network visualization."""
     jobs = []
-    partitions = ["general", "gpu", "highmem", "compute"]
+    partitions = ["compute", "gpu", "short", "long"]
     
     # State to failure_reason mapping
     # 0=success, 1=timeout, 2=cancelled, 3=failed_generic, 4=oom, 5=segfault, 6=node_fail, 7=dependency
@@ -1075,132 +1451,6 @@ def generate_demo_jobs(count=150):
         })
     
     return jobs
-
-
-def generate_demo_interactive():
-    """Generate demo interactive session data."""
-    import random
-    from datetime import datetime, timedelta
-    
-    users = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "henry", "ivan", "judy"]
-    session_types = [
-        ("RStudio", 0.3),
-        ("Jupyter (Python)", 0.6),
-        ("Jupyter (R)", 0.1)
-    ]
-    
-    sessions = []
-    user_sessions = {}
-    
-    # Generate 80-120 sessions
-    n_sessions = random.randint(80, 120)
-    
-    for i in range(n_sessions):
-        user = random.choice(users)
-        # Weighted session type selection
-        r = random.random()
-        if r < 0.3:
-            session_type = "RStudio"
-        elif r < 0.9:
-            session_type = "Jupyter (Python)"
-        else:
-            session_type = "Jupyter (R)"
-        
-        # Memory: 50MB to 4GB, with some outliers
-        if random.random() < 0.1:
-            mem_mb = random.uniform(4000, 8000)  # Memory hog
-        else:
-            mem_mb = random.uniform(50, 2000)
-        
-        # Age: 0 to 72 hours
-        age_hours = random.uniform(0, 72)
-        
-        # CPU: mostly idle
-        cpu = random.uniform(0, 5) if random.random() < 0.9 else random.uniform(20, 80)
-        is_idle = cpu < 1.0
-        
-        start_time = (datetime.now() - timedelta(hours=age_hours)).isoformat()
-        
-        sessions.append({
-            "timestamp": datetime.now().isoformat(),
-            "server_id": "demo-server",
-            "session_type": session_type,
-            "user": user,
-            "pid": 10000 + i,
-            "cpu_percent": round(cpu, 1),
-            "mem_percent": round(mem_mb / 320, 1),
-            "mem_mb": round(mem_mb, 1),
-            "mem_virtual_mb": round(mem_mb * 1.5, 1),
-            "start_time": start_time,
-            "age_hours": round(age_hours, 1),
-            "is_idle": is_idle
-        })
-        
-        # Track per user
-        if user not in user_sessions:
-            user_sessions[user] = {"sessions": 0, "memory_mb": 0, "idle": 0, "rstudio": 0, "jupyter": 0}
-        user_sessions[user]["sessions"] += 1
-        user_sessions[user]["memory_mb"] += mem_mb
-        if session_type == "RStudio":
-            user_sessions[user]["rstudio"] += 1
-        else:
-            user_sessions[user]["jupyter"] += 1
-        if is_idle:
-            user_sessions[user]["idle"] += 1
-    
-    # Build summary
-    total_mem = sum(s["mem_mb"] for s in sessions)
-    idle_count = sum(1 for s in sessions if s["is_idle"])
-    
-    by_type = {
-        "RStudio": {"total": 0, "idle": 0, "memory_mb": 0},
-        "Jupyter (Python)": {"total": 0, "idle": 0, "memory_mb": 0},
-        "Jupyter (R)": {"total": 0, "idle": 0, "memory_mb": 0},
-        "Jupyter Server": {"total": 0, "idle": 0, "memory_mb": 0}
-    }
-    for s in sessions:
-        t = s["session_type"]
-        if t in by_type:
-            by_type[t]["total"] += 1
-            by_type[t]["memory_mb"] += s["mem_mb"]
-            if s["is_idle"]:
-                by_type[t]["idle"] += 1
-    
-    user_list = [{"user": u, **v} for u, v in sorted(user_sessions.items(), key=lambda x: -x[1]["memory_mb"])]
-    
-    # Alerts
-    idle_session_hours = 24
-    memory_hog_mb = 4096
-    max_idle_sessions = 5
-    
-    stale = [s for s in sessions if s["is_idle"] and s["age_hours"] >= idle_session_hours]
-    hogs = [s for s in sessions if s["mem_mb"] >= memory_hog_mb]
-    idle_hogs = [u for u in user_list if u["idle"] > max_idle_sessions]
-    
-    return {
-        "timestamp": datetime.now().isoformat(),
-        "server_id": "demo-server",
-        "summary": {
-            "total_sessions": len(sessions),
-            "idle_sessions": idle_count,
-            "total_memory_mb": round(total_mem, 1),
-            "total_memory_gb": round(total_mem / 1024, 2),
-            "unique_users": len(user_sessions)
-        },
-        "by_type": by_type,
-        "users": user_list,
-        "sessions": sorted(sessions, key=lambda x: -x["mem_mb"]),
-        "alerts": {
-            "stale_sessions": sorted(stale, key=lambda x: -x.get("age_hours", 0)),
-            "memory_hogs": sorted(hogs, key=lambda x: -x["mem_mb"]),
-            "idle_session_hogs": idle_hogs
-        },
-        "thresholds": {
-            "idle_session_hours": idle_session_hours,
-            "memory_hog_mb": memory_hog_mb,
-            "max_idle_sessions": max_idle_sessions
-        }
-    }
 
 
 def build_job_network(jobs, threshold=0.95, features=None):
@@ -1691,9 +1941,9 @@ def compute_bipartite_matrix(jobs: list, features: list = None, n_bins: int = 3)
 class DataManager:
     """Manages data loading from database or demo fallback."""
     
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, db_path: str = None):
         self.config = config
-        self.db_path = find_database()
+        self.db_path = Path(db_path) if db_path else find_database()
         self.data_source = "demo"
         
         self._clusters = None
@@ -1704,7 +1954,9 @@ class DataManager:
         self._correlation_data = None
         self._suggested_axes = None
         self._network_stats = None
+        self._ml_predictions = None
         self._discretization = None
+        self._clustering_quality = None
         
         self._load_data()
     
@@ -1716,7 +1968,7 @@ class DataManager:
             logger.info(f"Found database: {self.db_path}")
             
             # Load clusters
-            self._clusters = load_clusters_from_db(self.db_path, self.config)
+            self._clusters = load_clusters_from_db(self.db_path)
             
             if self._clusters:
                 self.data_source = f"database ({self.db_path.name})"
@@ -1751,7 +2003,6 @@ class DataManager:
                     self._edges = load_similarity_edges_from_db(self.db_path, job_ids)
                     
                     if not self._edges:
-                        # Build bipartite network using Vilhena & Antonelli method
                         network_result = build_similarity_network(
                             self._jobs,
                             method='cosine',
@@ -1760,8 +2011,17 @@ class DataManager:
                         )
                         self._edges = network_result['edges']
                         self._network_stats = network_result['stats']
-                        self._discretization = network_result.get('discretization')
+                        self._discretization = network_result.get('discretization') or network_result.get('normalization')
                         logger.info(f"Built cosine network: {len(self._edges)} edges (threshold ≥ 0.7)")
+                        
+                        # Compute clustering quality metrics
+                        self._clustering_quality = compute_clustering_quality(self._jobs, self._edges)
+                        if self._clustering_quality.get('is_clustered'):
+                            logger.info(f"Clustering detected: assortativity={self._clustering_quality['assortativity']['binary']}")
+                        else:
+                            logger.info(f"No significant clustering (assortativity={self._clustering_quality['assortativity']['binary']})")
+                        # Run ML predictions
+                        self.run_ml_predictions()
                 else:
                     # Use demo jobs
                     self._jobs = generate_demo_jobs(150)
@@ -1774,9 +2034,12 @@ class DataManager:
                     network_result = build_similarity_network(self._jobs, method='cosine', threshold=0.7)
                     self._edges = network_result['edges']
                     self._network_stats = network_result['stats']
-                    self._discretization = network_result.get('discretization')
+                    self._discretization = network_result.get('discretization') or network_result.get('normalization')
+                    self._clustering_quality = compute_clustering_quality(self._jobs, self._edges)
                     logger.info("Using demo job data for network view")
                     
+                    # Run ML predictions
+                    self.run_ml_predictions()
                 return
         
         # Fall back to demo data
@@ -1794,7 +2057,9 @@ class DataManager:
         network_result = build_similarity_network(self._jobs, method='cosine', threshold=0.7)
         self._edges = network_result['edges']
         self._network_stats = network_result['stats']
-        self._discretization = network_result.get('discretization')
+        self._discretization = network_result.get('discretization') or network_result.get('normalization')
+        self._clustering_quality = compute_clustering_quality(self._jobs, self._edges)
+        self.run_ml_predictions()
     
     @property
     def clusters(self):
@@ -1832,10 +2097,83 @@ class DataManager:
     def discretization(self):
         return self._discretization
     
+    @property
+    def clustering_quality(self):
+        return self._clustering_quality
+    @property
+    def ml_predictions(self):
+        return self._ml_predictions
+    
     def refresh(self):
         """Refresh data from source."""
         self._load_data()
     
+    
+    def run_ml_predictions(self):
+        """Run ML ensemble predictions on current jobs."""
+        try:
+            from nomade.ml import is_torch_available
+            if not is_torch_available():
+                self._ml_predictions = {"status": "pytorch_not_available"}
+                return
+            
+            from nomade.ml.ensemble import FailureEnsemble
+            from nomade.ml.gnn_torch import FailureGNN, prepare_pyg_data
+            from nomade.ml.autoencoder import JobAutoencoder, prepare_autoencoder_data
+            import torch
+            
+            jobs = self._jobs
+            edges = self._edges
+            
+            if not jobs or len(jobs) < 10:
+                self._ml_predictions = {"status": "insufficient_data"}
+                return
+            
+            # Prepare GNN data
+            gnn_edges = [{"source": e["source"], "target": e["target"]} for e in edges]
+            gnn_data = prepare_pyg_data(jobs, gnn_edges)
+            
+            # Quick GNN prediction (untrained - just structure)
+            gnn_model = FailureGNN(input_dim=gnn_data.x.size(1), hidden_dim=32, output_dim=8)
+            
+            # Autoencoder for anomaly detection
+            ae_features, ae_labels, _ = prepare_autoencoder_data(jobs)
+            ae_model = JobAutoencoder(input_dim=ae_features.size(1), latent_dim=4)
+            
+            # Simple anomaly scores (reconstruction error without training)
+            ae_model.eval()
+            with torch.no_grad():
+                recon = ae_model(ae_features)
+                errors = ((ae_features - recon) ** 2).mean(dim=1)
+                threshold = errors.mean() + 2 * errors.std()
+                anomalies = errors > threshold
+            
+            # Identify high-risk jobs
+            high_risk = []
+            for i, (job, is_anomaly, error) in enumerate(zip(jobs, anomalies.tolist(), errors.tolist())):
+                if is_anomaly or job.get("failure_reason", 0) != 0:
+                    high_risk.append({
+                        "job_idx": i,
+                        "job_id": job.get("job_id", i),
+                        "anomaly_score": round(error, 4),
+                        "is_anomaly": is_anomaly,
+                        "failure_reason": job.get("failure_reason", 0)
+                    })
+            
+            high_risk.sort(key=lambda x: -x["anomaly_score"])
+            
+            self._ml_predictions = {
+                "status": "ready",
+                "n_jobs": len(jobs),
+                "n_anomalies": int(anomalies.sum()),
+                "threshold": round(float(threshold), 4),
+                "high_risk": high_risk[:50]  # Top 50
+            }
+            logger.info(f"ML predictions: {len(high_risk)} high-risk jobs identified")
+            
+        except Exception as e:
+            logger.error(f"ML prediction error: {e}")
+            self._ml_predictions = {"status": "error", "message": str(e)}
     def get_stats(self) -> dict:
         """Get summary statistics."""
         online_nodes = sum(1 for n in self._nodes.values() if n['status'] == 'online')
@@ -1853,78 +2191,6 @@ class DataManager:
             "edges": len(self._edges)
         }
 
-    def get_failed_jobs(self, hours: int = 24, limit: int = 10) -> dict:
-        """Get recent failed jobs with failure reasons."""
-        
-        # Failure states mapping
-        failure_labels = {
-            1: 'TIMEOUT',
-            2: 'CANCELLED',
-            3: 'FAILED',
-            4: 'OUT_OF_MEMORY',
-            5: 'SEGFAULT',
-            6: 'NODE_FAIL',
-            7: 'DEPENDENCY'
-        }
-        
-        # Filter failed jobs from self.jobs
-        failed = [
-            j for j in self._jobs 
-            if j.get('failure_reason', 0) != 0  # 0 = SUCCESS
-        ]
-        
-        # Sort by job_id descending (most recent first)
-        failed.sort(key=lambda x: x.get('job_id', 0), reverse=True)
-        
-        # Build response
-        failed_jobs = []
-        for job in failed[:limit]:
-            fr = job.get('failure_reason', 3)
-            failed_jobs.append({
-                'job_id': job.get('job_id'),
-                'partition': job.get('partition', '—'),
-                'state': failure_labels.get(fr, 'FAILED'),
-                'exit_code': job.get('exit_code'),
-                'exit_signal': job.get('exit_signal'),
-                'runtime_sec': job.get('runtime_sec'),
-                'req_cpus': job.get('req_cpus'),
-                'req_mem_mb': job.get('req_mem_mb'),
-                'health_score': job.get('health_score'),
-                'failure_reason': self._get_failure_explanation(job)
-            })
-        
-        # Summary by reason
-        by_reason = {}
-        for job in failed:
-            fr = job.get('failure_reason', 3)
-            label = failure_labels.get(fr, 'FAILED')
-            by_reason[label] = by_reason.get(label, 0) + 1
-        
-        return {
-            'failed_jobs': failed_jobs,
-            'summary': {
-                'total_failed': len(failed),
-                'by_reason': by_reason
-            }
-        }
-
-    def _get_failure_explanation(self, job: dict) -> str:
-        """Generate human-readable failure explanation."""
-        fr = job.get('failure_reason', 3)
-        exit_code = job.get('exit_code')
-        exit_signal = job.get('exit_signal')
-        
-        explanations = {
-            1: "Job exceeded time limit",
-            2: "Job was cancelled",
-            3: f"Job failed with exit code {exit_code or 'unknown'}",
-            4: f"Job killed: out of memory (requested {job.get('req_mem_mb', '?')} MB)",
-            5: f"Segmentation fault (signal {exit_signal or 11})",
-            6: "Node failure during execution",
-            7: "Dependency job failed"
-        }
-        
-        return explanations.get(fr, f"Unknown failure (code {fr})")
 
 # ============================================================================
 # HTML Dashboard
@@ -2484,6 +2750,204 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
         
+
+            const eduStyles = {
+                panel: { padding: '24px', maxWidth: '1200px', margin: '0 auto' },
+                filterBar: { display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' },
+                select: { padding: '8px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: '#e0e0e0', fontSize: '14px', cursor: 'pointer' },
+                cards: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '32px' },
+                card: { background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.06)' },
+                cardValue: { fontSize: '28px', fontWeight: '700', color: '#e0e0e0', fontVariantNumeric: 'tabular-nums' },
+                cardLabel: { fontSize: '12px', color: '#808080', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' },
+                section: { fontSize: '16px', fontWeight: '600', color: '#c0c0c0', marginBottom: '16px', marginTop: '8px' },
+                barRow: { display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '12px' },
+                barLabel: { width: '140px', fontSize: '13px', color: '#c0c0c0', textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                barTrack: { flex: 1, height: '22px', background: 'rgba(255,255,255,0.04)', borderRadius: '4px', overflow: 'hidden' },
+                barFill: { height: '100%', background: 'linear-gradient(90deg, #22c55e, #4ade80)', borderRadius: '4px', transition: 'width 0.3s', minWidth: '2px' },
+                barValue: { width: '160px', fontSize: '12px', color: '#808080', flexShrink: 0 },
+                table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px' },
+                th: { textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', color: '#808080', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', cursor: 'pointer', userSelect: 'none' },
+                thNum: { textAlign: 'right', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', color: '#808080', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', cursor: 'pointer', userSelect: 'none' },
+                td: { padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: '#c0c0c0' },
+                tdNum: { padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: '#c0c0c0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
+                loading: { padding: '60px', textAlign: 'center', color: '#808080', fontSize: '15px' },
+                hmRow: { display: 'flex', gap: '2px', marginBottom: '2px' },
+                hmDayLabel: { width: '40px', fontSize: '11px', color: '#808080', textAlign: 'right', paddingRight: '8px', lineHeight: '20px', flexShrink: 0 },
+                hmCell: { width: '100%', maxWidth: '40px', height: '20px', borderRadius: '3px', cursor: 'default', flex: 1 },
+                hmHeader: { display: 'flex', gap: '2px', marginBottom: '4px' },
+                hmHourLabel: { width: '100%', maxWidth: '40px', fontSize: '9px', color: '#606060', textAlign: 'center', flex: 1 },
+                hmLabelCell: { width: '40px', paddingRight: '8px', flexShrink: 0 },
+                legend: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', justifyContent: 'center' },
+                legendLabel: { fontSize: '11px', color: '#606060' },
+                legendBar: { display: 'flex', gap: '1px', borderRadius: '3px', overflow: 'hidden' },
+            };
+
+            const ResourcesPanel = () => {
+                const [data, setData] = useState(null);
+                const [filters, setFilters] = useState({cluster: 'all', group: 'all', days: '30'});
+                const [sort, setSort] = useState({by: 'cpu_hours', dir: 'desc'});
+                useEffect(() => {
+                    const {cluster, group, days} = filters;
+                    fetch('/api/footprint?cluster=' + cluster + '&group=' + group + '&days=' + days)
+                        .then(r => r.json()).then(setData).catch(() => setData(null));
+                }, [filters]);
+                if (!data) return React.createElement('div', {style: eduStyles.loading}, 'Loading resource data...');
+                const maxCpu = Math.max(...data.groups.map(g => g.cpu_hours), 1);
+                const sorted_users = [...(data.users || [])].sort((a, b) => {
+                    if (sort.by === 'username') return sort.dir === 'asc' ? a.username.localeCompare(b.username) : b.username.localeCompare(a.username);
+                    return sort.dir === 'desc' ? (b[sort.by] || 0) - (a[sort.by] || 0) : (a[sort.by] || 0) - (b[sort.by] || 0);
+                });
+                const doSort = (col) => setSort({by: col, dir: sort.by === col && sort.dir === 'desc' ? 'asc' : 'desc'});
+                const arrow = (col) => sort.by === col ? (sort.dir === 'asc' ? ' ^' : ' v') : '';
+                return React.createElement('div', {style: eduStyles.panel},
+                    React.createElement('div', {style: eduStyles.filterBar},
+                        React.createElement('select', {value: filters.cluster, onChange: e => setFilters({...filters, cluster: e.target.value}), style: eduStyles.select},
+                            React.createElement('option', {value: 'all'}, 'All Clusters'),
+                            (data.filters.clusters || []).map(c => React.createElement('option', {key: c, value: c}, c))
+                        ),
+                        React.createElement('select', {value: filters.group, onChange: e => setFilters({...filters, group: e.target.value}), style: eduStyles.select},
+                            React.createElement('option', {value: 'all'}, 'All Groups'),
+                            (data.filters.groups || []).map(g => React.createElement('option', {key: g, value: g}, g))
+                        ),
+                        React.createElement('select', {value: filters.days, onChange: e => setFilters({...filters, days: e.target.value}), style: eduStyles.select},
+                            React.createElement('option', {value: '7'}, 'Last 7 days'),
+                            React.createElement('option', {value: '30'}, 'Last 30 days'),
+                            React.createElement('option', {value: '90'}, 'Last 90 days'),
+                            React.createElement('option', {value: '365'}, 'Last year')
+                        )
+                    ),
+                    React.createElement('div', {style: eduStyles.cards},
+                        React.createElement('div', {style: eduStyles.card},
+                            React.createElement('div', {style: eduStyles.cardValue}, Math.round(data.totals.cpu_hours).toLocaleString()),
+                            React.createElement('div', {style: eduStyles.cardLabel}, 'CPU-hours')
+                        ),
+                        React.createElement('div', {style: eduStyles.card},
+                            React.createElement('div', {style: eduStyles.cardValue}, Math.round(data.totals.gpu_hours).toLocaleString()),
+                            React.createElement('div', {style: eduStyles.cardLabel}, 'GPU-hours')
+                        ),
+                        React.createElement('div', {style: eduStyles.card},
+                            React.createElement('div', {style: eduStyles.cardValue}, (data.totals.jobs || 0).toLocaleString()),
+                            React.createElement('div', {style: eduStyles.cardLabel}, 'Jobs')
+                        ),
+                        React.createElement('div', {style: eduStyles.card},
+                            React.createElement('div', {style: eduStyles.cardValue}, data.totals.users || 0),
+                            React.createElement('div', {style: eduStyles.cardLabel}, 'Users')
+                        )
+                    ),
+                    data.groups.length > 0 && React.createElement('div', null,
+                        React.createElement('div', {style: eduStyles.section}, 'Resource Usage by Group'),
+                        React.createElement('div', {style: {marginBottom: '32px'}},
+                            data.groups.map(g => React.createElement('div', {key: g.name, style: eduStyles.barRow},
+                                React.createElement('div', {style: eduStyles.barLabel, title: g.name}, g.name),
+                                React.createElement('div', {style: eduStyles.barTrack},
+                                    React.createElement('div', {style: {...eduStyles.barFill, width: (g.cpu_hours / maxCpu * 100) + '%'}})
+                                ),
+                                React.createElement('div', {style: eduStyles.barValue},
+                                    Math.round(g.cpu_hours).toLocaleString() + ' CPU-hrs' +
+                                    (g.gpu_hours > 0 ? ' / ' + Math.round(g.gpu_hours).toLocaleString() + ' GPU-hrs' : '') +
+                                    ' (' + g.users + ' users)'
+                                )
+                            ))
+                        )
+                    ),
+                    React.createElement('div', {style: eduStyles.section}, 'User Breakdown'),
+                    React.createElement('table', {style: eduStyles.table},
+                        React.createElement('thead', null,
+                            React.createElement('tr', null,
+                                React.createElement('th', {style: eduStyles.th, onClick: () => doSort('username')}, 'User' + arrow('username')),
+                                React.createElement('th', {style: eduStyles.thNum, onClick: () => doSort('cpu_hours')}, 'CPU-hrs' + arrow('cpu_hours')),
+                                React.createElement('th', {style: eduStyles.thNum, onClick: () => doSort('gpu_hours')}, 'GPU-hrs' + arrow('gpu_hours')),
+                                React.createElement('th', {style: eduStyles.thNum, onClick: () => doSort('jobs')}, 'Jobs' + arrow('jobs')),
+                                React.createElement('th', {style: eduStyles.th}, 'Groups')
+                            )
+                        ),
+                        React.createElement('tbody', null,
+                            sorted_users.slice(0, 50).map(u => React.createElement('tr', {key: u.username + u.cluster},
+                                React.createElement('td', {style: eduStyles.td}, u.username),
+                                React.createElement('td', {style: eduStyles.tdNum}, Math.round(u.cpu_hours).toLocaleString()),
+                                React.createElement('td', {style: eduStyles.tdNum}, Math.round(u.gpu_hours).toLocaleString()),
+                                React.createElement('td', {style: eduStyles.tdNum}, u.jobs),
+                                React.createElement('td', {style: eduStyles.td}, (u.groups || []).join(', '))
+                            ))
+                        )
+                    )
+                );
+            };
+
+            const ActivityPanel = () => {
+                const [data, setData] = useState(null);
+                const [filters, setFilters] = useState({cluster: 'all', group: 'all', days: '30'});
+                useEffect(() => {
+                    const {cluster, group, days} = filters;
+                    fetch('/api/heatmap?cluster=' + cluster + '&group=' + group + '&days=' + days)
+                        .then(r => r.json()).then(setData).catch(() => setData(null));
+                }, [filters]);
+                if (!data) return React.createElement('div', {style: eduStyles.loading}, 'Loading activity data...');
+                const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                const getColor = (v) => {
+                    if (!v) return 'rgba(255,255,255,0.03)';
+                    const i = Math.min(v / (data.max_value || 1), 1);
+                    return 'rgb(' + Math.round(20 + i * 20) + ',' + Math.round(40 + i * 180) + ',' + Math.round(20 + i * 60) + ')';
+                };
+                return React.createElement('div', {style: eduStyles.panel},
+                    React.createElement('div', {style: eduStyles.filterBar},
+                        React.createElement('select', {value: filters.cluster, onChange: e => setFilters({...filters, cluster: e.target.value}), style: eduStyles.select},
+                            React.createElement('option', {value: 'all'}, 'All Clusters'),
+                            (data.filters.clusters || []).map(c => React.createElement('option', {key: c, value: c}, c))
+                        ),
+                        React.createElement('select', {value: filters.group, onChange: e => setFilters({...filters, group: e.target.value}), style: eduStyles.select},
+                            React.createElement('option', {value: 'all'}, 'All Groups'),
+                            (data.filters.groups || []).map(g => React.createElement('option', {key: g, value: g}, g))
+                        ),
+                        React.createElement('select', {value: filters.days, onChange: e => setFilters({...filters, days: e.target.value}), style: eduStyles.select},
+                            React.createElement('option', {value: '7'}, 'Last 7 days'),
+                            React.createElement('option', {value: '30'}, 'Last 30 days'),
+                            React.createElement('option', {value: '90'}, 'Last 90 days'),
+                            React.createElement('option', {value: '365'}, 'Last year')
+                        )
+                    ),
+                    React.createElement('div', {style: eduStyles.cards},
+                        React.createElement('div', {style: eduStyles.card},
+                            React.createElement('div', {style: eduStyles.cardValue}, (data.total_jobs || 0).toLocaleString()),
+                            React.createElement('div', {style: eduStyles.cardLabel}, 'Total Jobs')
+                        ),
+                        data.busiest && React.createElement('div', {style: eduStyles.card},
+                            React.createElement('div', {style: eduStyles.cardValue}, data.busiest.day + ' ' + data.busiest.hour + ':00'),
+                            React.createElement('div', {style: eduStyles.cardLabel}, 'Busiest Hour (' + data.busiest.count + ' jobs)')
+                        ),
+                        data.quietest && React.createElement('div', {style: eduStyles.card},
+                            React.createElement('div', {style: eduStyles.cardValue}, data.quietest.day + ' ' + data.quietest.hour + ':00'),
+                            React.createElement('div', {style: eduStyles.cardLabel}, 'Quietest Hour')
+                        )
+                    ),
+                    React.createElement('div', {style: eduStyles.section}, 'Job Submissions by Day and Hour'),
+                    React.createElement('div', {style: {marginBottom: '32px'}},
+                        React.createElement('div', {style: eduStyles.hmHeader},
+                            React.createElement('div', {style: eduStyles.hmLabelCell}),
+                            Array.from({length: 24}, (_, i) => React.createElement('div', {key: i, style: eduStyles.hmHourLabel}, i % 3 === 0 ? i + 'h' : ''))
+                        ),
+                        data.grid.map((row, di) => React.createElement('div', {key: di, style: eduStyles.hmRow},
+                            React.createElement('div', {style: eduStyles.hmDayLabel}, dayNames[di]),
+                            row.map((v, hi) => React.createElement('div', {
+                                key: hi,
+                                style: {...eduStyles.hmCell, backgroundColor: getColor(v)},
+                                title: dayNames[di] + ' ' + hi + ':00 -- ' + v + ' jobs'
+                            }))
+                        ))
+                    ),
+                    React.createElement('div', {style: eduStyles.legend},
+                        React.createElement('span', {style: eduStyles.legendLabel}, 'Less'),
+                        React.createElement('div', {style: eduStyles.legendBar},
+                            [0, 0.2, 0.4, 0.6, 0.8, 1.0].map(i => React.createElement('div', {
+                                key: i,
+                                style: {width: '16px', height: '12px', backgroundColor: 'rgb(' + Math.round(20+i*20) + ',' + Math.round(40+i*180) + ',' + Math.round(20+i*60) + ')'}
+                            }))
+                        ),
+                        React.createElement('span', {style: eduStyles.legendLabel}, 'More')
+                    )
+                );
+            };
+
         function App() {
             const [clusters, setClusters] = useState(null);
             const [nodes, setNodes] = useState(null);
@@ -2494,7 +2958,13 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             const [suggestedAxes, setSuggestedAxes] = useState(null);
             const [networkStats, setNetworkStats] = useState(null);
             const [networkMethod, setNetworkMethod] = useState(null);
+            const [clusteringQuality, setClusteringQuality] = useState(null);
+            const [mlPredictions, setMlPredictions] = useState(null);
             const [dataSource, setDataSource] = useState('loading...');
+            
+
+
+
             const [activeTab, setActiveTab] = useState(null);
             const [selectedNode, setSelectedNode] = useState(null);
             const [currentTime, setCurrentTime] = useState(new Date());
@@ -2512,6 +2982,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         setSuggestedAxes(data.suggested_axes);
                         setNetworkStats(data.network_stats);
                         setNetworkMethod(data.network_method);
+                        setClusteringQuality(data.clustering_quality);
+                        setMlPredictions(data.ml_predictions);
                         setDataSource(data.data_source || 'unknown');
                         setActiveTab(Object.keys(data.clusters)[0]);
                     });
@@ -2570,10 +3042,16 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 Network View
                             </div>
                             <div
-                                className={`tab ${activeTab === 'interactive' ? 'active' : ''}`}
-                                onClick={() => { setActiveTab('interactive'); setSelectedNode(null); }}
+                                className={`tab ${activeTab === 'resources' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('resources'); setSelectedNode(null); }}
                             >
-                                Interactive
+                                Resources
+                            </div>
+                            <div
+                                className={`tab ${activeTab === 'activity' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('activity'); setSelectedNode(null); }}
+                            >
+                                Activity
                             </div>
                         </nav>
                         
@@ -2595,9 +3073,13 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 suggestedAxes={suggestedAxes}
                                 networkStats={networkStats}
                                 networkMethod={networkMethod}
+                                clusteringQuality={clusteringQuality}
+                                mlPredictions={mlPredictions}
                             />
-                        ) : activeTab === 'interactive' ? (
-                            <InteractiveView />
+                        ) : activeTab === 'resources' ? (
+                            <ResourcesPanel />
+                        ) : activeTab === 'activity' ? (
+                            <ActivityPanel />
                         ) : (
                             <>
                                 <ClusterView
@@ -2614,187 +3096,13 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             );
         }
         
-
-        function InteractiveView() {
-            const [data, setData] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [error, setError] = useState(null);
-
-            useEffect(() => {
-                fetchData();
-                const interval = setInterval(fetchData, 30000);
-                return () => clearInterval(interval);
-            }, []);
-
-            const fetchData = async () => {
-                try {
-                    const response = await fetch('/api/interactive');
-                    const result = await response.json();
-                    if (result.error) {
-                        setError(result.error);
-                    } else {
-                        setData(result);
-                        setError(null);
-                    }
-                } catch (e) {
-                    setError('Failed to fetch interactive sessions');
-                }
-                setLoading(false);
-            };
-
-            if (loading) {
-                return <div className="loading" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading interactive sessions...</div>;
-            }
-
-            if (error) {
-                return <div className="error" style={{ padding: '40px', textAlign: 'center', color: 'var(--red)' }}>{error}</div>;
-            }
-
-            if (!data) return null;
-
-            const { summary, by_type, users, alerts, thresholds } = data;
-
-            return (
-                <div className="interactive-view" style={{ padding: '24px', width: '100%', overflow: 'auto' }}>
-                    <div style={{ marginBottom: '24px' }}>
-                        <h2 style={{ fontSize: '20px', marginBottom: '16px' }}>Interactive Sessions</h2>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px' }}>
-                            <div className="stat-card" style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Total Sessions</div>
-                                <div style={{ fontSize: '24px', fontWeight: '600' }}>{summary.total_sessions}</div>
-                            </div>
-                            <div className="stat-card" style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Idle Sessions</div>
-                                <div style={{ fontSize: '24px', fontWeight: '600', color: 'var(--yellow)' }}>{summary.idle_sessions}</div>
-                            </div>
-                            <div className="stat-card" style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Memory Used</div>
-                                <div style={{ fontSize: '24px', fontWeight: '600' }}>{summary.total_memory_gb} GB</div>
-                            </div>
-                            <div className="stat-card" style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Users</div>
-                                <div style={{ fontSize: '24px', fontWeight: '600' }}>{summary.unique_users}</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                        <div style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                            <h3 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--text-secondary)' }}>Sessions by Type</h3>
-                            <table style={{ width: '100%', fontSize: '13px' }}>
-                                <thead>
-                                    <tr style={{ color: 'var(--text-muted)', textAlign: 'left' }}>
-                                        <th style={{ padding: '8px 0' }}>Type</th>
-                                        <th style={{ padding: '8px 0', textAlign: 'right' }}>Total</th>
-                                        <th style={{ padding: '8px 0', textAlign: 'right' }}>Idle</th>
-                                        <th style={{ padding: '8px 0', textAlign: 'right' }}>Memory</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {Object.entries(by_type).filter(([_, v]) => v.total > 0).map(([type, stats]) => (
-                                        <tr key={type} style={{ borderTop: '1px solid var(--border)' }}>
-                                            <td style={{ padding: '8px 0' }}>{type}</td>
-                                            <td style={{ padding: '8px 0', textAlign: 'right' }}>{stats.total}</td>
-                                            <td style={{ padding: '8px 0', textAlign: 'right', color: 'var(--yellow)' }}>{stats.idle}</td>
-                                            <td style={{ padding: '8px 0', textAlign: 'right' }}>{Math.round(stats.memory_mb)} MB</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                            <h3 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--text-secondary)' }}>Top Users by Memory</h3>
-                            <table style={{ width: '100%', fontSize: '13px' }}>
-                                <thead>
-                                    <tr style={{ color: 'var(--text-muted)', textAlign: 'left' }}>
-                                        <th style={{ padding: '8px 0' }}>User</th>
-                                        <th style={{ padding: '8px 0', textAlign: 'right' }}>Sessions</th>
-                                        <th style={{ padding: '8px 0', textAlign: 'right' }}>RStudio</th>
-                                        <th style={{ padding: '8px 0', textAlign: 'right' }}>Jupyter</th>
-                                        <th style={{ padding: '8px 0', textAlign: 'right' }}>Memory</th>
-                                        <th style={{ padding: '8px 0', textAlign: 'right' }}>Idle</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {users.slice(0, 10).map(user => (
-                                        <tr key={user.user} style={{ borderTop: '1px solid var(--border)' }}>
-                                            <td style={{ padding: '8px 0', fontFamily: 'monospace' }}>{user.user}</td>
-                                            <td style={{ padding: '8px 0', textAlign: 'right' }}>{user.sessions}</td>
-                                            <td style={{ padding: '8px 0', textAlign: 'right' }}>{user.rstudio}</td>
-                                            <td style={{ padding: '8px 0', textAlign: 'right' }}>{user.jupyter}</td>
-                                            <td style={{ padding: '8px 0', textAlign: 'right' }}>{Math.round(user.memory_mb)} MB</td>
-                                            <td style={{ padding: '8px 0', textAlign: 'right', color: user.idle > thresholds.max_idle_sessions ? 'var(--red)' : 'var(--yellow)' }}>{user.idle}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    {(alerts.idle_session_hogs.length > 0 || alerts.stale_sessions.length > 0 || alerts.memory_hogs.length > 0) && (
-                        <div style={{ marginTop: '24px', background: 'var(--bg-surface)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                            <h3 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--red)' }}>Alerts</h3>
-                            {alerts.idle_session_hogs.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Users with more than {thresholds.max_idle_sessions} idle sessions:</div>
-                                    {alerts.idle_session_hogs.map(u => (
-                                        <div key={u.user} style={{ fontSize: '13px', padding: '4px 0' }}>
-                                            <span style={{ fontFamily: 'monospace' }}>{u.user}</span>: {u.idle} idle ({u.rstudio} RStudio, {u.jupyter} Jupyter), {Math.round(u.memory_mb)} MB
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            {alerts.stale_sessions.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Stale sessions (idle more than {thresholds.idle_session_hours}h):</div>
-                                    {alerts.stale_sessions.slice(0, 5).map((s, i) => (
-                                        <div key={i} style={{ fontSize: '13px', padding: '4px 0' }}>
-                                            <span style={{ fontFamily: 'monospace' }}>{s.user}</span>: {s.session_type}, {Math.round(s.age_hours)}h old, {Math.round(s.mem_mb)} MB
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            {alerts.memory_hogs.length > 0 && (
-                                <div>
-                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Memory hogs (more than {thresholds.memory_hog_mb/1024} GB):</div>
-                                    {alerts.memory_hogs.slice(0, 5).map((s, i) => (
-                                        <div key={i} style={{ fontSize: '13px', padding: '4px 0' }}>
-                                            <span style={{ fontFamily: 'monospace' }}>{s.user}</span>: {s.session_type}, {(s.mem_mb/1024).toFixed(1)} GB
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
         function ClusterView({ cluster, nodes, selectedNode, onSelectNode }) {
-            const getHealthColor = (rate) => {
-                if (rate >= 0.85) return 'green';
-                if (rate >= 0.60) return 'yellow';
-                return 'red';
-            };
-
-            const getNodeColor = (node) => {
-                const successColor = getHealthColor(node.success_rate || 0);
-                const cpu = node.cpu_util || 0;
-                const mem = node.mem_util || 0;
-                const worst = Math.max(cpu, mem);
-                const utilColor = worst > 90 ? 'red' : worst > 75 ? 'yellow' : 'green';
-                // Return the worst of success rate and utilization
-                const priority = { red: 2, yellow: 1, green: 0 };
-                return priority[utilColor] > priority[successColor] ? utilColor : successColor;
-            };
-
             const stats = useMemo(() => {
                 const online = nodes.filter(n => n.status === 'online');
                 const totalJobs = online.reduce((sum, n) => sum + (n.jobs_today || 0), 0);
                 const successJobs = online.reduce((sum, n) => sum + (n.jobs_success || 0), 0);
-                const avgSuccess = online.length > 0
-                    ? online.reduce((sum, n) => sum + (n.success_rate || 0), 0) / online.length
+                const avgSuccess = online.length > 0 
+                    ? online.reduce((sum, n) => sum + (n.success_rate || 0), 0) / online.length 
                     : 0;
                 return {
                     online: online.length,
@@ -2805,72 +3113,20 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     avgSuccess
                 };
             }, [nodes]);
-
-            const partitions = useMemo(() => {
-                const groups = {};
-                nodes.forEach(node => {
-                    const pid = node.partition || 'default';
-                    if (!groups[pid]) groups[pid] = [];
-                    groups[pid].push(node);
-                });
-                return Object.entries(groups).map(([pid, pnodes]) => {
-                    const online = pnodes.filter(n => n.status === 'online');
-                    const totalJobs = online.reduce((sum, n) => sum + (n.jobs_today || 0), 0);
-                    const successJobs = online.reduce((sum, n) => sum + (n.jobs_success || 0), 0);
-                    const avgCpu = online.length > 0
-                        ? online.reduce((sum, n) => sum + (n.cpu_util || 0), 0) / online.length : 0;
-                    const avgMem = online.length > 0
-                        ? online.reduce((sum, n) => sum + (n.mem_util || 0), 0) / online.length : 0;
-                    const avgSuccess = online.length > 0
-                        ? online.reduce((sum, n) => sum + (n.success_rate || 0), 0) / online.length : 0;
-                    const hasGpu = pnodes.some(n => n.has_gpu);
-                    const avgGpu = hasGpu && online.filter(n => n.has_gpu).length > 0
-                        ? online.filter(n => n.has_gpu).reduce((sum, n) => sum + (n.gpu_util || 0), 0) / online.filter(n => n.has_gpu).length : 0;
-                    const partInfo = cluster.partitions ? cluster.partitions[pid] : null;
-                    return {
-                        id: pid,
-                        name: partInfo ? partInfo.name : pid,
-                        description: partInfo ? partInfo.description : '',
-                        nodes: pnodes,
-                        online: online.length,
-                        down: pnodes.length - online.length,
-                        totalJobs,
-                        successJobs,
-                        failedJobs: totalJobs - successJobs,
-                        avgCpu: Math.round(avgCpu),
-                        avgMem: Math.round(avgMem),
-                        avgGpu: Math.round(avgGpu),
-                        avgSuccess,
-                        hasGpu
-                    };
-                });
-            }, [nodes, cluster]);
-
-            const UtilBadge = ({ label, value }) => {
-                const color = value > 90 ? 'var(--red)' : value > 70 ? 'var(--yellow)' : 'var(--cyan)';
-                return (
-                    <span style={{
-                        fontSize: '11px',
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        background: 'var(--bg-deep)',
-                        border: '1px solid var(--border)',
-                        color: color,
-                        fontFamily: 'var(--font-mono, monospace)',
-                        whiteSpace: 'nowrap'
-                    }}>
-                        {label} <span style={{ fontWeight: 600 }}>{value}%</span>
-                    </span>
-                );
+            
+            const getHealthColor = (rate) => {
+                if (rate >= 0.85) return 'green';
+                if (rate >= 0.60) return 'yellow';
+                return 'red';
             };
-
+            
             return (
                 <div className="content">
                     <div className="cluster-header">
                         <h1 className="cluster-title">{cluster.name}</h1>
                         <p className="cluster-desc">{cluster.description}</p>
                     </div>
-
+                    
                     <div className="stats-bar">
                         <div className="stat">
                             <div className="stat-value green">{stats.online}</div>
@@ -2899,72 +3155,29 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <div className="stat-label">Avg Success</div>
                         </div>
                     </div>
-
-                    {partitions.map(part => (
-                        <div key={part.id} style={{ marginBottom: '24px' }}>
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '12px 16px',
-                                background: 'var(--bg-surface)',
-                                borderRadius: '8px 8px 0 0',
-                                border: '1px solid var(--border)',
-                                borderBottom: 'none'
-                            }}>
-                                <div>
-                                    <span style={{ fontWeight: '600', fontSize: '15px' }}>{part.name}</span>
-                                    <span style={{ color: 'var(--text-muted)', fontSize: '13px', marginLeft: '12px' }}>
-                                        {part.description}
-                                    </span>
-                                    <span style={{ color: 'var(--text-muted)', fontSize: '12px', marginLeft: '12px' }}>
-                                        {part.online}/{part.nodes.length} nodes
-                                    </span>
-                                    {part.down > 0 && (
-                                        <span style={{ color: 'var(--red)', fontSize: '12px', marginLeft: '8px' }}>
-                                            ({part.down} down)
-                                        </span>
-                                    )}
+                    
+                    <div className="node-grid">
+                        {nodes.map(node => (
+                            <div
+                                key={node.name}
+                                className={`node-card ${node.status === 'down' ? 'down' : ''} ${selectedNode === node.name ? 'selected' : ''}`}
+                                onClick={() => onSelectNode(node.name)}
+                            >
+                                <div className="node-name">{node.name}</div>
+                                <div className={`node-indicator ${node.status === 'down' ? 'offline' : getHealthColor(node.success_rate || 0)}`}>
+                                    {node.status === 'down' ? '—' : `${Math.round((node.success_rate || 0) * 100)}%`}
                                 </div>
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                                    <UtilBadge label="CPU" value={part.avgCpu} />
-                                    <UtilBadge label="MEM" value={part.avgMem} />
-                                    {part.hasGpu && <UtilBadge label="GPU" value={part.avgGpu} />}
-                                    <span style={{ marginLeft: '4px' }}>{part.totalJobs} jobs</span>
-                                    <span style={{ color: 'var(--green)' }}>{part.successJobs} ok</span>
-                                    {part.failedJobs > 0 && <span style={{ color: 'var(--red)' }}>{part.failedJobs} fail</span>}
+                                <div className="node-jobs">
+                                    {node.status === 'down' ? (node.slurm_state || 'OFFLINE') : `${node.jobs_today || 0} jobs`}
                                 </div>
+                                <div className="node-gpu-badge" style={{ background: node.has_gpu ? "#1a1a1a" : "rgba(255,255,255,0.9)", color: node.has_gpu ? "#ffffff" : "#1a1a1a" }}>{node.has_gpu ? "GPU" : "CPU"}</div>
                             </div>
-
-                            <div className="node-grid" style={{
-                                border: '1px solid var(--border)',
-                                borderTop: 'none',
-                                borderRadius: '0 0 8px 8px',
-                                padding: '12px'
-                            }}>
-                                {part.nodes.map(node => (
-                                    <div
-                                        key={node.name}
-                                        className={`node-card ${node.status === 'down' ? 'down' : ''} ${selectedNode === node.name ? 'selected' : ''}`}
-                                        onClick={() => onSelectNode(node.name)}
-                                    >
-                                        <div className="node-name">{node.name}</div>
-                                        <div className={`node-indicator ${node.status === 'down' ? 'offline' : getNodeColor(node)}`}>
-                                            {node.status === 'down' ? '\u2014' : `${Math.round((node.success_rate || 0) * 100)}%`}
-                                        </div>
-                                        <div className="node-jobs">
-                                            {node.status === 'down' ? (node.slurm_state || 'OFFLINE') : `${node.jobs_today || 0} jobs`}
-                                        </div>
-                                        {node.has_gpu && <div className="node-gpu-badge">GPU</div>}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             );
         }
-
+        
         function NodeSidebar({ node }) {
             if (!node) {
                 return (
@@ -2981,17 +3194,6 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 if (rate >= 0.85) return 'green';
                 if (rate >= 0.60) return 'yellow';
                 return 'red';
-            };
-
-            const getNodeColor = (node) => {
-                const successColor = getHealthColor(node.success_rate || 0);
-                const cpu = node.cpu_util || 0;
-                const mem = node.mem_util || 0;
-                const worst = Math.max(cpu, mem);
-                const utilColor = worst > 90 ? 'red' : worst > 75 ? 'yellow' : 'green';
-                // Return the worst of success rate and utilization
-                const priority = { red: 2, yellow: 1, green: 0 };
-                return priority[utilColor] > priority[successColor] ? utilColor : successColor;
             };
             
             return (
@@ -3126,7 +3328,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             );
         }
         
-        function NetworkView({ jobs, edges, featureStats, correlationData, suggestedAxes, networkStats, networkMethod }) {
+        function NetworkView({ jobs, edges, featureStats, correlationData, suggestedAxes, networkStats, networkMethod, clusteringQuality, mlPredictions }) {
             const containerRef = useRef(null);
             const sceneRef = useRef(null);
             const nodeGroupRef = useRef(null);
@@ -3135,8 +3337,9 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             const [showStats, setShowStats] = useState(false);
             const [showCorrelation, setShowCorrelation] = useState(false);
             const [showMethod, setShowMethod] = useState(false);
-            const [showFailedModal, setShowFailedModal] = React.useState(false);
-            const [failedJobs, setFailedJobs] = React.useState(null);
+            const [showClustering, setShowClustering] = useState(false);
+            const [showML, setShowML] = useState(false);
+            const [mlTraining, setMlTraining] = useState(false);
             const [forceIterations, setForceIterations] = useState(0);
             const forcePositionsRef = useRef(null);
             const animationRef = useRef(null);
@@ -3713,17 +3916,6 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 };
             }, [jobs, edges]);
             
-            const fetchFailedJobs = async () => {
-                try {
-                    const response = await fetch('/api/failed_jobs?limit=10');
-                    const data = await response.json();
-                    setFailedJobs(data);
-                    setShowFailedModal(true);
-                } catch (error) {
-                    console.error('Failed to fetch failed jobs:', error);
-                }
-            };
-            
             const formatFeatureName = (name) => {
                 return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
             };
@@ -3772,22 +3964,35 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             </button>
                             <button 
                                 className={`network-btn ${showStats ? 'active' : ''}`}
-                                onClick={() => { setShowStats(!showStats); setShowCorrelation(false); setShowMethod(false); }}
+                                onClick={() => { setShowStats(!showStats); setShowCorrelation(false); setShowMethod(false); setShowClustering(false); }}
                                 style={{ marginLeft: '16px' }}
                             >
                                 Variance
                             </button>
                             <button 
                                 className={`network-btn ${showCorrelation ? 'active' : ''}`}
-                                onClick={() => { setShowCorrelation(!showCorrelation); setShowStats(false); setShowMethod(false); }}
+                                onClick={() => { setShowCorrelation(!showCorrelation); setShowStats(false); setShowMethod(false); setShowClustering(false); }}
                             >
                                 Correlation
                             </button>
                             <button 
                                 className={`network-btn ${showMethod ? 'active' : ''}`}
-                                onClick={() => { setShowMethod(!showMethod); setShowStats(false); setShowCorrelation(false); }}
+                                onClick={() => { setShowMethod(!showMethod); setShowStats(false); setShowCorrelation(false); setShowClustering(false); }}
                             >
                                 Method
+                            </button>
+                            <button 
+                                className={`network-btn ${showClustering ? 'active' : ''}`}
+                                onClick={() => { setShowClustering(!showClustering); setShowStats(false); setShowCorrelation(false); setShowMethod(false); }}
+                            >
+                                Clustering
+                            </button>
+                            <button
+                                className={`network-btn ${showML ? "active" : ""}`}
+                                onClick={() => { setShowML(!showML); setShowStats(false); setShowCorrelation(false); setShowMethod(false); setShowClustering(false); }}
+                                style={{ background: showML ? "#e74c3c" : "#3498db" }}
+                            >
+                                ML Risk
                             </button>
                         </div>
                         
@@ -4123,21 +4328,19 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 <div style={{ fontWeight: '600', marginBottom: '12px', color: 'var(--cyan)', fontSize: '12px' }}>
                                     NETWORK METHOD
                                 </div>
-                                
-                                <div style={{ marginBottom: '12px' }}>
+                                    <div style={{ marginBottom: '12px' }}>
                                     <div style={{ color: 'var(--text-primary)', fontWeight: '600', marginBottom: '4px' }}>
-                                        Simpson's β-diversity (Bipartite)
+                                        Cosine Similarity (Continuous)
                                     </div>
                                     <div style={{ color: 'var(--text-muted)', fontSize: '10px', lineHeight: '1.5' }}>
-                                        Based on Vilhena & Antonelli (2015, Nature Communications).
-                                        Jobs are connected based on shared resource usage patterns,
-                                        treating each resource bin as a "site" in biogeographical terms.
+                                        Jobs are connected based on similar resource usage vectors.
+                                        Features are z-score normalized before comparison.
                                     </div>
                                 </div>
-                                
-                                <div style={{ 
-                                    background: 'var(--bg-hover)', 
-                                    borderRadius: '6px', 
+
+                                <div style={{
+                                    background: 'var(--bg-hover)',
+                                    borderRadius: '6px',
                                     padding: '10px',
                                     marginBottom: '12px',
                                     fontFamily: 'IBM Plex Mono, monospace',
@@ -4145,22 +4348,20 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 }}>
                                     <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Formula:</div>
                                     <div style={{ color: 'var(--green)' }}>
-                                        Simpson = a / (a + min(b, c))
+                                        cos(θ) = (A · B) / (||A|| × ||B||)
                                     </div>
                                     <div style={{ color: 'var(--text-muted)', marginTop: '8px', fontSize: '9px' }}>
-                                        a = shared bins<br/>
-                                        b = unique to job₁<br/>
-                                        c = unique to job₂
+                                        A, B = job feature vectors<br/>
+                                        Result: 1 = identical, 0 = orthogonal
                                     </div>
                                 </div>
-                                
+
                                 <div style={{ color: 'var(--text-muted)', fontSize: '10px', marginBottom: '12px' }}>
-                                    <strong style={{ color: 'var(--text-secondary)' }}>Why Simpson?</strong><br/>
-                                    Unlike Jaccard or cosine similarity, Simpson focuses on the
-                                    <em> proportion of the smaller set</em> that is shared. This avoids
-                                    bias when comparing jobs with different resource footprints.
-                                </div>
-                                
+                                    <strong style={{ color: 'var(--text-secondary)' }}>Why Cosine?</strong><br/>
+                                    Works on continuous features without discretization.
+                                    Standard in ML, measures direction similarity regardless of magnitude.
+                                </div>                               
+
                                 {networkStats && (
                                     <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
                                         <div style={{ color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '600' }}>
@@ -4207,6 +4408,251 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             </div>
                         )}
                         
+                        {/* Clustering Quality Panel */}
+                        {showClustering && clusteringQuality && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '60px',
+                                left: '16px',
+                                background: 'var(--bg-elevated)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '8px',
+                                padding: '16px',
+                                fontSize: '11px',
+                                maxWidth: '360px'
+                            }}>
+                                <div style={{ fontWeight: '600', marginBottom: '12px', color: 'var(--purple)', fontSize: '12px' }}>
+                                    FAILURE CLUSTERING ANALYSIS
+                                </div>
+                                
+                                <div style={{ marginBottom: '12px', color: 'var(--text-muted)', fontSize: '10px', lineHeight: '1.5' }}>
+                                    Metrics inspired by phylogenetic community structure (MNTD, NTI).
+                                    Tests whether failures cluster together in the network.
+                                </div>
+                                
+                                {/* Assortativity */}
+                                <div style={{ 
+                                    background: 'var(--bg-hover)', 
+                                    borderRadius: '6px', 
+                                    padding: '10px',
+                                    marginBottom: '10px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                        <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>Assortativity</span>
+                                        <span style={{ 
+                                            color: clusteringQuality.assortativity?.binary > 0.1 ? 'var(--green)' : 
+                                                   clusteringQuality.assortativity?.binary < -0.1 ? 'var(--red)' : 'var(--text-secondary)',
+                                            fontFamily: 'IBM Plex Mono, monospace'
+                                        }}>
+                                            r = {clusteringQuality.assortativity?.binary?.toFixed(3) || '—'}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                                        {clusteringQuality.assortativity?.binary > 0.1 ? 
+                                            '✓ Failures tend to connect to other failures' :
+                                         clusteringQuality.assortativity?.binary < -0.1 ?
+                                            '✗ Failures dispersed among successes' :
+                                            '○ No strong clustering pattern'}
+                                    </div>
+                                    <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                        z-score: {clusteringQuality.assortativity?.z_score || '—'}
+                                        {Math.abs(clusteringQuality.assortativity?.z_score || 0) > 2 ? ' (significant)' : ' (not significant)'}
+                                    </div>
+                                </div>
+                                
+                                {/* Neighborhood Purity */}
+                                <div style={{ 
+                                    background: 'var(--bg-hover)', 
+                                    borderRadius: '6px', 
+                                    padding: '10px',
+                                    marginBottom: '10px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                        <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>Neighborhood Purity</span>
+                                        <span style={{ 
+                                            color: 'var(--text-primary)',
+                                            fontFamily: 'IBM Plex Mono, monospace'
+                                        }}>
+                                            {((clusteringQuality.neighborhood_purity?.binary || 0) * 100).toFixed(1)}%
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                                        Average fraction of same-class neighbors
+                                    </div>
+                                </div>
+                                
+                                {/* MNTD Ratio */}
+                                <div style={{ 
+                                    background: 'var(--bg-hover)', 
+                                    borderRadius: '6px', 
+                                    padding: '10px',
+                                    marginBottom: '10px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                        <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>MNTD Ratio</span>
+                                        <span style={{ 
+                                            color: clusteringQuality.mntd_ratio < 0.9 ? 'var(--green)' : 
+                                                   clusteringQuality.mntd_ratio > 1.1 ? 'var(--red)' : 'var(--text-secondary)',
+                                            fontFamily: 'IBM Plex Mono, monospace'
+                                        }}>
+                                            {clusteringQuality.mntd_ratio?.toFixed(3) || '—'}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                                        {clusteringQuality.mntd_ratio < 0.9 ? 
+                                            '✓ Same-class jobs are closer than expected' :
+                                         clusteringQuality.mntd_ratio > 1.1 ?
+                                            '✗ Same-class jobs are farther than expected' :
+                                            '○ Distance to same-class ≈ random'}
+                                    </div>
+                                </div>
+                                
+                                {/* SES.MNTD */}
+                                <div style={{
+                                    background: "var(--bg-hover)",
+                                    borderRadius: "6px",
+                                    padding: "10px",
+                                    marginBottom: "10px"
+                                }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                                        <span style={{ color: "var(--text-muted)", fontWeight: "600" }}>SES.MNTD</span>
+                                        <span style={{
+                                            color: clusteringQuality.ses_mntd < -2 ? "var(--green)" :
+                                                   clusteringQuality.ses_mntd > 2 ? "var(--red)" : "var(--text-secondary)",
+                                            fontFamily: "IBM Plex Mono, monospace"
+                                        }}>
+                                            {clusteringQuality.ses_mntd?.toFixed(2) || "—"}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: "9px", color: "var(--text-muted)" }}>
+                                        {clusteringQuality.ses_mntd < -2 ?
+                                            "✓ Significant clustering (p < 0.05)" :
+                                         clusteringQuality.ses_mntd > 2 ?
+                                            "✗ Significant overdispersion (p < 0.05)" :
+                                            "○ Not significant"}
+                                    </div>
+                                </div>
+                                
+                                {/* Interpretation */}
+                                {clusteringQuality.interpretation && (
+                                    <div style={{ 
+                                        borderTop: '1px solid var(--border)', 
+                                        paddingTop: '12px',
+                                        marginTop: '4px'
+                                    }}>
+                                        <div style={{ color: 'var(--text-muted)', fontWeight: '600', marginBottom: '8px', fontSize: '10px' }}>
+                                            INTERPRETATION
+                                        </div>
+                                        {clusteringQuality.interpretation.map((line, i) => (
+                                            <div key={i} style={{ 
+                                                color: 'var(--text-secondary)', 
+                                                fontSize: '10px',
+                                                marginBottom: '4px',
+                                                paddingLeft: '8px',
+                                                borderLeft: '2px solid var(--border)'
+                                            }}>
+                                                {line}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                
+                                {/* Sample sizes */}
+                                <div style={{ 
+                                    marginTop: '12px', 
+                                    fontSize: '9px', 
+                                    color: 'var(--text-muted)',
+                                    display: 'flex',
+                                    gap: '16px'
+                                }}>
+                                    <span>n={clusteringQuality.sample_sizes?.n_jobs || '—'}</span>
+                                    <span>edges={clusteringQuality.sample_sizes?.n_edges?.toLocaleString() || '—'}</span>
+                                    <span style={{ color: 'var(--green)' }}>
+                                        ✓{clusteringQuality.sample_sizes?.n_success || 0}
+                                    </span>
+                                    <span style={{ color: 'var(--red)' }}>
+                                        ✗{clusteringQuality.sample_sizes?.n_failure || 0}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                        {showML && mlPredictions && (
+                            <div style={{
+                                position: "absolute",
+                                top: "60px",
+                                left: "16px",
+                                background: "var(--bg-elevated)",
+                                border: "1px solid var(--border)",
+                                borderRadius: "8px",
+                                padding: "16px",
+                                fontSize: "11px",
+                                maxWidth: "400px",
+                                maxHeight: "500px",
+                                overflowY: "auto"
+                            }}>
+                                <div style={{ fontWeight: "600", marginBottom: "12px", color: "#e74c3c", fontSize: "12px" }}>
+                                    ML RISK ANALYSIS
+                                </div>
+                                <div style={{ marginBottom: "12px", color: "var(--text-muted)", fontSize: "10px" }}>
+                                    Status: {mlPredictions.status} | Anomalies: {mlPredictions.n_anomalies || 0} / {mlPredictions.n_jobs || 0}
+                                    <button
+                                        onClick={() => {
+                                            setMlTraining(true);
+                                            fetch("/api/train_ml").then(r => r.json()).then(data => {
+                                                setMlTraining(false);
+                                                window.location.reload();
+                                            });
+                                        }}
+                                        disabled={mlTraining}
+                                        style={{
+                                            marginLeft: "10px",
+                                            padding: "4px 8px",
+                                            fontSize: "9px",
+                                            background: mlTraining ? "#666" : "#27ae60",
+                                            color: "white",
+                                            border: "none",
+                                            borderRadius: "4px",
+                                            cursor: mlTraining ? "wait" : "pointer"
+                                        }}
+                                    >
+                                        {mlTraining ? "Training..." : "🔄 Update Models"}
+                                    </button>
+                                </div>
+                                {mlPredictions.summary && (
+                                    <div style={{ background: "var(--bg-hover)", borderRadius: "6px", padding: "10px", marginBottom: "10px" }}>
+                                        <div style={{ fontWeight: "600", marginBottom: "6px", color: "var(--text-muted)" }}>Model Performance</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px", fontSize: "10px" }}>
+                                            <span>GNN Accuracy:</span><span style={{ fontFamily: "monospace" }}>{((mlPredictions.summary.gnn_accuracy || 0) * 100).toFixed(1)}%</span>
+                                            <span>LSTM Accuracy:</span><span style={{ fontFamily: "monospace" }}>{((mlPredictions.summary.lstm_accuracy || 0) * 100).toFixed(1)}%</span>
+                                            <span>AE Precision:</span><span style={{ fontFamily: "monospace" }}>{((mlPredictions.summary.ae_precision || 0) * 100).toFixed(1)}%</span>
+                                            <span>AE Recall:</span><span style={{ fontFamily: "monospace" }}>{((mlPredictions.summary.ae_recall || 0) * 100).toFixed(1)}%</span>
+                                        </div>
+                                    </div>
+                                )}
+                                <div style={{ fontWeight: "600", marginBottom: "8px", color: "var(--text-muted)" }}>High-Risk Jobs (Top 10)</div>
+                                {(mlPredictions.high_risk || []).slice(0, 10).map((job, i) => (
+                                    <div key={i} style={{
+                                        background: job.is_anomaly ? "rgba(231, 76, 60, 0.1)" : "var(--bg-hover)",
+                                        borderRadius: "4px",
+                                        padding: "8px",
+                                        marginBottom: "6px",
+                                        borderLeft: job.is_anomaly ? "3px solid #e74c3c" : "3px solid var(--border)"
+                                    }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                            <span style={{ fontFamily: "monospace" }}>Job {job.job_id}</span>
+                                            <span style={{ color: "#e74c3c", fontFamily: "monospace" }}>
+                                                {job.anomaly_score?.toFixed(2) || "—"}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "2px" }}>
+                                            {job.is_anomaly ? "🔴 Anomaly" : ""}
+                                            {job.failure_reason > 0 ? ` | Failure: ${job.predicted_name || job.failure_reason}` : ""}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        
                         <div className="network-stats">
                             <div className="network-stat">
                                 <span>Jobs</span>
@@ -4221,187 +4667,37 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 <span className="network-stat-value" style={{ color: 'var(--green)' }}>{stats.successRate}%</span>
                             </div>
                         </div>
-                    <div className="network-legend">
+                        
+                        <div className="network-legend">
                             <div className="legend-item">
                                 <div className="legend-dot" style={{ background: '#3fb950' }}></div>
                                 <span>Completed ({stats.completed})</span>
                             </div>
-                            {stats.timeout > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
+                            {stats.timeout > 0 && <div className="legend-item">
                                 <div className="legend-dot" style={{ background: '#d29922' }}></div>
-                                <span style={{ textDecoration: 'underline dotted' }}>Timeout ({stats.timeout})</span>
+                                <span>Timeout ({stats.timeout})</span>
                             </div>}
-                            {stats.failed > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
+                            {stats.failed > 0 && <div className="legend-item">
                                 <div className="legend-dot" style={{ background: '#f85149' }}></div>
-                                <span style={{ textDecoration: 'underline dotted' }}>Failed ({stats.failed})</span>
+                                <span>Failed ({stats.failed})</span>
                             </div>}
-                            {stats.oom > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
+                            {stats.oom > 0 && <div className="legend-item">
                                 <div className="legend-dot" style={{ background: '#a371f7' }}></div>
-                                <span style={{ textDecoration: 'underline dotted' }}>OOM ({stats.oom})</span>
+                                <span>OOM ({stats.oom})</span>
                             </div>}
-                            {stats.segfault > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
+                            {stats.segfault > 0 && <div className="legend-item">
                                 <div className="legend-dot" style={{ background: '#da3633' }}></div>
-                                <span style={{ textDecoration: 'underline dotted' }}>Segfault ({stats.segfault})</span>
+                                <span>Segfault ({stats.segfault})</span>
                             </div>}
-                            {stats.nodeFail > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
+                            {stats.nodeFail > 0 && <div className="legend-item">
                                 <div className="legend-dot" style={{ background: '#db6d28' }}></div>
-                                <span style={{ textDecoration: 'underline dotted' }}>Node Fail ({stats.nodeFail})</span>
+                                <span>Node Fail ({stats.nodeFail})</span>
                             </div>}
-                            {stats.cancelled > 0 && <div className="legend-item" onClick={fetchFailedJobs} style={{ cursor: 'pointer' }} title="Click to view details">
+                            {stats.cancelled > 0 && <div className="legend-item">
                                 <div className="legend-dot" style={{ background: '#6e7681' }}></div>
-                                <span style={{ textDecoration: 'underline dotted' }}>Cancelled ({stats.cancelled})</span>
+                                <span>Cancelled ({stats.cancelled})</span>
                             </div>}
                         </div>
-                    {/* Failed Jobs Modal */}
-                    {showFailedModal && failedJobs && (
-                        <div style={{
-                            position: 'fixed',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            background: 'rgba(0, 0, 0, 0.8)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            zIndex: 1000
-                        }} onClick={() => setShowFailedModal(false)}>
-                            <div style={{
-                                background: 'var(--bg-elevated)',
-                                border: '1px solid var(--border)',
-                                borderRadius: '12px',
-                                padding: '24px',
-                                maxWidth: '800px',
-                                width: '90%',
-                                maxHeight: '80vh',
-                                overflow: 'auto'
-                            }} onClick={e => e.stopPropagation()}>
-                                {/* Header */}
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    marginBottom: '16px'
-                                }}>
-                                    <h2 style={{ margin: 0, color: 'var(--red)' }}>
-                                        Failed Jobs ({failedJobs.summary.total_failed})
-                                    </h2>
-                                    <button 
-                                        onClick={() => setShowFailedModal(false)}
-                                        style={{
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: 'var(--text-muted)',
-                                            fontSize: '24px',
-                                            cursor: 'pointer'
-                                        }}
-                                    >×</button>
-                                </div>
-                                
-                                {/* Summary by reason */}
-                                <div style={{
-                                    display: 'flex',
-                                    gap: '12px',
-                                    marginBottom: '20px',
-                                    flexWrap: 'wrap'
-                                }}>
-                                    {Object.entries(failedJobs.summary.by_reason).map(([reason, count]) => {
-                                        const colors = {
-                                            'OUT_OF_MEMORY': '#a371f7',
-                                            'TIMEOUT': '#d29922',
-                                            'FAILED': '#f85149',
-                                            'SEGFAULT': '#da3633',
-                                            'NODE_FAIL': '#db6d28',
-                                            'CANCELLED': '#6e7681',
-                                            'DEPENDENCY': '#79c0ff'
-                                        };
-                                        return (
-                                            <div key={reason} style={{
-                                                background: (colors[reason] || '#f85149') + '22',
-                                                color: colors[reason] || '#f85149',
-                                                padding: '6px 12px',
-                                                borderRadius: '6px',
-                                                fontSize: '12px',
-                                                fontWeight: '600'
-                                            }}>
-                                                {reason}: {count}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                
-                                {/* Jobs table */}
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                                    <thead>
-                                        <tr style={{ 
-                                            borderBottom: '1px solid var(--border)',
-                                            color: 'var(--text-muted)'
-                                        }}>
-                                            <th style={{ textAlign: 'left', padding: '8px 4px' }}>Job ID</th>
-                                            <th style={{ textAlign: 'left', padding: '8px 4px' }}>Partition</th>
-                                            <th style={{ textAlign: 'left', padding: '8px 4px' }}>State</th>
-                                            <th style={{ textAlign: 'right', padding: '8px 4px' }}>Runtime</th>
-                                            <th style={{ textAlign: 'left', padding: '8px 4px' }}>Reason</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {failedJobs.failed_jobs.map(job => {
-                                            const colors = {
-                                                'OUT_OF_MEMORY': '#a371f7',
-                                                'TIMEOUT': '#d29922',
-                                                'FAILED': '#f85149',
-                                                'SEGFAULT': '#da3633',
-                                                'NODE_FAIL': '#db6d28',
-                                                'CANCELLED': '#6e7681',
-                                                'DEPENDENCY': '#79c0ff'
-                                            };
-                                            const stateColor = colors[job.state] || '#f85149';
-                                            return (
-                                                <tr key={job.job_id} style={{ 
-                                                    borderBottom: '1px solid var(--border)'
-                                                }}>
-                                                    <td style={{ 
-                                                        padding: '10px 4px',
-                                                        fontFamily: 'IBM Plex Mono, monospace'
-                                                    }}>
-                                                        {job.job_id}
-                                                    </td>
-                                                    <td style={{ padding: '10px 4px' }}>
-                                                        {job.partition}
-                                                    </td>
-                                                    <td style={{ padding: '10px 4px' }}>
-                                                        <span style={{
-                                                            background: stateColor + '22',
-                                                            color: stateColor,
-                                                            padding: '2px 8px',
-                                                            borderRadius: '4px',
-                                                            fontSize: '10px',
-                                                            fontWeight: '600'
-                                                        }}>
-                                                            {job.state}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ 
-                                                        padding: '10px 4px',
-                                                        textAlign: 'right',
-                                                        fontFamily: 'IBM Plex Mono, monospace'
-                                                    }}>
-                                                        {job.runtime_sec ? `${Math.floor(job.runtime_sec / 60)}m` : '—'}
-                                                    </td>
-                                                    <td style={{ 
-                                                        padding: '10px 4px',
-                                                        color: 'var(--text-secondary)',
-                                                        fontSize: '11px'
-                                                    }}>
-                                                        {job.failure_reason}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    )}  
                     </div>
                 </div>
             );
@@ -4412,10 +4708,437 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 </body>
 </html>'''
 
+EXIT_CODE_NAMES = {
+    0: 'SUCCESS', 1: 'FAILED', 2: 'TIMEOUT', 3: 'OOM',
+    4: 'SEGFAULT', 5: 'NODE_FAIL', 6: 'CANCELLED', 7: 'UNKNOWN'
+}
+
+EXIT_CODE_ICONS = {
+    'success': '✓', 'failed': '❌', 'timeout': '⏱', 'oom': '💾',
+    'segfault': '💥', 'node_fail': '🖥', 'cancelled': '🚫', 'unknown': '❓'
+}
+
+
+def get_failure_name(job):
+    """Get failure reason name from job, handling both string and int."""
+    reason = job.get('failure_reason') or job.get('exit_code', 0)
+    if isinstance(reason, int):
+        return EXIT_CODE_NAMES.get(reason, f'CODE_{reason}')
+    return str(reason).upper() if reason else 'UNKNOWN'
+
+
+def generate_failure_list_v2(failures):
+    """Generate HTML for mobile failure list with proper exit code names."""
+    if not failures:
+        return ''
+    html = ''
+    for job in failures[:5]:
+        reason = get_failure_name(job)
+        icon = EXIT_CODE_ICONS.get(reason.lower(), '❓')
+        job_id = job.get('job_id', 'N/A')
+        runtime = job.get('runtime_sec', 0)
+        runtime_str = f"{int(runtime//60)}m {int(runtime%60)}s" if runtime else 'N/A'
+        html += f'<div class="alert-item"><div class="alert-icon red">{icon}</div><div class="alert-content"><div class="alert-title">Job {job_id}</div><div class="alert-subtitle">{reason} • {runtime_str}</div></div></div>'
+    return html
+
+
+def generate_risk_list_v2(predictions):
+    """Generate HTML for high-risk job list."""
+    if not predictions:
+        return ''
+    html = ''
+    for pred in predictions[:5]:
+        job_id = pred.get('job_id', 'N/A')
+        risk_pct = int(pred.get('risk_score', 0) * 100)
+        reason = pred.get('top_reason', 'unknown pattern')
+        html += f'<div class="alert-item"><div class="alert-icon yellow">⚡</div><div class="alert-content"><div class="alert-title">Job {job_id}</div><div class="alert-subtitle">{reason}</div></div><div class="risk-score">{risk_pct}%</div></div>'
+    return html
+
+
+def generate_cluster_data(dm):
+    """Generate per-cluster stats for mobile view."""
+    cluster_data = {}
+    for cluster_name in dm.clusters:
+        # Get nodes for this cluster
+        cluster_nodes = [n for n in dm.nodes.values() if n.get('cluster') == cluster_name]
+        online = sum(1 for n in cluster_nodes if n.get('status') == 'online')
+        total = len(cluster_nodes)
+        
+        # Get jobs for this cluster (by node)
+        cluster_node_names = {n.get('name') for n in cluster_nodes}
+        cluster_jobs = [j for j in dm.jobs if j.get('node') in cluster_node_names]
+        job_success = sum(1 for j in cluster_jobs if j.get('success', True))
+        job_total = len(cluster_jobs)
+        job_rate = int(100 * job_success / job_total) if job_total > 0 else 100
+        
+        # Recent failures in cluster
+        cluster_failures = [j for j in cluster_jobs if not j.get('success', True)][-3:]
+        cluster_failures.reverse()
+        
+        # Status
+        node_health = int(100 * online / total) if total > 0 else 0
+        if node_health >= 95 and job_rate >= 80:
+            status = 'healthy'
+        elif node_health >= 80 and job_rate >= 60:
+            status = 'warning'
+        else:
+            status = 'critical'
+        
+        cluster_data[cluster_name] = {
+            'nodes_online': online,
+            'nodes_total': total,
+            'node_health': node_health,
+            'jobs_success': job_success,
+            'jobs_total': job_total,
+            'job_rate': job_rate,
+            'failures': cluster_failures,
+            'status': status
+        }
+    return cluster_data
+
+def generate_mobile_html(dm, stats):
+    """Generate enhanced mobile dashboard HTML."""
+    high_risk_jobs = []
+    if hasattr(dm, '_predictions') and dm._predictions:
+        high_risk_jobs = [p for p in dm._predictions if p.get('risk_score', 0) > 0.7][:5]
+    recent_failures = [j for j in dm.jobs if not j.get('success', True)][-5:]
+    recent_failures.reverse()
+    total_nodes = stats.get('nodes_total', 0)
+    online_nodes = stats.get('nodes_online', 0)
+    node_health = int(100 * online_nodes / total_nodes) if total_nodes > 0 else 0
+    total_jobs = stats.get('jobs', 0)
+    success_jobs = stats.get('jobs_success', 0)
+    job_success_rate = int(100 * success_jobs / total_jobs) if total_jobs > 0 else 0
+    if node_health >= 95 and job_success_rate >= 80:
+        overall_status, status_color = "healthy", "#22c55e"
+    elif node_health >= 80 and job_success_rate >= 60:
+        overall_status, status_color = "warning", "#f59e0b"
+    else:
+        overall_status, status_color = "critical", "#ef4444"
+    node_color = 'green' if node_health >= 95 else 'yellow' if node_health >= 80 else 'red'
+    job_color = 'green' if job_success_rate >= 80 else 'yellow' if job_success_rate >= 60 else 'red'
+    cluster_data = generate_cluster_data(dm)
+    cluster_chips_html = ''
+    for name, data in cluster_data.items():
+        status_icon = '✓' if data['status'] == 'healthy' else '⚠' if data['status'] == 'warning' else '✗'
+        cluster_chips_html += f'<button class="chip chip-{data["status"]}" onclick="toggleCluster(\'{name}\')">{name} {status_icon}</button>'
+    cluster_details_html = ''
+    for name, data in cluster_data.items():
+        failures_html = ''
+        for job in data['failures'][:3]:
+            reason = get_failure_name(job)
+            job_id = job.get('job_id', 'N/A')
+            failures_html += f'<div class="cluster-failure">Job {job_id} - {reason}</div>'
+        if not failures_html:
+            failures_html = '<div class="cluster-failure dim">No recent failures</div>'
+        cluster_details_html += f'<div id="cluster-{name}" class="cluster-detail" style="display:none;"><div class="cluster-header">{name.upper()}</div><div class="cluster-stats"><div class="cluster-stat"><span class="stat-label">Nodes</span><span class="stat-value">{data["nodes_online"]}/{data["nodes_total"]}</span></div><div class="cluster-stat"><span class="stat-label">Success</span><span class="stat-value">{data["job_rate"]}%</span></div><div class="cluster-stat"><span class="stat-label">Jobs</span><span class="stat-value">{data["jobs_total"]}</span></div></div><div class="cluster-failures-title">Recent failures:</div>{failures_html}</div>'
+    pattern_html = ''
+    cq = dm.clustering_quality
+    if cq and not cq.get('error'):
+        r = cq.get('assortativity', {}).get('binary', 0)
+        z = cq.get('assortativity', {}).get('z_score', 0)
+        is_sig = abs(z) > 2
+        if r > 0.1 and is_sig:
+            pattern_html = f'<div class="card card-full" style="margin-bottom:20px;"><div class="card-label">📊 Pattern Analysis</div><div class="pattern-item"><span class="pattern-icon">🔗</span><span>Failures cluster together (r={r:.2f})</span></div>'
+            hotspots = compute_failure_hotspots(dm.jobs) if dm.jobs else []
+            if hotspots:
+                top = hotspots[0]
+                pattern_html += f'<div class="pattern-item"><span class="pattern-icon">🔥</span><span>Hotspot: {top["feature"]}={top["bin"]} ({int(top["failure_rate"])}% fail)</span></div>'
+            pattern_html += '</div>'
+    failure_html = generate_failure_list_v2(recent_failures) if recent_failures else '<div class="empty-state">No recent failures ✓</div>'
+    risk_html = generate_risk_list_v2(high_risk_jobs) if high_risk_jobs else '<div class="empty-state">No high-risk jobs ✓</div>'
+    return f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>NØMADE</title>
+    <style>
+        :root {{ --bg:#0f172a; --bg-card:#1e293b; --bg-hover:#334155; --text:#f1f5f9; --text-muted:#94a3b8; --green:#22c55e; --yellow:#f59e0b; --red:#ef4444; --cyan:#06b6d4; --purple:#a855f7; }}
+        * {{ box-sizing:border-box; margin:0; padding:0; }}
+        body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding:16px; padding-bottom:80px; }}
+        .header {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--bg-hover); }}
+        .logo {{ font-size:24px; font-weight:700; letter-spacing:-0.5px; }}
+        .logo span {{ color:var(--cyan); }}
+        .status-badge {{ display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; background:{status_color}22; color:{status_color}; }}
+        .status-dot {{ width:8px; height:8px; border-radius:50%; background:{status_color}; animation:pulse 2s infinite; }}
+        @keyframes pulse {{ 0%,100%{{opacity:1;}} 50%{{opacity:0.5;}} }}
+        .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }}
+        .card {{ background:var(--bg-card); border-radius:12px; padding:16px; }}
+        .card-full {{ grid-column:1/-1; }}
+        .card-label {{ font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }}
+        .card-value {{ font-size:32px; font-weight:700; line-height:1; }}
+        .card-value.green {{ color:var(--green); }}
+        .card-value.yellow {{ color:var(--yellow); }}
+        .card-value.red {{ color:var(--red); }}
+        .card-value.cyan {{ color:var(--cyan); }}
+        .card-subtitle {{ font-size:12px; color:var(--text-muted); margin-top:4px; }}
+        .progress-bar {{ height:6px; background:var(--bg-hover); border-radius:3px; margin-top:12px; overflow:hidden; }}
+        .progress-fill {{ height:100%; border-radius:3px; }}
+        .section-title {{ font-size:14px; font-weight:600; color:var(--text-muted); margin-bottom:12px; }}
+        .alert-list {{ display:flex; flex-direction:column; gap:8px; }}
+        .alert-item {{ display:flex; align-items:center; gap:12px; padding:12px; background:var(--bg-hover); border-radius:8px; font-size:13px; }}
+        .alert-icon {{ width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }}
+        .alert-icon.red {{ background:#ef444422; }}
+        .alert-icon.yellow {{ background:#f59e0b22; }}
+        .alert-content {{ flex:1; min-width:0; }}
+        .alert-title {{ font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+        .alert-subtitle {{ font-size:11px; color:var(--text-muted); }}
+        .risk-score {{ font-size:12px; font-weight:600; padding:4px 8px; border-radius:4px; background:#ef444422; color:var(--red); }}
+        .refresh-btn {{ position:fixed; bottom:20px; right:20px; width:56px; height:56px; border-radius:50%; background:var(--cyan); color:var(--bg); border:none; font-size:24px; cursor:pointer; box-shadow:0 4px 12px rgba(6,182,212,0.4); }}
+        .refresh-btn:active {{ transform:scale(0.95); }}
+        .empty-state {{ text-align:center; padding:20px; color:var(--text-muted); font-size:13px; }}
+        .cluster-chips {{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }}
+        .chip {{ padding:6px 12px; border-radius:12px; font-size:12px; background:var(--bg-hover); border:none; color:var(--text); cursor:pointer; transition:all 0.2s; }}
+        .chip:active {{ transform:scale(0.95); }}
+        .chip-healthy {{ border-left:3px solid var(--green); }}
+        .chip-warning {{ border-left:3px solid var(--yellow); }}
+        .chip-critical {{ border-left:3px solid var(--red); }}
+        .chip.active {{ background:#06b6d422; color:var(--cyan); }}
+        .cluster-detail {{ background:var(--bg-hover); border-radius:8px; padding:12px; margin-top:12px; animation:slideDown 0.2s ease; }}
+        @keyframes slideDown {{ from {{ opacity:0; transform:translateY(-10px); }} to {{ opacity:1; transform:translateY(0); }} }}
+        .cluster-header {{ font-size:12px; font-weight:600; color:var(--cyan); margin-bottom:8px; }}
+        .cluster-stats {{ display:flex; gap:16px; margin-bottom:8px; }}
+        .cluster-stat {{ display:flex; flex-direction:column; }}
+        .stat-label {{ font-size:10px; color:var(--text-muted); }}
+        .stat-value {{ font-size:14px; font-weight:600; }}
+        .cluster-failures-title {{ font-size:10px; color:var(--text-muted); margin-top:8px; margin-bottom:4px; }}
+        .cluster-failure {{ font-size:11px; color:var(--text-muted); padding:2px 0; }}
+        .cluster-failure.dim {{ opacity:0.6; }}
+        .data-source {{ text-align:center; font-size:11px; color:var(--text-muted); margin-top:20px; }}
+        .desktop-link {{ display:block; text-align:center; margin-top:16px; color:var(--cyan); font-size:12px; text-decoration:none; }}
+        .pattern-item {{ display:flex; align-items:center; gap:8px; font-size:12px; margin-top:8px; }}
+        .pattern-icon {{ font-size:14px; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">N<span>Ø</span>MADE</div>
+        <div class="status-badge"><div class="status-dot"></div>{overall_status.upper()}</div>
+    </div>
+    <div class="grid">
+        <div class="card">
+            <div class="card-label">Nodes Online</div>
+            <div class="card-value {node_color}">{online_nodes}</div>
+            <div class="card-subtitle">of {total_nodes} total</div>
+            <div class="progress-bar"><div class="progress-fill" style="width:{node_health}%;background:var(--{node_color});"></div></div>
+        </div>
+        <div class="card">
+            <div class="card-label">Job Success</div>
+            <div class="card-value {job_color}">{job_success_rate}%</div>
+            <div class="card-subtitle">{success_jobs:,} of {total_jobs:,}</div>
+            <div class="progress-bar"><div class="progress-fill" style="width:{job_success_rate}%;background:var(--{job_color});"></div></div>
+        </div>
+        <div class="card">
+            <div class="card-label">Failed Jobs</div>
+            <div class="card-value red">{stats.get('jobs_failed', 0)}</div>
+            <div class="card-subtitle">requires attention</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Network Edges</div>
+            <div class="card-value cyan">{stats.get('edges', 0):,}</div>
+            <div class="card-subtitle">job connections</div>
+        </div>
+    </div>
+    <div class="card card-full" style="margin-bottom:20px;">
+        <div class="card-label">Clusters (tap to expand)</div>
+        <div class="cluster-chips">{cluster_chips_html}</div>
+        {cluster_details_html}
+    </div>
+    {pattern_html}
+    <div class="section-title">🎯 High Risk Jobs</div>
+    <div class="card card-full" style="margin-bottom:20px;">
+        <div class="alert-list">{risk_html}</div>
+    </div>
+    <div class="section-title">⚠️ Recent Failures</div>
+    <div class="card card-full">
+        <div class="alert-list">{failure_html}</div>
+    </div>
+    <div class="data-source">Data: {stats.get('data_source', 'unknown')}</div>
+    <a href="/" class="desktop-link">Open Full Dashboard →</a>
+    <button class="refresh-btn" onclick="location.reload()">↻</button>
+    <script>
+        let activeCluster = null;
+        function toggleCluster(name) {{
+            const detail = document.getElementById('cluster-' + name);
+            const chips = document.querySelectorAll('.chip');
+            document.querySelectorAll('.cluster-detail').forEach(d => d.style.display = 'none');
+            chips.forEach(c => c.classList.remove('active'));
+            if (activeCluster === name) {{
+                activeCluster = null;
+            }} else {{
+                detail.style.display = 'block';
+                event.target.classList.add('active');
+                activeCluster = name;
+            }}
+        }}
+        setTimeout(()=>location.reload(),60000);
+    </script>
+</body>
+</html>'''
 
 # ============================================================================
 # HTTP Server
 # ============================================================================
+
+
+def query_resource_footprint(db_path, cluster='all', group='all', days=30):
+    """Query resource footprint from job_accounting + group_membership."""
+    import sqlite3 as _sql
+    from datetime import datetime as _dt, timedelta as _td
+    start = (_dt.now() - _td(days=int(days))).strftime('%Y-%m-%dT00:00:00')
+    conn = _sql.connect(str(db_path))
+    conn.row_factory = _sql.Row
+    c = conn.cursor()
+    tables = [r[0] for r in c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    empty = {
+        'groups': [], 'users': [],
+        'totals': {'cpu_hours': 0, 'gpu_hours': 0, 'jobs': 0, 'users': 0},
+        'filters': {'clusters': [], 'groups': []},
+    }
+    if 'job_accounting' not in tables:
+        conn.close()
+        return empty
+    where = ["submit_time >= ?"]
+    params = [start]
+    if cluster != 'all':
+        where.append("cluster = ?")
+        params.append(cluster)
+    c.execute("""
+        SELECT username, cluster,
+               SUM(cpu_hours) as cpu_hours,
+               SUM(gpu_hours) as gpu_hours,
+               COUNT(*) as jobs
+        FROM job_accounting
+        WHERE """ + " AND ".join(where) + """
+        GROUP BY username, cluster
+    """, params)
+    user_rows = c.fetchall()
+    grp_map = {}
+    if 'group_membership' in tables:
+        c.execute("SELECT username, group_name FROM group_membership")
+        for row in c.fetchall():
+            grp_map.setdefault(row['username'], []).append(row['group_name'])
+    users = []
+    user_set = set()
+    for row in user_rows:
+        u = row['username']
+        user_set.add(u)
+        ugroups = grp_map.get(u, [])
+        if group != 'all' and group not in ugroups:
+            continue
+        users.append({
+            'username': u, 'cluster': row['cluster'],
+            'cpu_hours': round(row['cpu_hours'] or 0, 1),
+            'gpu_hours': round(row['gpu_hours'] or 0, 1),
+            'jobs': row['jobs'], 'groups': ugroups,
+        })
+    gtotals = {}
+    for u in users:
+        for g in u['groups']:
+            if g not in gtotals:
+                gtotals[g] = {'name': g, 'cpu_hours': 0,
+                              'gpu_hours': 0, 'jobs': 0, 'users': set()}
+            gtotals[g]['cpu_hours'] += u['cpu_hours']
+            gtotals[g]['gpu_hours'] += u['gpu_hours']
+            gtotals[g]['jobs'] += u['jobs']
+            gtotals[g]['users'].add(u['username'])
+    glist = sorted(gtotals.values(), key=lambda x: x['cpu_hours'], reverse=True)
+    for g in glist:
+        g['users'] = len(g['users'])
+    c.execute("SELECT DISTINCT cluster FROM job_accounting")
+    avail_clusters = [r[0] for r in c.fetchall()]
+    avail_groups = sorted(gtotals.keys())
+    conn.close()
+    return {
+        'groups': glist[:50],
+        'users': sorted(users, key=lambda x: x['cpu_hours'], reverse=True)[:100],
+        'totals': {
+            'cpu_hours': round(sum(u['cpu_hours'] for u in users), 1),
+            'gpu_hours': round(sum(u['gpu_hours'] for u in users), 1),
+            'jobs': sum(u['jobs'] for u in users),
+            'users': len(user_set),
+        },
+        'filters': {'clusters': avail_clusters, 'groups': avail_groups},
+    }
+
+
+def query_activity_heatmap(db_path, cluster='all', group='all', days=30):
+    """Query activity heatmap from job_accounting submit times."""
+    import sqlite3 as _sql
+    from datetime import datetime as _dt, timedelta as _td
+    start = (_dt.now() - _td(days=int(days))).strftime('%Y-%m-%dT00:00:00')
+    conn = _sql.connect(str(db_path))
+    conn.row_factory = _sql.Row
+    c = conn.cursor()
+    tables = [r[0] for r in c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    empty = {
+        'grid': [[0]*24 for _ in range(7)], 'max_value': 0,
+        'total_jobs': 0, 'busiest': None, 'quietest': None,
+        'filters': {'clusters': [], 'groups': []},
+    }
+    if 'job_accounting' not in tables:
+        conn.close()
+        return empty
+    group_users = None
+    if group != 'all' and 'group_membership' in tables:
+        c.execute(
+            "SELECT username FROM group_membership WHERE group_name = ?",
+            (group,))
+        group_users = set(r[0] for r in c.fetchall())
+    where = ["submit_time >= ?", "submit_time IS NOT NULL"]
+    params = [start]
+    if cluster != 'all':
+        where.append("cluster = ?")
+        params.append(cluster)
+    c.execute("""
+        SELECT submit_time, username
+        FROM job_accounting WHERE """ + " AND ".join(where) + """
+    """, params)
+    grid = [[0]*24 for _ in range(7)]
+    total = 0
+    for row in c.fetchall():
+        if group_users is not None and row['username'] not in group_users:
+            continue
+        try:
+            dt = _dt.strptime(row['submit_time'][:19], '%Y-%m-%dT%H:%M:%S')
+            grid[dt.weekday()][dt.hour] += 1
+            total += 1
+        except (ValueError, TypeError):
+            continue
+    max_val = 0
+    busiest = {'day': 'Monday', 'hour': 0, 'count': 0}
+    quietest = {'day': 'Monday', 'hour': 0, 'count': 999999}
+    dnames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday',
+              'Friday', 'Saturday', 'Sunday']
+    for di in range(7):
+        for hi in range(24):
+            v = grid[di][hi]
+            if v > max_val:
+                max_val = v
+                busiest = {'day': dnames[di], 'hour': hi, 'count': v}
+            if v < quietest['count']:
+                quietest = {'day': dnames[di], 'hour': hi, 'count': v}
+    if quietest['count'] == 999999:
+        quietest['count'] = 0
+    c.execute("SELECT DISTINCT cluster FROM job_accounting")
+    avail_clusters = [r[0] for r in c.fetchall()]
+    avail_groups = []
+    if 'group_membership' in tables:
+        c.execute(
+            "SELECT DISTINCT group_name FROM group_membership ORDER BY group_name")
+        avail_groups = [r[0] for r in c.fetchall()]
+    conn.close()
+    return {
+        'grid': grid, 'max_value': max_val, 'total_jobs': total,
+        'busiest': busiest, 'quietest': quietest,
+        'filters': {'clusters': avail_clusters, 'groups': avail_groups},
+    }
+
 
 class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     """Custom handler for the dashboard."""
@@ -4448,10 +5171,46 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 "correlation_data": dm.correlation_data,
                 "suggested_axes": dm.suggested_axes,
                 "network_stats": dm.network_stats,
-                "network_method": dm.network_stats.get("method", "cosine") if dm.network_stats else "cosine"
+                "clustering_quality": dm.clustering_quality,
+                "network_method": dm.network_stats.get("method", "cosine") if dm.network_stats else "cosine",
+                "ml_predictions": dm.ml_predictions or {"status": "not_ready"}
             }
             self.wfile.write(json.dumps(data).encode())
             
+        elif parsed.path == '/api/clustering':
+            # Dedicated endpoint for clustering quality metrics
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(DashboardHandler.data_manager.clustering_quality).encode())
+            
+        elif parsed.path == "/api/predictions":
+            # ML predictions endpoint
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            predictions = dm.ml_predictions or {"status": "not_trained", "high_risk": []}
+            self.wfile.write(json.dumps(predictions).encode())
+        elif parsed.path == "/api/train_ml":
+            # Train ML models endpoint
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            try:
+                dm = DashboardHandler.data_manager
+                if dm.db_path:
+                    from nomade.ml import train_and_save_ensemble, load_predictions_from_db
+                    result = train_and_save_ensemble(str(dm.db_path), epochs=50, verbose=False)
+                    dm._ml_predictions = load_predictions_from_db(str(dm.db_path))
+                    self.wfile.write(json.dumps({"status": "trained", "prediction_id": result.get("prediction_id")}).encode())
+                else:
+                    self.wfile.write(json.dumps({"status": "error", "message": "No database"}).encode())
+            except Exception as e:
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode())
         elif parsed.path == '/api/refresh':
             DashboardHandler.data_manager.refresh()
             self.send_response(200)
@@ -4464,53 +5223,77 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(DashboardHandler.data_manager.get_stats()).encode())
-
-        elif parsed.path == '/api/interactive':
+        elif parsed.path == '/mobile':
             self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Type', 'text/html')
             self.end_headers()
-            try:
-                from nomade.collectors.interactive import get_report
-                report = get_report()
-                # Use demo data if no sessions found
-                if report['summary']['total_sessions'] == 0:
-                    report = generate_demo_interactive()
-                self.wfile.write(json.dumps(report).encode())
-            except Exception as e:
-                # Fallback to demo data on error
-                report = generate_demo_interactive()
-                self.wfile.write(json.dumps(report).encode())
-        elif parsed.path.startswith('/api/failed_jobs'):
-            # Parse query parameters
-            query = parse_qs(parsed.query)
-            hours = int(query.get('hours', [24])[0])
-            limit = int(query.get('limit', [10])[0])
-            
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
             dm = DashboardHandler.data_manager
-            failed_jobs = dm.get_failed_jobs(hours=hours, limit=limit)
-            self.wfile.write(json.dumps(failed_jobs).encode())
-
+            stats = dm.get_stats()
+            mobile_html = generate_mobile_html(dm, stats)
+            self.wfile.write(mobile_html.encode())
+        elif parsed.path.startswith('/api/footprint'):
+            query = parse_qs(parsed.query)
+            fp_cluster = query.get('cluster', ['all'])[0]
+            fp_group = query.get('group', ['all'])[0]
+            fp_days = int(query.get('days', [30])[0])
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            result = query_resource_footprint(
+                dm.db_path, fp_cluster, fp_group, fp_days)
+            self.wfile.write(json.dumps(result).encode())
+        elif parsed.path.startswith('/api/heatmap'):
+            query = parse_qs(parsed.query)
+            hm_cluster = query.get('cluster', ['all'])[0]
+            hm_group = query.get('group', ['all'])[0]
+            hm_days = int(query.get('days', [30])[0])
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            result = query_activity_heatmap(
+                dm.db_path, hm_cluster, hm_group, hm_days)
+            self.wfile.write(json.dumps(result).encode())
+        elif parsed.path == '/api/groups':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            try:
+                import sqlite3 as _sql
+                conn = _sql.connect(str(dm.db_path))
+                conn.row_factory = _sql.Row
+                c = conn.cursor()
+                c.execute("""
+                    SELECT group_name, cluster, COUNT(*) as members
+                    FROM group_membership
+                    GROUP BY group_name, cluster
+                    ORDER BY group_name
+                """)
+                groups = [dict(r) for r in c.fetchall()]
+                conn.close()
+            except Exception:
+                groups = []
+            self.wfile.write(json.dumps({'groups': groups}).encode())
         else:
             self.send_error(404)
-
+    
     def log_message(self, format, *args):
         pass  # Quiet logging
 
 
-def serve_dashboard(host='localhost', port=8050, config_path=None):
+def serve_dashboard(host='localhost', port=8050, config_path=None, db_path=None):
     """Start the dashboard server."""
     
     # Load configuration
     config = load_config(config_path)
     
     # Initialize data manager
-    data_manager = DataManager(config)
+    data_manager = DataManager(config, db_path=db_path)
     DashboardHandler.data_manager = data_manager
     
     # Get stats
@@ -4526,22 +5309,42 @@ def serve_dashboard(host='localhost', port=8050, config_path=None):
     print(f"  Nodes:       {stats['nodes_online']}/{stats['nodes_total']} online")
     print(f"  Jobs:        {stats['jobs']} ({stats['jobs_success']} success, {stats['jobs_failed']} failed)")
     print(f"  Edges:       {stats['edges']}")
+    print("-" * 60)
+    # Clustering metrics
+    cq = data_manager.clustering_quality
+    if cq:
+        r = cq.get("assortativity", {}).get("binary", 0)
+        z = cq.get("assortativity", {}).get("z_score", 0)
+        ses_mntd = cq.get("ses_mntd", 0)
+        assort_sig = "sig" if abs(z) > 2 else "ns"
+        mntd_sig = "sig" if abs(ses_mntd) > 2 else "ns"
+        if r > 0.1:
+            assort_msg = "failures cluster (resource pattern)"
+        elif r < -0.1:
+            assort_msg = "failures dispersed (code/user issue)"
+        else:
+            assort_msg = "random"
+        print(f"  Assortativity:  r={r:>6.3f}  z={z:>5.1f} ({assort_sig:>3})  {assort_msg}")
+        print(f"  SES.MNTD:       {ses_mntd:>7.2f}        ({mntd_sig:>3})  spatial clustering")
+        hotspots = cq.get("hotspots", [])
+        if hotspots:
+            print("  Hotspots:")
+            for h in hotspots[:3]:
+                feat = f"{h['feature']}={h['bin']}"
+                print(f"    {feat:<20} {h['failure_rate']:>5.0f}% fail  (base {h['baseline_rate']:.0f}%, {h['ratio']:.1f}x)")
     print("=" * 60)
+    if host in ('localhost', '127.0.0.1', '0.0.0.0'):
+        import socket
+        hostname = socket.gethostname()
+        print(f"  Remote access:")
+        print(f"    ssh -L {port}:localhost:{port} {hostname}")
+        print(f"    Then open: http://localhost:{port}")
+        print("-" * 60)
     print("  Press Ctrl+C to stop")
     print()
-    import getpass
-    import socket
-    username = getpass.getuser()
-    hostname = socket.gethostname()
-    print(f"  SSH Tunnel: ssh -L {port}:localhost:{port} {username}@{hostname}")
-    print("  Then open:  http://localhost:8050")
-    print()
     
-    try:
-        with socketserver.TCPServer((host, port), DashboardHandler) as httpd:
-            httpd.serve_forever()
-    except KeyboardInterrupt:
-        print('\nDashboard stopped.')
+    with socketserver.TCPServer((host, port), DashboardHandler) as httpd:
+        httpd.serve_forever()
 
 
 if __name__ == '__main__':

@@ -264,17 +264,13 @@ class NodeStateCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_node_state_name 
                 ON node_state(node_name, timestamp)
             """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_node_state_cluster
-                ON node_state(cluster, timestamp)
-            """)
             
             for record in data:
                 if record.get('type') == 'node_state':
                     conn.execute(
                         """
                         INSERT INTO node_state 
-                        (timestamp, node_name, cluster, state, cpus_total, cpus_alloc, cpu_load,
+                        (timestamp, node_name, state, cpus_total, cpus_alloc, cpu_load,
                          memory_total_mb, memory_alloc_mb, memory_free_mb,
                          cpu_alloc_percent, memory_alloc_percent,
                          partitions, reason, features, gres, is_healthy)

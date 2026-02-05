@@ -230,7 +230,7 @@ class DemoDatabase:
             node_name TEXT NOT NULL, state TEXT, cpus_total INTEGER, cpus_alloc INTEGER,
             cpu_load REAL, memory_total_mb INTEGER, memory_alloc_mb INTEGER,
             memory_free_mb INTEGER, cpu_alloc_percent REAL, memory_alloc_percent REAL,
-            partitions TEXT, reason TEXT, features TEXT, gres TEXT, is_healthy INTEGER)""")
+            cluster TEXT DEFAULT 'demo', partitions TEXT, reason TEXT, features TEXT, gres TEXT, is_healthy INTEGER)""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_node_state_ts ON node_state(timestamp)")
 
         conn.commit()
@@ -252,13 +252,13 @@ class DemoDatabase:
             c.execute("""INSERT INTO node_state
                 (timestamp, node_name, state, cpus_total, cpus_alloc, cpu_load,
                  memory_total_mb, memory_alloc_mb, memory_free_mb,
-                 cpu_alloc_percent, memory_alloc_percent, partitions, gres, is_healthy)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 cpu_alloc_percent, memory_alloc_percent, cluster, partitions, gres, is_healthy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (now, node["name"], "idle", node["cores"], random.randint(0, node["cores"]),
                  random.uniform(0.1, 2.0), node["memory_gb"] * 1024,
                  random.randint(0, node["memory_gb"] * 512),
                  random.randint(node["memory_gb"] * 256, node["memory_gb"] * 1024),
-                 random.uniform(10, 80), random.uniform(20, 70), node["partition"],
+                 random.uniform(10, 80), random.uniform(20, 70), "demo", node["partition"],
                  f"gpu:{node['gpus']}" if node["gpus"] > 0 else "", 1))
 
         conn.commit()

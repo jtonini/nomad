@@ -33,6 +33,7 @@ from nomade.collectors.vmstat import VMStatCollector
 from nomade.collectors.node_state import NodeStateCollector
 from nomade.collectors.gpu import GPUCollector
 from nomade.collectors.nfs import NFSCollector
+from nomade.collectors.groups import GroupCollector
 from nomade.collectors.interactive import InteractiveCollector
 from nomade.analysis.derivatives import (
     DerivativeAnalyzer,
@@ -173,6 +174,14 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
     if not collector or 'nfs' in collector:
         if nfs_config.get('enabled', True):
             collectors.append(NFSCollector(nfs_config, db_path))
+
+
+    # Group membership and job accounting collector
+    groups_config = config.get('collectors', {}).get('groups', {})
+    if not collector or 'groups' in collector:
+        if groups_config.get('enabled', True):
+            groups_config['clusters'] = config.get('clusters', {})
+            collectors.append(GroupCollector(groups_config, db_path))
 
     # Interactive session collector
     interactive_config = config.get("interactive", {})
@@ -1846,8 +1855,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
             gpu_info = (f" ({len(pdata['gpu_nodes'])} GPU)"
                         if pdata.get("gpu_nodes") else "")
             click.echo(
-                f"    {part_label}:  "
-                f"   {pid}"
+                f"    {part_label}:    {pid}"
                 f" — {len(pdata['nodes'])} nodes{gpu_info}")
         click.echo(
             f"    Filesystems:  "
@@ -2842,9 +2850,12 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
             loc = " (SSH to each node)"
         else:
             loc = " (local)"
+        plabel = ("partitions"
+                  if c.get("type") == "hpc"
+                  else "groups")
         click.echo(
             f"    • {c['name']}:"
-            f" {pcount} groups,"
+            f" {pcount} {plabel},"
             f" {ncount} nodes{loc}")
     click.echo()
 
