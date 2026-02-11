@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 João Tonini
 """
 NOMADE Dashboard Server - Integrated Version
 Connects to TOML config, NOMADE database, and falls back to demo data.

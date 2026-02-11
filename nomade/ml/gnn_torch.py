@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 João Tonini
 """
 PyTorch Geometric GNN for failure prediction.
 Optional dependency - falls back to pure Python if not available.

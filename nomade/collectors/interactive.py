@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 João Tonini
 """
 NOMADE Interactive Session Collector
 Monitors RStudio and Jupyter sessions via process inspection.

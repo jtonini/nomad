@@ -2243,54 +2243,6 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             --cyan: #58a6ff;
             --purple: #a371f7;
         }
-        /* Light theme - toggle with button in header */
-        .light-theme {
-            --bg-deep: #ffffff;
-            --bg-surface: #f6f8fa;
-            --bg-elevated: #ffffff;
-            --bg-hover: #f3f4f6;
-            --border: #d0d7de;
-            --text-primary: #1f2328;
-            --text-secondary: #656d76;
-            --text-muted: #8c959f;
-            --green: #1a7f37;
-            --yellow: #9a6700;
-            --red: #cf222e;
-            --cyan: #0969da;
-            --purple: #8250df;
-        }
-        .light-theme .node-card {
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .light-theme .sidebar {
-            box-shadow: -2px 0 8px rgba(0,0,0,0.1);
-        }
-        .light-theme .util-track {
-            background: #e1e4e8;
-        }
-
-        .theme-toggle {
-            background: var(--bg-hover);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 6px 12px;
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.2s;
-        }
-        .theme-toggle:hover {
-            background: var(--bg-elevated);
-            color: var(--text-primary);
-        }
-        .theme-toggle svg {
-            width: 16px;
-            height: 16px;
-        }
-
         
         body {
             font-family: 'IBM Plex Sans', -apple-system, sans-serif;
@@ -3201,7 +3153,6 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         </nav>
                         
                         <div className="header-right">
-                            <button className="theme-toggle" onClick={() => { document.body.classList.toggle("light-theme"); localStorage.setItem("nomade-theme", document.body.classList.contains("light-theme") ? "light" : "dark"); }}>🌓 Theme</button>
                             <div className="data-source">{dataSource}</div>
                             <div className="timestamp">
                                 {currentTime.toLocaleTimeString()}
@@ -5214,27 +5165,6 @@ def generate_mobile_html(dm, stats):
     <a href="/" class="desktop-link">Open Full Dashboard →</a>
     <button class="refresh-btn" onclick="location.reload()">↻</button>
     <script>
-    // Theme toggle
-    function initTheme() {
-        const saved = localStorage.getItem('nomade-theme');
-        if (saved === 'light') {
-            document.body.classList.add('light-theme');
-        }
-    }
-    function toggleTheme() {
-        document.body.classList.toggle('light-theme');
-        const isLight = document.body.classList.contains('light-theme');
-        localStorage.setItem('nomade-theme', isLight ? 'light' : 'dark');
-        // Update button icon
-        const btn = document.querySelector('.theme-toggle');
-        if (btn) {
-            btn.innerHTML = isLight 
-                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> Light'
-                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg> Dark';
-        }
-    }
-    initTheme();
-
         let activeCluster = null;
         function toggleCluster(name) {{
             const detail = document.getElementById('cluster-' + name);

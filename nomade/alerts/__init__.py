@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 João Tonini
 """NOMADE Alert System - Detection, Storage, and Dispatch."""
 
 from .dispatcher import AlertDispatcher, send_alert, init_dispatcher, get_dispatcher
