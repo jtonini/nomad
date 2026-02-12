@@ -33,7 +33,7 @@ ORCID: 0000-0002-4730-3805
 \end{enumerate}
 
 \subsection*{Abstract}
-NØMADE (NOde MAnagement DEvice) is a lightweight monitoring and predictive analytics tool for computing infrastructure. It collects system metrics (disk, CPU, memory, I/O, GPU) from any Linux system, with optional SLURM integration for job-level analytics. Data is stored in SQLite, and machine learning models predict job failures before they occur. A key innovation is modeling jobs as nodes in a similarity network, where connections represent shared resource usage patterns. Jobs with similar characteristics often share similar outcomes, and the network structure reveals failure-prone regions in the feature space. The tool provides a real-time web dashboard and supports alerts via email, Slack, or webhooks. NØMADE requires no external databases or complex infrastructure, making it suitable for small-to-medium HPC centers and research groups.
+NØMADE (NOde MAnagement DEvice) is a lightweight monitoring and predictive analytics tool for computing infrastructure. It collects system metrics (disk, CPU, memory, I/O, GPU) from any Linux system, with optional SLURM \cite{slurm} integration for job-level analytics. Data is stored in SQLite, and machine learning models predict job failures before they occur. A key innovation is modeling jobs as nodes in a similarity network, where connections represent shared resource usage patterns. Jobs with similar characteristics often share similar outcomes, and the network structure reveals failure-prone regions in the feature space. The tool provides a real-time web dashboard and supports alerts via email, Slack, or webhooks. NØMADE requires no external databases or complex infrastructure, making it suitable for small-to-medium HPC centers and research groups.
 
 \subsection*{Keywords}
 HPC; high-performance computing; monitoring; machine learning; SLURM; predictive analytics; failure prediction
@@ -252,7 +252,7 @@ Python 3.9+
 \item numpy $\geq$ 1.21
 \item pandas $\geq$ 1.3
 \item scipy $\geq$ 1.7
-\item scikit-learn (optional, for ML features)
+\item scikit-learn \cite{sklearn} (optional, for ML features)
 \item torch (optional, for GNN/LSTM models)
 \item torch-geometric (optional, for graph neural networks)
 \end{itemize}
@@ -359,7 +359,22 @@ This work was supported by the University of Richmond.
 \section*{Competing Interests}
 The author declares no competing interests.
 
-\begin{thebibliography}{9}
+\begin{thebibliography}{10}
+
+\bibitem{slurm}
+Yoo, A.B., Jette, M.A., Grondona, M. (2003). SLURM: Simple Linux Utility for Resource Management. In: Job Scheduling Strategies for Parallel Processing, Lecture Notes in Computer Science, vol. 2862, Springer, pp. 44--60. DOI: \url{https://doi.org/10.1007/10968987_3}
+
+\bibitem{prometheus}
+Prometheus Authors (2012--present). Prometheus: From metrics to insight.
+URL: \url{https://prometheus.io/}
+
+\bibitem{grafana}
+Grafana Labs (2014--present). Grafana: The open observability platform.
+URL: \url{https://grafana.com/}
+
+\bibitem{nagios}
+Galstad, E. (1999--present). Nagios: The industry standard in IT
+infrastructure monitoring. URL: \url{https://www.nagios.org/}
 
 \bibitem{tacc}
 Evans, R.T., Browne, J.C., Barth, W.L. (2014). Comprehensive resource use monitoring for HPC systems with TACC Stats. In: Proceedings of the First International Workshop on HPC User Support Tools, IEEE, pp. 13--21. DOI: \url{https://doi.org/10.1109/SC.2014.18}
@@ -369,16 +384,6 @@ Palmer, J.T., Gallo, S.M., Furlani, T.R., Jones, M.D., DeLeon, R.L., White, J.P.
 
 \bibitem{ldms}
 Agelastos, A., Allan, B., Brandt, J., Cassella, P., Enos, J., Fullop, J., Gentile, A., Monk, S., Naksinehaboon, N., Ogden, J., Rajan, M., Showerman, M., Stevenson, J., Taerat, N., Tucker, T. (2014). The Lightweight Distributed Metric Service: A scalable infrastructure for continuous monitoring of large scale computing systems and applications. In: Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis, IEEE, pp. 154--165. DOI: \url{https://doi.org/10.1145/2616498.2616533}
-
-\bibitem{sklearn}
-Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., Duchesnay, E. (2011). Scikit-learn: Machine learning in Python. Journal of Machine Learning Research 12:2825--2830. URL: \url{http://jmlr.org/papers/v12/pedregosa11a.html}
-
-\bibitem{slurm}
-Yoo, A.B., Jette, M.A., Grondona, M. (2003). SLURM: Simple Linux Utility for Resource Management. In: Job Scheduling Strategies for Parallel Processing, Lecture Notes in Computer Science, vol. 2862, Springer, pp. 44--60. DOI: \url{https://doi.org/10.1007/10968987_3}
-
-\bibitem{prometheus}
-Prometheus Authors (2012--present). Prometheus: From metrics to insight.
-URL: \url{https://prometheus.io/}
 
 \bibitem{mlhpc}
 Tuncer, O., Ates, E., Zhang, Y., Turber, A., Brandt, J., Leung, V.J.,
@@ -392,13 +397,8 @@ Vilhena, D.A., Antonelli, A. (2015). A network approach for identifying
 and delimiting biogeographical regions. Nature Communications 6:6848.
 DOI: \url{https://doi.org/10.1038/ncomms7848}
 
-\bibitem{grafana}
-Grafana Labs (2014--present). Grafana: The open observability platform.
-URL: \url{https://grafana.com/}
-
-\bibitem{nagios}
-Galstad, E. (1999--present). Nagios: The industry standard in IT
-infrastructure monitoring. URL: \url{https://www.nagios.org/}
+\bibitem{sklearn}
+Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., Duchesnay, E. (2011). Scikit-learn: Machine learning in Python. Journal of Machine Learning Research 12:2825--2830. URL: \url{http://jmlr.org/papers/v12/pedregosa11a.html}
 
 \end{thebibliography}
 
