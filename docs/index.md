@@ -1,0 +1,45 @@
+# NØMADE
+
+**NØde MAnagement DEvice** — Lightweight HPC monitoring, visualization, and predictive analytics.
+
+> *"Travels light, adapts to its environment, and doesn't need permanent infrastructure."*
+
+## What is NØMADE?
+
+NØMADE is a self-contained monitoring and prediction system for HPC clusters. Unlike heavyweight solutions requiring complex infrastructure, NØMADE deploys quickly, runs with minimal resources, and provides actionable insights through:
+
+- **Real-time monitoring** of disk, CPU, memory, GPU, and SLURM jobs
+- **Predictive analytics** using machine learning and similarity networks
+- **Educational analytics** tracking computational proficiency development
+- **Multi-cluster dashboards** with partition-level views
+- **Derivative analysis** detecting accelerating trends before thresholds
+
+## Philosophy
+
+Inspired by nomadic principles:
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Travels light** | SQLite database, minimal dependencies, no external services |
+| **Adapts to environment** | Configurable collectors, flexible alerts, cluster-agnostic |
+| **Leaves no trace** | Clean uninstall, no system modifications required |
+
+## Quick Start
+```bash
+pip install nomade-hpc
+nomade demo                    # Try with synthetic data
+nomade dashboard               # Open http://localhost:8050
+```
+
+For production deployment, see [Installation](installation.md).
+
+## Features at a Glance
+
+| Feature | Description | Learn More |
+|---------|-------------|------------|
+| Dashboard | Multi-cluster real-time monitoring | [Dashboard](dashboard.md) |
+| Educational Analytics | Track proficiency development | [Edu Module](edu.md) |
+| ML Prediction | Job failure prediction | [ML Framework](ml.md) |
+| Network Analysis | Similarity-based clustering | [Network Methodology](network.md) |
+| Alerts | Threshold + predictive alerts | [Alerts](alerts.md) |
+| Community Export | Anonymized cross-institutional data | [CLI Reference](cli.md) |

@@ -1,0 +1,85 @@
+site_name: NØMADE Documentation
+site_url: https://jtonini.github.io/nomade/
+site_description: Lightweight HPC monitoring, visualization, and predictive analytics
+site_author: João Tonini
+repo_url: https://github.com/jtonini/nomade
+repo_name: jtonini/nomade
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: installation.md
+    - Quick Start: quickstart.md
+    - System Install: system-install.md
+    - Configuration: config.md
+  - Features:
+    - Dashboard: dashboard.md
+    - Educational Analytics: edu.md
+    - Alerts: alerts.md
+    - Interactive Sessions: interactive.md
+  - Technical:
+    - Architecture: ARCHITECTURE.md
+    - Network Methodology: network.md
+    - ML Framework: ml.md
+    - Proficiency Scoring: proficiency.md
+    - CLI Reference: cli.md
+  - Development:
+    - Contributing: CONTRIBUTING.md
+    - Roadmap: ROADMAP.md
+    - Changelog: changelog.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.arithmatex:
+      generic: true
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jtonini/nomade
+    - icon: fontawesome/solid/paper-plane
+      link: mailto:jtonini@richmond.edu
+
+copyright: Copyright &copy; 2026 João Tonini
