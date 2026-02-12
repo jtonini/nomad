@@ -30,38 +30,41 @@ A job requesting 64GB with 50% utilization has a similar profile to one requesti
 
 ### Step 1: Feature Vector Extraction
 
-Each completed job produces a 17-dimensional feature vector:
+Each completed job produces a 19-dimensional feature vector with all values bounded [0-1]:
+
+````
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Feature Vector for Similarity Analysis                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  FROM SACCT (job outcome):              FROM IOSTAT (system I/O):           │
+│  ┌────────────────────────────────┐     ┌────────────────────────────────┐  │
+│  │  1. health_score        [0-1]  │     │ 11. avg_iowait_percent   [0-1] │  │
+│  │  2. cpu_efficiency      [0-1]  │     │ 12. peak_iowait_percent  [0-1] │  │
+│  │  3. memory_efficiency   [0-1]  │     │ 13. avg_device_util      [0-1] │  │
+│  │  4. used_gpu            [0,1]  │     └────────────────────────────────┘  │
+│  │  5. had_swap            [0,1]  │                                         │
+│  └────────────────────────────────┘     FROM MPSTAT (CPU cores):            │
+│                                         ┌────────────────────────────────┐  │
+│  FROM JOB_MONITOR (I/O behavior):       │ 14. avg_core_busy        [0-1] │  │
+│  ┌────────────────────────────────┐     │ 15. core_imbalance_ratio [0-1] │  │
+│  │  6. total_write_gb      [0-1]  │     │ 16. max_core_busy        [0-1] │  │
+│  │  7. write_rate_mbps     [0-1]  │     └────────────────────────────────┘  │
+│  │  8. nfs_ratio           [0-1]  │                                         │
+│  │  9. runtime_minutes     [0-1]  │     FROM VMSTAT (memory pressure):      │
+│  │ 10. write_intensity     [0-1]  │     ┌────────────────────────────────┐  │
+│  └────────────────────────────────┘     │ 17. avg_memory_pressure  [0-1] │  │
+│                                         │ 18. peak_swap_activity   [0-1] │  │
+│                                         │ 19. avg_procs_blocked    [0-1] │  │
+│                                         └────────────────────────────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Job Feature Vector                       │
-├─────────────────────────────────────────────────────────────┤
-│ CPU Metrics          │ cpu_efficiency, cores_requested,    │
-│                      │ cpu_time_used, avg_cpu_percent      │
-├─────────────────────────────────────────────────────────────┤
-│ Memory Metrics       │ mem_efficiency, mem_requested_gb,   │
-│                      │ peak_mem_gb, avg_mem_percent        │
-├─────────────────────────────────────────────────────────────┤
-│ I/O Metrics          │ nfs_read_gb, nfs_write_gb,          │
-│                      │ local_read_gb, local_write_gb,      │
-│                      │ nfs_ratio, io_wait_percent          │
-├─────────────────────────────────────────────────────────────┤
-│ Time Metrics         │ runtime_seconds, requested_seconds, │
-│                      │ time_efficiency                     │
-├─────────────────────────────────────────────────────────────┤
-│ GPU Metrics          │ gpu_utilization, gpu_mem_percent    │
-│ (if applicable)      │                                     │
-└─────────────────────────────────────────────────────────────┘
-```
 
-### Step 2: Z-Score Normalization
+All features are pre-bounded to [0-1], so no z-score normalization is needed.
+Cosine similarity naturally handles the multi-dimensional comparison.
 
-Features are normalized to zero mean, unit variance:
-
-$$z_i = \frac{x_i - \mu_i}{\sigma_i}$$
-
-This ensures all dimensions contribute equally to similarity calculations.
-
-### Step 3: Cosine Similarity Matrix
+### Step 2: Cosine Similarity Matrix
 
 For jobs $a$ and $b$ with feature vectors $\vec{a}$ and $\vec{b}$:
 
@@ -69,7 +72,7 @@ $$\text{similarity}(a, b) = \frac{\vec{a} \cdot \vec{b}}{|\vec{a}| \cdot |\vec{b
 
 Values range from -1 (opposite profiles) to +1 (identical profiles).
 
-### Step 4: Edge Creation
+### Step 3: Edge Creation
 
 Edges connect jobs with similarity ≥ threshold (default: 0.7):
 ```python
@@ -85,7 +88,7 @@ if cosine_similarity(job_a, job_b) >= 0.7:
 | 0.7 (default) | Moderate | Balanced | General prediction |
 | 0.5 | Dense | Broad patterns | Exploratory analysis |
 
-### Step 5: Community Detection
+### Step 4: Community Detection
 
 Connected components and modularity-based clustering identify job communities—groups with similar resource profiles.
 
