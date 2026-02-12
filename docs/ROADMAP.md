@@ -460,3 +460,28 @@ black>=23.0
 - [ ] Paper 1 submitted to JOSS/SoftwareX
 - [ ] >10 GitHub stars within 3 months
 - [ ] At least 1 external deployment inquiry
+
+## ZFS Support Enhancement
+
+**Status**: Planned
+
+### Current Compatibility
+- Basic monitoring via `df` and `iostat` works on ZFS systems
+- Quotas via `zfs get userquota` not yet supported
+
+### Planned Features
+1. **Auto-detection**: Check for `/proc/spl/kstat/zfs` or `zpool` command
+2. **ZFS Collector** (`nomade/collectors/zfs.py`):
+   - Pool health via `zpool status`
+   - Per-vdev I/O via `zpool iostat -v`
+   - ARC cache stats from `/proc/spl/kstat/zfs/arcstats`
+   - Compression/dedup ratios via `zfs get`
+3. **ZFS Quotas**: Support `zfs get userquota@user dataset`
+4. **Config option**: `storage_backend = "auto" | "traditional" | "zfs"`
+
+### Priority Metrics
+| Metric | Source | Why |
+|--------|--------|-----|
+| Pool health | `zpool status` | Critical for failure prediction |
+| ARC hit ratio | arcstats | Memory efficiency |
+| Latency histograms | `zpool iostat -l` | I/O performance |
