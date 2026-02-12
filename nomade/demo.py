@@ -235,6 +235,23 @@ class DemoDatabase:
             cluster TEXT DEFAULT 'demo', partitions TEXT, reason TEXT, features TEXT, gres TEXT, is_healthy INTEGER)""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_node_state_ts ON node_state(timestamp)")
 
+        # Proficiency scores for edu tracking
+        c.execute("""CREATE TABLE IF NOT EXISTS proficiency_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            job_id TEXT NOT NULL,
+            user_name TEXT NOT NULL,
+            cluster TEXT DEFAULT 'default',
+            cpu_score REAL, cpu_level TEXT,
+            memory_score REAL, memory_level TEXT,
+            time_score REAL, time_level TEXT,
+            io_score REAL, io_level TEXT,
+            gpu_score REAL, gpu_level TEXT, gpu_applicable INTEGER,
+            overall_score REAL, overall_level TEXT,
+            needs_work TEXT, strengths TEXT,
+            UNIQUE(job_id))""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_prof_user ON proficiency_scores(user_name)")
+        
         # Group membership for edu module
         c.execute("""CREATE TABLE IF NOT EXISTS group_membership (
             username TEXT, group_name TEXT, gid INTEGER, cluster TEXT,

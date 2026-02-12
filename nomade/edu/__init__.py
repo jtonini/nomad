@@ -19,3 +19,11 @@ __all__ = [
     "user_trajectory",
     "group_summary",
 ]
+
+# Storage functions for proficiency tracking
+from nomade.edu.storage import (
+    init_proficiency_table,
+    save_proficiency_score,
+    get_user_proficiency_history,
+    get_group_proficiency_stats,
+)

@@ -16,6 +16,8 @@ Usage:
 
 from __future__ import annotations
 
+from nomade.edu.storage import save_proficiency_score
+
 import json
 import logging
 import sqlite3
@@ -138,7 +140,8 @@ def compute_progress(db_path: str, user: str, current_fp: JobFingerprint) -> dic
         return {}  # not enough data for trends
 
     # Score each historical job
-    from nomade.edu.scoring import score_job as _score
+    from nomade.edu.scoring import score_job
+    from nomade.edu.storage import save_proficiency_score
 
     # Split the job and summary fields from the joined row
     job_fields = [
@@ -160,7 +163,7 @@ def compute_progress(db_path: str, user: str, current_fp: JobFingerprint) -> dic
     for row in history[1:]:  # skip most recent (that's the current job)
         job_data = {k: row.get(k) for k in job_fields}
         summary_data = {k: row.get(k) for k in summary_fields}
-        fp = _score(job_data, summary_data)
+        fp = score_job(job_data, summary_data)
 
         for dim_name, dim_score in fp.dimensions.items():
             if dim_score.applicable:
@@ -370,6 +373,9 @@ def explain_job(
 
     # Score the job
     fingerprint = score_job(job, summary)
+    
+    # Save proficiency score to database for historical tracking
+    save_proficiency_score(db_path, fingerprint)
 
     # Compute progress if requested
     progress = {}
