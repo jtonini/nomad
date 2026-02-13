@@ -485,3 +485,219 @@ black>=23.0
 | Pool health | `zpool status` | Critical for failure prediction |
 | ARC hit ratio | arcstats | Memory efficiency |
 | Latency histograms | `zpool iostat -l` | I/O performance |
+
+## Plugin Architecture
+
+**Status**: Partially implemented
+
+### Current State
+- [x] Collectors: `BaseCollector` + `@registry.register` pattern
+- [x] Alert backends: `NotificationBackend` ABC
+- [ ] Analysis modules: Not yet pluggable
+- [ ] Edu dimensions: Not yet pluggable
+
+### Planned Refactoring
+
+**Phase 1: Analysis Plugins**
+```
+nomade/analysis/
+  base.py              # BaseAnalyzer + registry
+  similarity.py        # @registry.register
+  gnn.py               # @registry.register
+  lstm.py              # @registry.register
+  autoencoder.py       # @registry.register
+```
+
+**Phase 2: Edu Dimension Plugins**
+```
+nomade/edu/
+  dimensions/
+    base.py          # BaseDimension + registry
+    cpu.py           # @registry.register
+    memory.py        # @registry.register
+    time.py          # @registry.register
+    io.py            # @registry.register
+    gpu.py           # @registry.register
+```
+
+**Phase 3: Entry Points**
+- Auto-discovery via `setuptools.entry_points`
+- Third-party packages: `pip install nomade-bioinformatics`
+
+### Benefits
+- Custom proficiency dimensions per site
+- Custom ML models from researchers
+- Third-party plugins become organic marketing
+
+## Data Readiness Estimator
+
+**Status**: Planned
+
+### Concept
+Users need sufficient data before ML models are reliable.
+
+### Planned Command
+```
+nomade readiness
+
+Data Readiness Assessment
+-----------------------------------------
+Jobs collected:     127 / 500 minimum
+Days of data:       3 / 14 recommended
+Feature coverage:   72%
+
+ML Model Status:
+  Similarity network:  Ready (127 jobs)
+  LSTM early warning:  Not ready (need 7+ days)
+  GNN predictions:     Not ready (need 300+ jobs)
+
+Estimated time to full readiness: 11 days
+```
+
+### Features
+- Minimum data thresholds per model
+- Confidence intervals vs data volume
+- Progress indicator in CLI/dashboard
+- Quick-start mode (rule-based until ML-ready)
+
+## Plugin Architecture
+
+**Status**: Partially implemented
+
+### Current State
+- [x] Collectors: `BaseCollector` + `@registry.register` pattern
+- [x] Alert backends: `NotificationBackend` ABC
+- [ ] Analysis modules: Not yet pluggable
+- [ ] Edu dimensions: Not yet pluggable
+
+### Planned Refactoring
+
+**Phase 1: Analysis Plugins**
+```
+nomade/analysis/
+  base.py              # BaseAnalyzer + registry
+  similarity.py        # @registry.register
+  gnn.py               # @registry.register
+  lstm.py              # @registry.register
+  autoencoder.py       # @registry.register
+```
+
+**Phase 2: Edu Dimension Plugins**
+```
+nomade/edu/
+  dimensions/
+    base.py          # BaseDimension + registry
+    cpu.py           # @registry.register
+    memory.py        # @registry.register
+    time.py          # @registry.register
+    io.py            # @registry.register
+    gpu.py           # @registry.register
+```
+
+**Phase 3: Entry Points**
+- Auto-discovery via `setuptools.entry_points`
+- Third-party packages: `pip install nomade-bioinformatics`
+
+### Benefits
+- Custom proficiency dimensions per site
+- Custom ML models from researchers
+- Third-party plugins become organic marketing
+
+## Data Readiness Estimator
+
+**Status**: Planned
+
+### Concept
+Users need sufficient data before ML models are reliable.
+
+### Planned Command
+```
+nomade readiness
+
+Data Readiness Assessment
+-----------------------------------------
+Jobs collected:     127 / 500 minimum
+Days of data:       3 / 14 recommended
+Feature coverage:   72%
+
+ML Model Status:
+  Similarity network:  Ready (127 jobs)
+  LSTM early warning:  Not ready (need 7+ days)
+  GNN predictions:     Not ready (need 300+ jobs)
+
+Estimated time to full readiness: 11 days
+```
+
+### Features
+- Minimum data thresholds per model
+- Confidence intervals vs data volume
+- Progress indicator in CLI/dashboard
+- Quick-start mode (rule-based until ML-ready)
+
+## Rebranding: NOMADE to NOMAD
+
+**Status**: Planned (High Priority - do before paper acceptance)
+
+### Rationale
+- "NOMADE" can be misread as "no-made" by English speakers
+- "NOMAD" reads correctly as the English word for wanderer
+- Fits the philosophy: "Travels light, adapts to its environment"
+- Better to change now while paper is in review and user base is small
+
+### Name Change
+| Old | New |
+|-----|-----|
+| NOMADE (NOde MAnagement DEvice) | NOMAD (NOde Monitoring And Diagnostics) |
+
+### Changes Required
+
+**Code/Package**
+- [ ] Rename directory: `nomade/` to `nomad/`
+- [ ] Update all Python imports
+- [ ] Update pyproject.toml (package name, entry points)
+- [ ] Update CLI commands: `nomade` to `nomad`
+- [ ] Backward-compat alias: `nomade` still works temporarily
+
+**Paper (nomade-jors-paper.tex)**
+- [ ] Line 21: Title
+- [ ] Line 36: Abstract - change expansion to "NOde Monitoring And Diagnostics"
+- [ ] Lines 79-290+: All NOMADE references to NOMAD
+- [ ] Update any figures showing the name
+
+**Documentation**
+- [ ] README.md
+- [ ] All docs/*.md files
+- [ ] mkdocs.yml (site_url, repo_url)
+
+**External**
+- [ ] Rename GitHub repo: jtonini/nomade to jtonini/nomad
+- [ ] New PyPI package: nomad-hpc
+- [ ] Update Zenodo DOI (new version)
+- [ ] GitHub Pages URL: jtonini.github.io/nomad
+
+### Migration Script (to create)
+```bash
+# Rename directory
+mv nomade nomad
+
+# Update imports in all Python files
+find . -name "*.py" -exec sed -i 's/from nomade/from nomad/g' {} \;
+find . -name "*.py" -exec sed -i 's/import nomade/import nomad/g' {} \;
+
+# Update docs
+find docs -name "*.md" -exec sed -i 's/NOMADE/NOMAD/g' {} \;
+find docs -name "*.md" -exec sed -i 's/nomade/nomad/g' {} \;
+
+# Update paper
+sed -i 's/NOMADE/NOMAD/g' paper/nomade-jors-paper.tex
+sed -i 's/NOde MAnagement DEvice/NOde Monitoring And Diagnostics/g' paper/nomade-jors-paper.tex
+mv paper/nomade-jors-paper.tex paper/nomad-jors-paper.tex
+```
+
+### Backward Compatibility
+```python
+# pyproject.toml - support both commands during transition
+[project.scripts]
+nomad = "nomad.cli:main"
+nomade = "nomad.cli:main"  # deprecated, prints warning, remove in v2.0
+```
