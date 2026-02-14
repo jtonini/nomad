@@ -2,13 +2,13 @@
 
 **To:** The Editors, Journal of Open Research Software
 
-**Re:** Submission of "NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction"
+**Re:** Submission of "NØMAD: Lightweight HPC Monitoring and Diagnostics with Machine Learning-Based Failure Prediction"
 
 ---
 
 Dear Editors,
 
-I am pleased to submit the manuscript "NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction" for consideration as a Software Metapaper in the Journal of Open Research Software.
+I am pleased to submit the manuscript "NØMAD: Lightweight HPC Monitoring and Diagnostics with Machine Learning-Based Failure Prediction" for consideration as a Software Metapaper in the Journal of Open Research Software.
 
 ## Summary
 

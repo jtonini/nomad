@@ -3,7 +3,7 @@
 ## (1) Overview
 
 ### Title
-NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction
+NØMAD: Lightweight HPC Monitoring and Diagnostics with Machine Learning-Based Failure Prediction
 
 ### Paper Authors
 1. Tonini, João Filipe Riva (corresponding author)
