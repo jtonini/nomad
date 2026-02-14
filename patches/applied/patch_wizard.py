@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-NØMADE Wizard Patcher v3
+NØMAD Wizard Patcher v3
 ========================
 Replaces the init() function in cli.py with the full setup wizard.
 
 Usage:
-    python3 patch_wizard.py /path/to/nomade/nomade/cli.py
+    python3 patch_wizard.py /path/to/nomad/nomad/cli.py
 
 Changes in v3:
     - Workstation groups skip headnode prompt (no headnode)
@@ -39,31 +39,31 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     """Initialize NOMADE with an interactive setup wizard.
 
     \b
-    The wizard walks you through configuring NØMADE for your
+    The wizard walks you through configuring NØMAD for your
     HPC cluster(s). It will ask about your clusters, partitions,
     storage, and monitoring preferences.
 
     \b
     If the wizard is interrupted (Ctrl+C), your progress is saved
-    automatically. Run 'nomade init' again to pick up where you
+    automatically. Run 'nomad init' again to pick up where you
     left off.
 
     \b
     User install (default):
-      ~/.config/nomade/nomade.toml   Configuration
-      ~/.local/share/nomade/         Data directory
+      ~/.config/nomad/nomad.toml   Configuration
+      ~/.local/share/nomad/         Data directory
 
     \b
     System install (--system, requires root):
-      /etc/nomade/nomade.toml        Configuration
-      /var/lib/nomade/               Data directory
+      /etc/nomad/nomad.toml        Configuration
+      /var/lib/nomad/               Data directory
 
     \b
     Examples:
-      nomade init                    Interactive wizard
-      nomade init --quick            Auto-detect everything
-      nomade init --force            Overwrite existing config
-      sudo nomade init --system      System-wide installation
+      nomad init                    Interactive wizard
+      nomad init --quick            Auto-detect everything
+      nomad init --force            Overwrite existing config
+      sudo nomad init --system      System-wide installation
     """
     import shutil
     import subprocess as sp
@@ -72,15 +72,15 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
 
     # ── Determine paths ──────────────────────────────────────────────
     if system:
-        config_dir = Path('/etc/nomade')
-        data_dir = Path('/var/lib/nomade')
-        log_dir = Path('/var/log/nomade')
+        config_dir = Path('/etc/nomad')
+        data_dir = Path('/var/lib/nomad')
+        log_dir = Path('/var/log/nomad')
     else:
-        config_dir = Path.home() / '.config' / 'nomade'
-        data_dir = Path.home() / '.local' / 'share' / 'nomade'
+        config_dir = Path.home() / '.config' / 'nomad'
+        data_dir = Path.home() / '.local' / 'share' / 'nomad'
         log_dir = data_dir / 'logs'
 
-    config_file = config_dir / 'nomade.toml'
+    config_file = config_dir / 'nomad.toml'
 
     # Check existing config
     if config_file.exists() and not force:
@@ -99,7 +99,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
         (data_dir / 'models').mkdir(exist_ok=True)
     except PermissionError:
         click.echo(click.style(
-            "\n  Permission denied. Use: sudo nomade init --system",
+            "\n  Permission denied. Use: sudo nomad init --system",
             fg="red"))
         return
 
@@ -229,7 +229,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
                     "could not auto-detect", fg="yellow"))
                 click.echo()
                 click.echo(
-                    "  NØMADE could not detect partitions automatically.")
+                    "  NØMAD could not detect partitions automatically.")
                 click.echo(
                     "  This usually means SLURM is not installed here,")
                 click.echo(
@@ -335,7 +335,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
         click.echo(click.style("  Storage", fg="green", bold=True))
         click.echo()
         click.echo(
-            "  Which filesystems should NØMADE monitor for disk")
+            "  Which filesystems should NØMAD monitor for disk")
         click.echo(
             "  usage? Common HPC paths: /, /home, /scratch,")
         click.echo("  /localscratch, /project")
@@ -449,7 +449,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     # ── Banner ───────────────────────────────────────────────────────
     click.echo()
     click.echo(click.style(
-        "  ◈ NØMADE Setup Wizard", fg="cyan", bold=True))
+        "  ◈ NØMAD Setup Wizard", fg="cyan", bold=True))
     click.echo(click.style(
         "  ══════════════════════════════════════", fg="cyan"))
     click.echo()
@@ -497,7 +497,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
 
     if not saved or not resume:
         click.echo(
-            "  This wizard will help you configure NØMADE for your")
+            "  This wizard will help you configure NØMAD for your")
         click.echo(
             "  HPC environment. Press Enter to accept the default")
         click.echo("  value shown in [brackets].")
@@ -569,18 +569,18 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
                 "  Step 1: Connection Mode",
                 fg="green", bold=True))
             click.echo()
-            click.echo("  Where is NØMADE running?")
+            click.echo("  Where is NØMAD running?")
             click.echo()
             click.echo("    1) On the cluster headnode")
             click.echo(
-                "       NØMADE has direct access to SLURM commands")
+                "       NØMAD has direct access to SLURM commands")
             click.echo("       like sinfo, squeue, and sacct.")
             click.echo()
             click.echo(
                 "    2) On a separate machine"
                 " (laptop, desktop, etc.)")
             click.echo(
-                "       NØMADE will connect to your cluster(s)"
+                "       NØMAD will connect to your cluster(s)"
                 " via SSH")
             click.echo(
                 "       to run commands and collect data remotely.")
@@ -603,7 +603,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
                     "  Remote mode requires SSH key authentication"
                     " so")
                 click.echo(
-                    "  NØMADE can connect to your cluster(s) without")
+                    "  NØMAD can connect to your cluster(s) without")
                 click.echo(
                     "  asking for a password every time.")
                 click.echo()
@@ -641,7 +641,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
                     click.echo()
 
                     if click.confirm(
-                            "  Would you like NØMADE to create one"
+                            "  Would you like NØMAD to create one"
                             " for you?", default=True):
                         click.echo()
                         ssh_dir.mkdir(mode=0o700, exist_ok=True)
@@ -701,7 +701,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
                     click.echo(
                         "  key needs to be copied to each cluster.")
                     click.echo(
-                        "  NØMADE can do this for you now.")
+                        "  NØMAD can do this for you now.")
                     click.echo()
                     click.echo(
                         "  (This will ask for your cluster password"
@@ -836,18 +836,18 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
                     # HPC: need a headnode to SSH into
                     click.echo("  SSH connection details:")
                     click.echo(
-                        "  (NØMADE will use SSH to reach"
+                        "  (NØMAD will use SSH to reach"
                         " this cluster)")
                     click.echo()
                     host = click.prompt(
                         "  Headnode hostname"
                         " (e.g., cluster.university.edu)")
                 else:
-                    # Workstations: no headnode, NØMADE connects
+                    # Workstations: no headnode, NØMAD connects
                     # directly to each machine
                     click.echo("  SSH connection details:")
                     click.echo(
-                        "  For workstation groups, NØMADE connects")
+                        "  For workstation groups, NØMAD connects")
                     click.echo(
                         "  directly to each machine via SSH. Just")
                     click.echo(
@@ -1185,7 +1185,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
             "  Step 3: Alerts", fg="green", bold=True))
         click.echo()
         click.echo(
-            "  NØMADE can send you email alerts when something"
+            "  NØMAD can send you email alerts when something"
             " needs")
         click.echo(
             "  attention (disk filling up, nodes going down,"
@@ -1209,7 +1209,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
             "  Step 4: Dashboard", fg="green", bold=True))
         click.echo()
         click.echo(
-            "  The NØMADE dashboard is a web page you open in"
+            "  The NØMAD dashboard is a web page you open in"
             " your")
         click.echo(
             "  browser to view cluster status, node health, and")
@@ -1224,8 +1224,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     # Generate TOML config file
     # ══════════════════════════════════════════════════════════════════
     lines = []
-    lines.append("# NØMADE Configuration File")
-    lines.append("# Generated by: nomade init")
+    lines.append("# NØMAD Configuration File")
+    lines.append("# Generated by: nomad init")
     lines.append(
         f"# Date:"
         f" {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -1237,7 +1237,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     lines.append("")
 
     lines.append("[database]")
-    lines.append('path = "nomade.db"')
+    lines.append('path = "nomad.db"')
     lines.append("")
 
     # Collectors
@@ -1374,7 +1374,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
             "# Update these with your SMTP server details:")
         lines.append('smtp_server = "smtp.example.com"')
         lines.append("smtp_port = 587")
-        lines.append('from_address = "nomade@example.com"')
+        lines.append('from_address = "nomad@example.com"')
         lines.append(f'recipients = ["{admin_email}"]')
         lines.append("")
 
@@ -1408,7 +1408,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     click.echo(click.style(
         "  ══════════════════════════════════════", fg="cyan"))
     click.echo(click.style(
-        "  ✓ NØMADE configured!", fg="green", bold=True))
+        "  ✓ NØMAD configured!", fg="green", bold=True))
     click.echo()
     click.echo(f"  Config:  {config_file}")
     click.echo(f"  Data:    {data_dir}")
@@ -1448,14 +1448,14 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     click.echo(f"         nano {config_file}")
     click.echo()
     click.echo(f"    2. Check that everything is ready:")
-    click.echo(f"         nomade syscheck")
+    click.echo(f"         nomad syscheck")
     click.echo()
     click.echo(f"    3. Start collecting data:")
-    click.echo(f"         nomade collect")
+    click.echo(f"         nomad collect")
     click.echo()
     click.echo(
         f"    4. Open the dashboard in your browser:")
-    click.echo(f"         nomade dashboard")
+    click.echo(f"         nomad dashboard")
     click.echo()
 '''
 
@@ -1526,13 +1526,13 @@ def patch(cli_path: str):
     print(f"Patched: {old_count} → {new_count} lines")
     print()
     print("Done! Test with:")
-    print("  nomade init --force")
+    print("  nomad init --force")
 
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         print(
             "Usage: python3 patch_wizard.py"
-            " /path/to/nomade/nomade/cli.py")
+            " /path/to/nomad/nomad/cli.py")
         sys.exit(1)
     patch(sys.argv[1])

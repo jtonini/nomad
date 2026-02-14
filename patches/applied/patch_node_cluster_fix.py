@@ -11,9 +11,9 @@ import shutil
 from pathlib import Path
 
 
-def patch_node_state_index(nomade_dir):
+def patch_node_state_index(nomad_dir):
     """Add cluster index to node_state.py."""
-    path = nomade_dir / 'collectors' / 'node_state.py'
+    path = nomad_dir / 'collectors' / 'node_state.py'
     content = path.read_text()
     
     if 'idx_node_state_cluster' in content:
@@ -45,9 +45,9 @@ def patch_node_state_index(nomade_dir):
         return False
 
 
-def patch_node_state_insert(nomade_dir):
+def patch_node_state_insert(nomad_dir):
     """Fix INSERT statement in node_state.py."""
-    path = nomade_dir / 'collectors' / 'node_state.py'
+    path = nomad_dir / 'collectors' / 'node_state.py'
     content = path.read_text()
     
     if 'node_name, cluster, state' in content:
@@ -80,9 +80,9 @@ def patch_node_state_insert(nomade_dir):
         return False
 
 
-def patch_server_grouping(nomade_dir):
+def patch_server_grouping(nomad_dir):
     """Replace partition-only grouping with cluster→partition grouping."""
-    path = nomade_dir / 'viz' / 'server.py'
+    path = nomad_dir / 'viz' / 'server.py'
     content = path.read_text()
     
     if 'Group by cluster, then by partition' in content:
@@ -153,29 +153,29 @@ def patch_server_grouping(nomade_dir):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 patch_node_cluster_fix.py /path/to/nomade/")
+        print("Usage: python3 patch_node_cluster_fix.py /path/to/nomad/")
         sys.exit(1)
     
-    nomade_dir = Path(sys.argv[1])
-    if (nomade_dir / 'collectors').exists():
+    nomad_dir = Path(sys.argv[1])
+    if (nomad_dir / 'collectors').exists():
         pass
-    elif (nomade_dir / 'nomade' / 'collectors').exists():
-        nomade_dir = nomade_dir / 'nomade'
+    elif (nomad_dir / 'nomad' / 'collectors').exists():
+        nomad_dir = nomad_dir / 'nomad'
     else:
-        print(f"ERROR: Could not find collectors/ in {nomade_dir}")
+        print(f"ERROR: Could not find collectors/ in {nomad_dir}")
         sys.exit(1)
     
     print()
     print("Node Cluster Cleanup Patch")
     print("=" * 30)
     
-    ok1 = patch_node_state_index(nomade_dir)
-    ok2 = patch_node_state_insert(nomade_dir)
-    ok3 = patch_server_grouping(nomade_dir)
+    ok1 = patch_node_state_index(nomad_dir)
+    ok2 = patch_node_state_insert(nomad_dir)
+    ok3 = patch_server_grouping(nomad_dir)
     
     print()
     if ok1 and ok2 and ok3:
-        print("Done! Test with: nomade dashboard")
+        print("Done! Test with: nomad dashboard")
     else:
         print("Some patches need manual attention.")
 

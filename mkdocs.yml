@@ -1,9 +1,9 @@
-site_name: NØMADE Documentation
-site_url: https://jtonini.github.io/nomade/
+site_name: NØMAD Documentation
+site_url: https://jtonini.github.io/nomad/
 site_description: Lightweight HPC monitoring, visualization, and predictive analytics
 site_author: João Tonini
-repo_url: https://github.com/jtonini/nomade
-repo_name: jtonini/nomade
+repo_url: https://github.com/jtonini/nomad
+repo_name: jtonini/nomad
 
 theme:
   name: material
@@ -78,7 +78,7 @@ extra_javascript:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/jtonini/nomade
+      link: https://github.com/jtonini/nomad
     - icon: fontawesome/solid/paper-plane
       link: mailto:jtonini@richmond.edu
 

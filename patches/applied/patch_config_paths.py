@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-NØMADE Config Path Patcher
+NØMAD Config Path Patcher
 ===========================
 Fixes config/database path resolution so syscheck, collect, and
-other commands find the config created by 'nomade init'.
+other commands find the config created by 'nomad init'.
 
 Search order:
   1. -c /path/to/config.toml  (explicit CLI flag)
-  2. ~/.config/nomade/nomade.toml  (user install)
-  3. /etc/nomade/nomade.toml  (system install)
+  2. ~/.config/nomad/nomad.toml  (user install)
+  3. /etc/nomad/nomad.toml  (system install)
 
 Usage:
-    python3 patch_config_paths.py /path/to/nomade/nomade/cli.py
+    python3 patch_config_paths.py /path/to/nomad/nomad/cli.py
 """
 
 import sys
@@ -32,14 +32,14 @@ def patch(cli_path: str):
     old_1 = (
         "def get_db_path(config: dict[str, Any]) -> Path:\n"
         "    \"\"\"Get database path from config.\"\"\"\n"
-        "    data_dir = Path(config.get('general', {}).get('data_dir', '/var/lib/nomade'))\n"
-        "    return data_dir / 'nomade.db'"
+        "    data_dir = Path(config.get('general', {}).get('data_dir', '/var/lib/nomad'))\n"
+        "    return data_dir / 'nomad.db'"
     )
     new_1 = (
         "def resolve_config_path() -> str:\n"
         "    \"\"\"Find config file: user path first, then system path.\"\"\"\n"
-        "    user_config = Path.home() / '.config' / 'nomade' / 'nomade.toml'\n"
-        "    system_config = Path('/etc/nomade/nomade.toml')\n"
+        "    user_config = Path.home() / '.config' / 'nomad' / 'nomad.toml'\n"
+        "    system_config = Path('/etc/nomad/nomad.toml')\n"
         "    if user_config.exists():\n"
         "        return str(user_config)\n"
         "    if system_config.exists():\n"
@@ -49,9 +49,9 @@ def patch(cli_path: str):
         "\n"
         "def get_db_path(config: dict[str, Any]) -> Path:\n"
         "    \"\"\"Get database path from config.\"\"\"\n"
-        "    default_data = str(Path.home() / '.local' / 'share' / 'nomade')\n"
+        "    default_data = str(Path.home() / '.local' / 'share' / 'nomad')\n"
         "    data_dir = Path(config.get('general', {}).get('data_dir', default_data))\n"
-        "    return data_dir / 'nomade.db'"
+        "    return data_dir / 'nomad.db'"
     )
 
     if old_1 in content:
@@ -62,8 +62,8 @@ def patch(cli_path: str):
         print("  ✗ Could not find get_db_path function")
         print("    (already patched or code has changed)")
 
-    # ── Edit 2: Change --config default from /etc/nomade to None ─────
-    old_2 = "              default='/etc/nomade/nomade.toml',"
+    # ── Edit 2: Change --config default from /etc/nomad to None ─────
+    old_2 = "              default='/etc/nomad/nomad.toml',"
     new_2 = "              default=None,"
 
     if old_2 in content:
@@ -71,7 +71,7 @@ def patch(cli_path: str):
         changes += 1
         print("  ✓ Changed --config default to None")
     else:
-        print("  ✗ Could not find --config default='/etc/nomade/nomade.toml'")
+        print("  ✗ Could not find --config default='/etc/nomad/nomad.toml'")
         print("    (already patched or code has changed)")
 
     # ── Edit 3: Use resolve_config_path in cli() ────────────────────
@@ -97,15 +97,15 @@ def patch(cli_path: str):
     # ── Edit 4: Fix syscheck hardcoded error message ─────────────────
     old_4a = (
         "        click.echo(f\"  {click.style('✗', fg='red')}"
-        " Config not found: /etc/nomade/nomade.toml\")\n"
+        " Config not found: /etc/nomad/nomad.toml\")\n"
         "        click.echo(f\"    → Create config or use:"
-        " nomade -c /path/to/config.toml\")"
+        " nomad -c /path/to/config.toml\")"
     )
     new_4a = (
         "        expected = resolve_config_path()\n"
         "        click.echo(f\"  {click.style('✗', fg='red')}"
         " Config not found: {expected}\")\n"
-        "        click.echo(f\"    → Run: nomade init\")"
+        "        click.echo(f\"    → Run: nomad init\")"
     )
 
     if old_4a in content:
@@ -114,7 +114,7 @@ def patch(cli_path: str):
         print("  ✓ Fixed syscheck error message")
     else:
         # Try a more flexible match
-        old_4b = "Config not found: /etc/nomade/nomade.toml"
+        old_4b = "Config not found: /etc/nomad/nomad.toml"
         if old_4b in content:
             content = content.replace(old_4b, "Config not found: {expected}")
             # Also add the expected = line before it
@@ -123,8 +123,8 @@ def patch(cli_path: str):
             content = content.replace(old_line, new_line)
             # Fix the hint line too
             content = content.replace(
-                "    → Create config or use: nomade -c /path/to/config.toml",
-                "    → Run: nomade init"
+                "    → Create config or use: nomad -c /path/to/config.toml",
+                "    → Run: nomad init"
             )
             changes += 1
             print("  ✓ Fixed syscheck error message (alt match)")
@@ -146,18 +146,18 @@ def patch(cli_path: str):
     print(f"Patched {changes} location(s)")
     print()
     print("Config resolution order is now:")
-    print("  1. nomade -c /custom/path.toml  (explicit)")
-    print("  2. ~/.config/nomade/nomade.toml  (user)")
-    print("  3. /etc/nomade/nomade.toml  (system)")
+    print("  1. nomad -c /custom/path.toml  (explicit)")
+    print("  2. ~/.config/nomad/nomad.toml  (user)")
+    print("  3. /etc/nomad/nomad.toml  (system)")
     print()
     print("Test with:")
-    print("  nomade syscheck")
+    print("  nomad syscheck")
 
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         print(
             "Usage: python3 patch_config_paths.py"
-            " /path/to/nomade/nomade/cli.py")
+            " /path/to/nomad/nomad/cli.py")
         sys.exit(1)
     patch(sys.argv[1])

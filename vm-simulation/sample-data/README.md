@@ -18,7 +18,7 @@ Pre-collected metrics for testing NOMADE without running a VM.
 
 ```python
 import json
-from nomade.analysis.derivatives import DerivativeAnalyzer
+from nomad.analysis.derivatives import DerivativeAnalyzer
 from datetime import datetime
 
 # Load sample data
@@ -39,7 +39,7 @@ for point in data:
 ### Replay through NOMADE
 
 ```bash
-# Future: nomade --replay sample-data/overnight-metrics.json
+# Future: nomad --replay sample-data/overnight-metrics.json
 ```
 
 ## Data Format
@@ -101,8 +101,8 @@ From a running VM:
 
 ```bash
 vagrant ssh
-# Overnight data is in /tmp/nomade-metrics.log
-cat /tmp/nomade-metrics.log | python3 -c "
+# Overnight data is in /tmp/nomad-metrics.log
+cat /tmp/nomad-metrics.log | python3 -c "
 import sys, json
 data = [json.loads(l) for l in sys.stdin]
 print(json.dumps(data, indent=2))

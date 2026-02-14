@@ -1,10 +1,10 @@
 # Dashboard
 
-The NØMADE dashboard provides real-time monitoring of your HPC cluster(s).
+The NØMAD dashboard provides real-time monitoring of your HPC cluster(s).
 
 ## Launching
 ```bash
-nomade dashboard
+nomad dashboard
 ```
 
 Open http://localhost:8050 in your browser.
@@ -44,7 +44,7 @@ Job activity and history:
 
 ## Planned Features
 
-- **Education Tab**: Visual proficiency trajectories and per-student breakdowns (CLI available now via `nomade edu`)
+- **Education Tab**: Visual proficiency trajectories and per-student breakdowns (CLI available now via `nomad edu`)
 
 ## Remote Access
 

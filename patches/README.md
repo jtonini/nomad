@@ -1,4 +1,4 @@
-# NØMADE Patches
+# NØMAD Patches
 
 ## Directory Structure
 ```
@@ -15,11 +15,11 @@ The `applied/` directory contains one-time migration scripts that were used duri
 
 ## Writing New Patches
 
-For future patches, use the `nomade.patching.Patcher` framework:
+For future patches, use the `nomad.patching.Patcher` framework:
 ```python
-from nomade.patching import Patcher, Patch
+from nomad.patching import Patcher, Patch
 
-patcher = Patcher('/path/to/nomade')
+patcher = Patcher('/path/to/nomad')
 patcher.add(Patch(
     file='collectors/node_state.py',
     name='add_cluster_column',

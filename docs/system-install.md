@@ -1,6 +1,6 @@
 # System Install
 
-This guide covers deploying NØMADE system-wide for production HPC environments.
+This guide covers deploying NØMAD system-wide for production HPC environments.
 
 ## Overview
 
@@ -8,9 +8,9 @@ System install differs from user install in several ways:
 
 | Aspect | User Install | System Install |
 |--------|--------------|----------------|
-| Config location | `~/.config/nomade/` | `/etc/nomade/` |
-| Data location | `~/.local/share/nomade/` | `/var/lib/nomade/` |
-| Log location | `~/.local/share/nomade/logs/` | `/var/log/nomade/` |
+| Config location | `~/.config/nomad/` | `/etc/nomad/` |
+| Data location | `~/.local/share/nomad/` | `/var/lib/nomad/` |
+| Log location | `~/.local/share/nomad/logs/` | `/var/log/nomad/` |
 | Permissions | User only | Controlled by file permissions |
 | Service | Manual or user systemd | System systemd unit |
 | Dashboard access | localhost only | Configurable (proxy recommended) |
@@ -20,26 +20,26 @@ System install differs from user install in several ways:
 ### Prerequisites
 ```bash
 # Install as root or with sudo
-sudo pip install nomade-hpc
+sudo pip install nomad-hpc
 
 # Or system-wide from source
-sudo pip install /path/to/nomade/
+sudo pip install /path/to/nomad/
 ```
 
 ### Initialize System Configuration
 ```bash
-sudo nomade init --system
+sudo nomad init --system
 ```
 
 This creates:
 
 | Path | Purpose | Permissions |
 |------|---------|-------------|
-| `/etc/nomade/` | Configuration directory | `root:root 755` |
-| `/etc/nomade/nomade.toml` | Main configuration | `root:root 644` |
-| `/var/lib/nomade/` | Data directory | `root:nomade 750` |
-| `/var/lib/nomade/nomade.db` | SQLite database | `root:nomade 660` |
-| `/var/log/nomade/` | Log directory | `root:nomade 750` |
+| `/etc/nomad/` | Configuration directory | `root:root 755` |
+| `/etc/nomad/nomad.toml` | Main configuration | `root:root 644` |
+| `/var/lib/nomad/` | Data directory | `root:nomad 750` |
+| `/var/lib/nomad/nomad.db` | SQLite database | `root:nomad 660` |
+| `/var/log/nomad/` | Log directory | `root:nomad 750` |
 
 ### Required Permissions
 
@@ -47,28 +47,28 @@ This creates:
 
 **Running as service user** (recommended):
 ```bash
-# Create nomade group
-sudo groupadd nomade
+# Create nomad group
+sudo groupadd nomad
 
 # Create service user
-sudo useradd -r -g nomade -d /var/lib/nomade -s /sbin/nologin nomade
+sudo useradd -r -g nomad -d /var/lib/nomad -s /sbin/nologin nomad
 
 # Set ownership
-sudo chown -R nomade:nomade /var/lib/nomade
-sudo chown -R nomade:nomade /var/log/nomade
-sudo chown root:nomade /etc/nomade/nomade.toml
-sudo chmod 640 /etc/nomade/nomade.toml
+sudo chown -R nomad:nomad /var/lib/nomad
+sudo chown -R nomad:nomad /var/log/nomad
+sudo chown root:nomad /etc/nomad/nomad.toml
+sudo chmod 640 /etc/nomad/nomad.toml
 ```
 
 **Wheel group access** (for admin users):
 ```bash
 # Allow wheel group to read config
-sudo chown root:wheel /etc/nomade/nomade.toml
-sudo chmod 640 /etc/nomade/nomade.toml
+sudo chown root:wheel /etc/nomad/nomad.toml
+sudo chmod 640 /etc/nomad/nomad.toml
 
 # Allow wheel group to read database
-sudo chown nomade:wheel /var/lib/nomade/nomade.db
-sudo chmod 660 /var/lib/nomade/nomade.db
+sudo chown nomad:wheel /var/lib/nomad/nomad.db
+sudo chmod 660 /var/lib/nomad/nomad.db
 ```
 
 ## Files Modified/Accessed
@@ -77,24 +77,24 @@ sudo chmod 660 /var/lib/nomade/nomade.db
 
 | File | Read/Write | Purpose |
 |------|------------|---------|
-| `/etc/nomade/nomade.toml` | R | Main configuration |
-| `/etc/nomade/clusters/*.toml` | R | Per-cluster configs (optional) |
+| `/etc/nomad/nomad.toml` | R | Main configuration |
+| `/etc/nomad/clusters/*.toml` | R | Per-cluster configs (optional) |
 
 ### Data Files
 
 | File | Read/Write | Purpose |
 |------|------------|---------|
-| `/var/lib/nomade/nomade.db` | RW | SQLite database |
-| `/var/lib/nomade/models/` | RW | ML model files |
-| `/var/lib/nomade/cache/` | RW | Temporary cache |
+| `/var/lib/nomad/nomad.db` | RW | SQLite database |
+| `/var/lib/nomad/models/` | RW | ML model files |
+| `/var/lib/nomad/cache/` | RW | Temporary cache |
 
 ### Log Files
 
 | File | Read/Write | Purpose |
 |------|------------|---------|
-| `/var/log/nomade/nomade.log` | W | Main application log |
-| `/var/log/nomade/collector.log` | W | Collector logs |
-| `/var/log/nomade/alerts.log` | W | Alert dispatch logs |
+| `/var/log/nomad/nomad.log` | W | Main application log |
+| `/var/log/nomad/collector.log` | W | Collector logs |
+| `/var/log/nomad/alerts.log` | W | Alert dispatch logs |
 
 ### System Files Read
 
@@ -123,16 +123,16 @@ sudo chmod 660 /var/lib/nomade/nomade.db
 
 ### Create Service Unit
 ```bash
-sudo cat > /etc/systemd/system/nomade-collector.service << 'UNIT'
+sudo cat > /etc/systemd/system/nomad-collector.service << 'UNIT'
 [Unit]
-Description=NØMADE HPC Monitoring Collector
+Description=NØMAD HPC Monitoring Collector
 After=network.target slurmd.service
 
 [Service]
 Type=simple
-User=nomade
-Group=nomade
-ExecStart=/usr/local/bin/nomade collect
+User=nomad
+Group=nomad
+ExecStart=/usr/local/bin/nomad collect
 Restart=always
 RestartSec=30
 
@@ -140,7 +140,7 @@ RestartSec=30
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/nomade /var/log/nomade
+ReadWritePaths=/var/lib/nomad /var/log/nomad
 PrivateTmp=true
 
 [Install]
@@ -151,23 +151,23 @@ UNIT
 ### Enable and Start
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable nomade-collector
-sudo systemctl start nomade-collector
-sudo systemctl status nomade-collector
+sudo systemctl enable nomad-collector
+sudo systemctl start nomad-collector
+sudo systemctl status nomad-collector
 ```
 
 ### Dashboard Service (Optional)
 ```bash
-sudo cat > /etc/systemd/system/nomade-dashboard.service << 'UNIT'
+sudo cat > /etc/systemd/system/nomad-dashboard.service << 'UNIT'
 [Unit]
-Description=NØMADE Dashboard
-After=network.target nomade-collector.service
+Description=NØMAD Dashboard
+After=network.target nomad-collector.service
 
 [Service]
 Type=simple
-User=nomade
-Group=nomade
-ExecStart=/usr/local/bin/nomade dashboard --host 127.0.0.1 --port 8050
+User=nomad
+Group=nomad
+ExecStart=/usr/local/bin/nomad dashboard --host 127.0.0.1 --port 8050
 Restart=always
 RestartSec=10
 
@@ -192,7 +192,7 @@ ssh -L 8050:localhost:8050 user@hpc-head-node
 
 Using Apache:
 ```apache
-# /etc/httpd/conf.d/nomade.conf
+# /etc/httpd/conf.d/nomad.conf
 <VirtualHost *:443>
     ServerName hpc.example.edu
     
@@ -200,13 +200,13 @@ Using Apache:
     SSLCertificateFile /etc/pki/tls/certs/server.crt
     SSLCertificateKeyFile /etc/pki/tls/private/server.key
     
-    <Location /nomade>
+    <Location /nomad>
         ProxyPass http://127.0.0.1:8050/
         ProxyPassReverse http://127.0.0.1:8050/
         
         # Require authentication
         AuthType Basic
-        AuthName "NØMADE Dashboard"
+        AuthName "NØMAD Dashboard"
         AuthUserFile /etc/httpd/.htpasswd
         Require valid-user
     </Location>
@@ -215,7 +215,7 @@ Using Apache:
 
 Using nginx:
 ```nginx
-# /etc/nginx/conf.d/nomade.conf
+# /etc/nginx/conf.d/nomad.conf
 server {
     listen 443 ssl;
     server_name hpc.example.edu;
@@ -223,7 +223,7 @@ server {
     ssl_certificate /etc/ssl/certs/server.crt;
     ssl_certificate_key /etc/ssl/private/server.key;
     
-    location /nomade/ {
+    location /nomad/ {
         proxy_pass http://127.0.0.1:8050/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -234,7 +234,7 @@ server {
         proxy_set_header Connection "upgrade";
         
         # Authentication
-        auth_basic "NØMADE Dashboard";
+        auth_basic "NØMAD Dashboard";
         auth_basic_user_file /etc/nginx/.htpasswd;
     }
 }
@@ -247,12 +247,12 @@ server {
 For per-job metrics collection:
 ```bash
 # Copy hook scripts
-sudo cp /path/to/nomade/scripts/prolog.sh /etc/slurm/prolog.d/nomade.sh
-sudo cp /path/to/nomade/scripts/epilog.sh /etc/slurm/epilog.d/nomade.sh
+sudo cp /path/to/nomad/scripts/prolog.sh /etc/slurm/prolog.d/nomad.sh
+sudo cp /path/to/nomad/scripts/epilog.sh /etc/slurm/epilog.d/nomad.sh
 
 # Make executable
-sudo chmod +x /etc/slurm/prolog.d/nomade.sh
-sudo chmod +x /etc/slurm/epilog.d/nomade.sh
+sudo chmod +x /etc/slurm/prolog.d/nomad.sh
+sudo chmod +x /etc/slurm/epilog.d/nomad.sh
 
 # Restart SLURM controller
 sudo systemctl restart slurmctld
@@ -261,22 +261,22 @@ sudo systemctl restart slurmctld
 ### Prolog Script
 ```bash
 #!/bin/bash
-# /etc/slurm/prolog.d/nomade.sh
-/usr/local/bin/nomade job-start $SLURM_JOB_ID 2>/dev/null || true
+# /etc/slurm/prolog.d/nomad.sh
+/usr/local/bin/nomad job-start $SLURM_JOB_ID 2>/dev/null || true
 ```
 
 ### Epilog Script
 ```bash
 #!/bin/bash
-# /etc/slurm/epilog.d/nomade.sh
-/usr/local/bin/nomade job-end $SLURM_JOB_ID 2>/dev/null || true
+# /etc/slurm/epilog.d/nomad.sh
+/usr/local/bin/nomad job-end $SLURM_JOB_ID 2>/dev/null || true
 ```
 
 ## Multi-Cluster Setup
 
 For monitoring multiple clusters from one head node:
 ```toml
-# /etc/nomade/nomade.toml
+# /etc/nomad/nomad.toml
 
 [clusters.spydur]
 name = "Spydur"
@@ -297,9 +297,9 @@ partitions = ["standard", "large"]
 
 The SQLite database contains job metadata including usernames. Restrict access:
 ```bash
-# Only nomade user and wheel group can read
-sudo chmod 660 /var/lib/nomade/nomade.db
-sudo chown nomade:wheel /var/lib/nomade/nomade.db
+# Only nomad user and wheel group can read
+sudo chmod 660 /var/lib/nomad/nomad.db
+sudo chown nomad:wheel /var/lib/nomad/nomad.db
 ```
 
 ### Configuration Secrets
@@ -307,8 +307,8 @@ sudo chown nomade:wheel /var/lib/nomade/nomade.db
 If using Slack/email alerts, config contains credentials:
 ```bash
 # Restrict config file
-sudo chmod 640 /etc/nomade/nomade.toml
-sudo chown root:nomade /etc/nomade/nomade.toml
+sudo chmod 640 /etc/nomad/nomad.toml
+sudo chown root:nomad /etc/nomad/nomad.toml
 ```
 
 ### Dashboard Authentication
@@ -319,27 +319,27 @@ Always use authentication for remote dashboard access. Never expose port 8050 di
 
 ### Permission Denied
 ```
-PermissionError: [Errno 13] Permission denied: '/var/lib/nomade/nomade.db'
+PermissionError: [Errno 13] Permission denied: '/var/lib/nomad/nomad.db'
 ```
 
 **Solution**: Check ownership and permissions:
 ```bash
-sudo chown nomade:nomade /var/lib/nomade/nomade.db
-sudo chmod 660 /var/lib/nomade/nomade.db
+sudo chown nomad:nomad /var/lib/nomad/nomad.db
+sudo chmod 660 /var/lib/nomad/nomad.db
 ```
 
 ### Collector Not Starting
 
 Check systemd logs:
 ```bash
-sudo journalctl -u nomade-collector -f
+sudo journalctl -u nomad-collector -f
 ```
 
 ### SLURM Commands Failing
 
-Ensure the nomade user can run SLURM commands:
+Ensure the nomad user can run SLURM commands:
 ```bash
-sudo -u nomade squeue
+sudo -u nomad squeue
 ```
 
-May need to add nomade user to appropriate groups or configure SLURM ACLs.
+May need to add nomad user to appropriate groups or configure SLURM ACLs.

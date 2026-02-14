@@ -60,7 +60,7 @@ class StorageSpec:
 CLUSTER_CONFIGS = {
     'minimal': {
         'nodes': [
-            NodeSpec('nomade-test', 1, 4, 8, 100, 0),
+            NodeSpec('nomad-test', 1, 4, 8, 100, 0),
         ],
         'storage': [
             StorageSpec('/', 100, 0.10, 0.05),
@@ -147,7 +147,7 @@ class MetricsGenerator:
         # Build node list
         self.nodes = []
         for spec in self.config['nodes']:
-            if spec.count == 1 and spec.prefix == 'nomade-test':
+            if spec.count == 1 and spec.prefix == 'nomad-test':
                 self.nodes.append(spec.prefix)
             else:
                 for i in range(1, spec.count + 1):

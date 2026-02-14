@@ -2,8 +2,8 @@
 
 ## Try Without HPC
 ```bash
-pip install nomade-hpc
-nomade demo
+pip install nomad-hpc
+nomad demo
 ```
 
 This launches a dashboard at http://localhost:8050 with synthetic data.
@@ -12,26 +12,26 @@ This launches a dashboard at http://localhost:8050 with synthetic data.
 
 ### 1. Install
 ```bash
-pip install nomade-hpc
+pip install nomad-hpc
 ```
 
 ### 2. Configure
 ```bash
-nomade init
+nomad init
 ```
 
 Follow the wizard to configure your cluster(s).
 
 ### 3. Collect Data
 ```bash
-nomade collect
+nomad collect
 ```
 
 Leave running (or set up as systemd service).
 
 ### 4. View Dashboard
 ```bash
-nomade dashboard
+nomad dashboard
 ```
 
 Open http://localhost:8050
@@ -39,16 +39,16 @@ Open http://localhost:8050
 ## First Commands to Try
 ```bash
 # System status
-nomade status
+nomad status
 
 # Disk usage trends
-nomade disk /home
+nomad disk /home
 
 # Recent jobs
-nomade jobs --user $USER
+nomad jobs --user $USER
 
 # Educational analytics (if you have job data)
-nomade edu explain <job_id>
+nomad edu explain <job_id>
 ```
 
 ## Next Steps

@@ -2,16 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 """
-Integrate proficiency score storage into NØMADE.
+Integrate proficiency score storage into NØMAD.
 
 Changes:
-    1. nomade/edu/storage.py   — New file with schema and logging functions
-    2. nomade/edu/__init__.py  — Export storage functions
-    3. nomade/edu/explain.py   — Save scores after computation
-    4. nomade/demo.py          — Add proficiency_scores table to demo schema
+    1. nomad/edu/storage.py   — New file with schema and logging functions
+    2. nomad/edu/__init__.py  — Export storage functions
+    3. nomad/edu/explain.py   — Save scores after computation
+    4. nomad/demo.py          — Add proficiency_scores table to demo schema
 
 Usage:
-    python3 patch_edu_storage.py /path/to/nomade/
+    python3 patch_edu_storage.py /path/to/nomad/
 """
 
 import sys
@@ -19,9 +19,9 @@ import shutil
 from pathlib import Path
 
 
-def patch_edu_init(nomade_dir: Path) -> bool:
+def patch_edu_init(nomad_dir: Path) -> bool:
     """Update edu/__init__.py to export storage functions."""
-    path = nomade_dir / 'edu' / '__init__.py'
+    path = nomad_dir / 'edu' / '__init__.py'
     content = path.read_text()
     
     if 'save_proficiency_score' in content:
@@ -31,7 +31,7 @@ def patch_edu_init(nomade_dir: Path) -> bool:
     # Add imports
     addition = '''
 # Storage functions for proficiency tracking
-from nomade.edu.storage import (
+from nomad.edu.storage import (
     init_proficiency_table,
     save_proficiency_score,
     get_user_proficiency_history,
@@ -45,9 +45,9 @@ from nomade.edu.storage import (
     return True
 
 
-def patch_explain(nomade_dir: Path) -> bool:
+def patch_explain(nomad_dir: Path) -> bool:
     """Update explain.py to save scores after computation."""
-    path = nomade_dir / 'edu' / 'explain.py'
+    path = nomad_dir / 'edu' / 'explain.py'
     content = path.read_text()
     
     if 'save_proficiency_score' in content:
@@ -55,9 +55,9 @@ def patch_explain(nomade_dir: Path) -> bool:
         return True
     
     # Add import at top
-    old_import = "from nomade.edu.scoring import score_job"
-    new_import = """from nomade.edu.scoring import score_job
-from nomade.edu.storage import save_proficiency_score"""
+    old_import = "from nomad.edu.scoring import score_job"
+    new_import = """from nomad.edu.scoring import score_job
+from nomad.edu.storage import save_proficiency_score"""
     
     if old_import in content:
         content = content.replace(old_import, new_import, 1)
@@ -90,9 +90,9 @@ from .storage import save_proficiency_score"""
     return True
 
 
-def patch_demo(nomade_dir: Path) -> bool:
+def patch_demo(nomad_dir: Path) -> bool:
     """Add proficiency_scores table to demo.py schema."""
-    path = nomade_dir / 'demo.py'
+    path = nomad_dir / 'demo.py'
     content = path.read_text()
     
     if 'proficiency_scores' in content:
@@ -132,17 +132,17 @@ def patch_demo(nomade_dir: Path) -> bool:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 patch_edu_storage.py /path/to/nomade/")
+        print("Usage: python3 patch_edu_storage.py /path/to/nomad/")
         sys.exit(1)
     
-    nomade_dir = Path(sys.argv[1])
-    if not nomade_dir.exists():
-        print(f"ERROR: {nomade_dir} not found")
+    nomad_dir = Path(sys.argv[1])
+    if not nomad_dir.exists():
+        print(f"ERROR: {nomad_dir} not found")
         sys.exit(1)
     
     # First, copy storage.py to edu/
     storage_src = Path(__file__).parent / 'edu_storage.py'
-    storage_dst = nomade_dir / 'edu' / 'storage.py'
+    storage_dst = nomad_dir / 'edu' / 'storage.py'
     
     print("\nIntegrating Edu Storage")
     print("=" * 30)
@@ -152,14 +152,14 @@ def main():
         print(f"  + Copied storage.py to {storage_dst}")
     else:
         print(f"  ! Source file not found: {storage_src}")
-        print("    Copy edu_storage.py to nomade/edu/storage.py manually")
+        print("    Copy edu_storage.py to nomad/edu/storage.py manually")
     
-    patch_edu_init(nomade_dir)
-    patch_explain(nomade_dir)
-    patch_demo(nomade_dir)
+    patch_edu_init(nomad_dir)
+    patch_explain(nomad_dir)
+    patch_demo(nomad_dir)
     
     print("\nDone! Proficiency scores will now be saved to the database.")
-    print("Test with: nomade edu explain <job_id>")
+    print("Test with: nomad edu explain <job_id>")
 
 
 if __name__ == '__main__':

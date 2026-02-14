@@ -10,7 +10,7 @@ people, it would be welcome to have a white mode as well."
 Dark mode remains default. Toggle persists in localStorage.
 
 Usage:
-    python3 patch_light_theme.py nomade/viz/server.py
+    python3 patch_light_theme.py nomad/viz/server.py
 """
 
 import sys
@@ -74,7 +74,7 @@ TOGGLE_BUTTON_CSS = '''
 THEME_JS = '''
     // Theme toggle
     function initTheme() {
-        const saved = localStorage.getItem('nomade-theme');
+        const saved = localStorage.getItem('nomad-theme');
         if (saved === 'light') {
             document.body.classList.add('light-theme');
         }
@@ -82,7 +82,7 @@ THEME_JS = '''
     function toggleTheme() {
         document.body.classList.toggle('light-theme');
         const isLight = document.body.classList.contains('light-theme');
-        localStorage.setItem('nomade-theme', isLight ? 'light' : 'dark');
+        localStorage.setItem('nomad-theme', isLight ? 'light' : 'dark');
         // Update button icon
         const btn = document.querySelector('.theme-toggle');
         if (btn) {
@@ -122,7 +122,7 @@ def patch_server(path):
     
     # 2. Add theme toggle button in header
     # Find the header section with the logo/title
-    header_marker = '<span class="logo-text">NØMADE</span>'
+    header_marker = '<span class="logo-text">NØMAD</span>'
     if header_marker in content:
         # Add toggle button after the logo
         new_header = header_marker + '\n                ' + TOGGLE_BUTTON_HTML
@@ -170,7 +170,7 @@ def patch_server(path):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 patch_light_theme.py nomade/viz/server.py")
+        print("Usage: python3 patch_light_theme.py nomad/viz/server.py")
         sys.exit(1)
     
     path = Path(sys.argv[1])

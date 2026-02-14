@@ -1,12 +1,12 @@
-# NØMADE
+# NØMAD
 
-**NØde MAnagement DEvice** — Lightweight HPC monitoring, visualization, and predictive analytics.
+**NØde Monitoring And Diagnostics** — Lightweight HPC monitoring, visualization, and predictive analytics.
 
 > *"Travels light, adapts to its environment, and doesn't need permanent infrastructure."*
 
-## What is NØMADE?
+## What is NØMAD?
 
-NØMADE is a self-contained monitoring and prediction system for HPC clusters. Unlike heavyweight solutions requiring complex infrastructure, NØMADE deploys quickly, runs with minimal resources, and provides actionable insights through:
+NØMAD is a self-contained monitoring and prediction system for HPC clusters. Unlike heavyweight solutions requiring complex infrastructure, NØMAD deploys quickly, runs with minimal resources, and provides actionable insights through:
 
 - **Real-time monitoring** of disk, CPU, memory, GPU, and SLURM jobs
 - **Predictive analytics** using machine learning and similarity networks
@@ -26,9 +26,9 @@ Inspired by nomadic principles:
 
 ## Quick Start
 ```bash
-pip install nomade-hpc
-nomade demo                    # Try with synthetic data
-nomade dashboard               # Open http://localhost:8050
+pip install nomad-hpc
+nomad demo                    # Try with synthetic data
+nomad dashboard               # Open http://localhost:8050
 ```
 
 For production deployment, see [Installation](installation.md).

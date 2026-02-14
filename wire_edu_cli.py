@@ -2,18 +2,18 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 """
-Wire nomade edu subcommands into cli.py.
+Wire nomad edu subcommands into cli.py.
 
 Adds:
-    nomade edu explain <job_id>  [--json] [--no-progress]
-    nomade edu trajectory <user> [--days N] [--json]
-    nomade edu report <group>    [--days N] [--json]
+    nomad edu explain <job_id>  [--json] [--no-progress]
+    nomad edu trajectory <user> [--days N] [--json]
+    nomad edu report <group>    [--days N] [--json]
 
 The CLI code is kept in patches/edu_cli_commands.py for proper
 syntax highlighting and linting support.
 
 Usage:
-    python3 wire_edu_cli.py nomade/cli.py
+    python3 wire_edu_cli.py nomad/cli.py
 """
 import sys
 from pathlib import Path
@@ -55,7 +55,7 @@ def load_cli_block() -> str:
 
 @cli.group()
 def edu():
-    """NØMADE Edu — Educational analytics for HPC.
+    """NØMAD Edu — Educational analytics for HPC.
 
     Measures the development of computational proficiency over time
     by analyzing per-job behavioral fingerprints.
@@ -71,7 +71,7 @@ def edu():
 @click.pass_context
 def edu_explain(ctx, job_id, db_path, output_json, no_progress):
     """Explain a job in plain language with proficiency scores."""
-    from nomade.edu.explain import explain_job
+    from nomad.edu.explain import explain_job
 
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
@@ -99,7 +99,7 @@ def edu_explain(ctx, job_id, db_path, output_json, no_progress):
 @click.pass_context
 def edu_trajectory(ctx, username, db_path, days, output_json):
     """Show a user's proficiency development over time."""
-    from nomade.edu.progress import user_trajectory, format_trajectory
+    from nomad.edu.progress import user_trajectory, format_trajectory
     import json
 
     if not db_path:
@@ -132,7 +132,7 @@ def edu_trajectory(ctx, username, db_path, days, output_json):
 @click.pass_context
 def edu_report(ctx, group_name, db_path, days, output_json):
     """Generate a proficiency report for a course or lab group."""
-    from nomade.edu.progress import group_summary, format_group_summary
+    from nomad.edu.progress import group_summary, format_group_summary
     import json
 
     if not db_path:
@@ -187,7 +187,7 @@ def wire_cli(cli_path: Path) -> bool:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 wire_edu_cli.py nomade/cli.py")
+        print("Usage: python3 wire_edu_cli.py nomad/cli.py")
         sys.exit(1)
 
     path = Path(sys.argv[1])
@@ -195,12 +195,12 @@ def main():
         print(f"ERROR: {path} not found")
         sys.exit(1)
 
-    print("\nWiring NØMADE Edu CLI")
+    print("\nWiring NØMAD Edu CLI")
     print("=" * 30)
     wire_cli(path)
     print("\nDone! Test with:")
-    print("  nomade edu --help")
-    print("  nomade edu explain <job_id>")
+    print("  nomad edu --help")
+    print("  nomad edu explain <job_id>")
 
 
 if __name__ == '__main__':

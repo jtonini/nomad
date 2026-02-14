@@ -19,8 +19,8 @@
 ## v1.2.0 (January 2026)
 
 ### Features
-- Educational Analytics module (`nomade edu`)
-- Community dataset export (`nomade community`)
+- Educational Analytics module (`nomad edu`)
+- Community dataset export (`nomad community`)
 - Multi-cluster dashboard tabs
 - Interactive session monitoring
 - 3D force-directed network visualization

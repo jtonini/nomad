@@ -1,4 +1,4 @@
-# NOMADE Development Roadmap
+# NOMAD Development Roadmap
 
 ## Timeline Overview
 
@@ -95,10 +95,10 @@
   - [ ] Alert acknowledgment tracking
 
 - [ ] **CLI Interface**
-  - [ ] `nomade init`
-  - [ ] `nomade start/stop/status`
-  - [ ] `nomade disk/queue/nodes/licenses`
-  - [ ] `nomade alerts`
+  - [ ] `nomad init`
+  - [ ] `nomad start/stop/status`
+  - [ ] `nomad disk/queue/nodes/licenses`
+  - [ ] `nomad alerts`
 
 ### Phase 1 Deliverables
 - Working monitoring daemon
@@ -274,7 +274,7 @@
   - [ ] Export tool for Production Cluster data → portable dataset
   - [ ] Data replay engine (feed historical data as "live" events)
   - [ ] Mock SLURM commands (squeue, sacct responses from data)
-  - [ ] VM image or Docker container with full NOMADE stack
+  - [ ] VM image or Docker container with full NOMAD stack
   - [ ] Documentation for reproducibility
 
 ### Milestone 4.2: Paper Writing
@@ -471,7 +471,7 @@ black>=23.0
 
 ### Planned Features
 1. **Auto-detection**: Check for `/proc/spl/kstat/zfs` or `zpool` command
-2. **ZFS Collector** (`nomade/collectors/zfs.py`):
+2. **ZFS Collector** (`nomad/collectors/zfs.py`):
    - Pool health via `zpool status`
    - Per-vdev I/O via `zpool iostat -v`
    - ARC cache stats from `/proc/spl/kstat/zfs/arcstats`
@@ -500,7 +500,7 @@ black>=23.0
 
 **Phase 1: Analysis Plugins**
 ```
-nomade/analysis/
+nomad/analysis/
   base.py              # BaseAnalyzer + registry
   similarity.py        # @registry.register
   gnn.py               # @registry.register
@@ -510,7 +510,7 @@ nomade/analysis/
 
 **Phase 2: Edu Dimension Plugins**
 ```
-nomade/edu/
+nomad/edu/
   dimensions/
     base.py          # BaseDimension + registry
     cpu.py           # @registry.register
@@ -522,7 +522,7 @@ nomade/edu/
 
 **Phase 3: Entry Points**
 - Auto-discovery via `setuptools.entry_points`
-- Third-party packages: `pip install nomade-bioinformatics`
+- Third-party packages: `pip install nomad-bioinformatics`
 
 ### Benefits
 - Custom proficiency dimensions per site
@@ -538,7 +538,7 @@ Users need sufficient data before ML models are reliable.
 
 ### Planned Command
 ```
-nomade readiness
+nomad readiness
 
 Data Readiness Assessment
 -----------------------------------------
@@ -574,7 +574,7 @@ Estimated time to full readiness: 11 days
 
 **Phase 1: Analysis Plugins**
 ```
-nomade/analysis/
+nomad/analysis/
   base.py              # BaseAnalyzer + registry
   similarity.py        # @registry.register
   gnn.py               # @registry.register
@@ -584,7 +584,7 @@ nomade/analysis/
 
 **Phase 2: Edu Dimension Plugins**
 ```
-nomade/edu/
+nomad/edu/
   dimensions/
     base.py          # BaseDimension + registry
     cpu.py           # @registry.register
@@ -596,7 +596,7 @@ nomade/edu/
 
 **Phase 3: Entry Points**
 - Auto-discovery via `setuptools.entry_points`
-- Third-party packages: `pip install nomade-bioinformatics`
+- Third-party packages: `pip install nomad-bioinformatics`
 
 ### Benefits
 - Custom proficiency dimensions per site
@@ -612,7 +612,7 @@ Users need sufficient data before ML models are reliable.
 
 ### Planned Command
 ```
-nomade readiness
+nomad readiness
 
 Data Readiness Assessment
 -----------------------------------------
@@ -634,12 +634,12 @@ Estimated time to full readiness: 11 days
 - Progress indicator in CLI/dashboard
 - Quick-start mode (rule-based until ML-ready)
 
-## Rebranding: NOMADE to NOMAD
+## Rebranding: NOMAD to NOMAD
 
 **Status**: Planned (High Priority - do before paper acceptance)
 
 ### Rationale
-- "NOMADE" can be misread as "no-made" by English speakers
+- "NOMAD" can be misread as "no-made" by English speakers
 - "NOMAD" reads correctly as the English word for wanderer
 - Fits the philosophy: "Travels light, adapts to its environment"
 - Better to change now while paper is in review and user base is small
@@ -647,21 +647,21 @@ Estimated time to full readiness: 11 days
 ### Name Change
 | Old | New |
 |-----|-----|
-| NOMADE (NOde MAnagement DEvice) | NOMAD (NOde Monitoring And Diagnostics) |
+| NOMAD (NOde Monitoring And Diagnostics) | NOMAD (NOde Monitoring And Diagnostics) |
 
 ### Changes Required
 
 **Code/Package**
-- [ ] Rename directory: `nomade/` to `nomad/`
+- [ ] Rename directory: `nomad/` to `nomad/`
 - [ ] Update all Python imports
 - [ ] Update pyproject.toml (package name, entry points)
-- [ ] Update CLI commands: `nomade` to `nomad`
-- [ ] Backward-compat alias: `nomade` still works temporarily
+- [ ] Update CLI commands: `nomad` to `nomad`
+- [ ] Backward-compat alias: `nomad` still works temporarily
 
-**Paper (nomade-jors-paper.tex)**
+**Paper (nomad-jors-paper.tex)**
 - [ ] Line 21: Title
 - [ ] Line 36: Abstract - change expansion to "NOde Monitoring And Diagnostics"
-- [ ] Lines 79-290+: All NOMADE references to NOMAD
+- [ ] Lines 79-290+: All NOMAD references to NOMAD
 - [ ] Update any figures showing the name
 
 **Documentation**
@@ -670,7 +670,7 @@ Estimated time to full readiness: 11 days
 - [ ] mkdocs.yml (site_url, repo_url)
 
 **External**
-- [ ] Rename GitHub repo: jtonini/nomade to jtonini/nomad
+- [ ] Rename GitHub repo: jtonini/nomad to jtonini/nomad
 - [ ] New PyPI package: nomad-hpc
 - [ ] Update Zenodo DOI (new version)
 - [ ] GitHub Pages URL: jtonini.github.io/nomad
@@ -678,20 +678,20 @@ Estimated time to full readiness: 11 days
 ### Migration Script (to create)
 ```bash
 # Rename directory
-mv nomade nomad
+mv nomad nomad
 
 # Update imports in all Python files
-find . -name "*.py" -exec sed -i 's/from nomade/from nomad/g' {} \;
-find . -name "*.py" -exec sed -i 's/import nomade/import nomad/g' {} \;
+find . -name "*.py" -exec sed -i 's/from nomad/from nomad/g' {} \;
+find . -name "*.py" -exec sed -i 's/import nomad/import nomad/g' {} \;
 
 # Update docs
-find docs -name "*.md" -exec sed -i 's/NOMADE/NOMAD/g' {} \;
-find docs -name "*.md" -exec sed -i 's/nomade/nomad/g' {} \;
+find docs -name "*.md" -exec sed -i 's/NOMAD/NOMAD/g' {} \;
+find docs -name "*.md" -exec sed -i 's/nomad/nomad/g' {} \;
 
 # Update paper
-sed -i 's/NOMADE/NOMAD/g' paper/nomade-jors-paper.tex
-sed -i 's/NOde MAnagement DEvice/NOde Monitoring And Diagnostics/g' paper/nomade-jors-paper.tex
-mv paper/nomade-jors-paper.tex paper/nomad-jors-paper.tex
+sed -i 's/NOMAD/NOMAD/g' paper/nomad-jors-paper.tex
+sed -i 's/NOde Monitoring And Diagnostics/NOde Monitoring And Diagnostics/g' paper/nomad-jors-paper.tex
+mv paper/nomad-jors-paper.tex paper/nomad-jors-paper.tex
 ```
 
 ### Backward Compatibility
@@ -699,5 +699,5 @@ mv paper/nomade-jors-paper.tex paper/nomad-jors-paper.tex
 # pyproject.toml - support both commands during transition
 [project.scripts]
 nomad = "nomad.cli:main"
-nomade = "nomad.cli:main"  # deprecated, prints warning, remove in v2.0
+nomad = "nomad.cli:main"  # deprecated, prints warning, remove in v2.0
 ```

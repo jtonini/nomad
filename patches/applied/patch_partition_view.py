@@ -4,7 +4,7 @@ Add partition sections to ClusterView.
 
 Transforms the flat node grid into grouped partition sections,
 each with a header showing partition name, node count, and
-CPU/Memory utilization bars - matching the nomade demo appearance.
+CPU/Memory utilization bars - matching the nomad demo appearance.
 """
 import sys
 from pathlib import Path
@@ -281,7 +281,7 @@ def patch_cluster_view(path):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 patch_partition_view.py /path/to/nomade/nomade/viz/server.py")
+        print("Usage: python3 patch_partition_view.py /path/to/nomad/nomad/viz/server.py")
         sys.exit(1)
     
     path = Path(sys.argv[1])
@@ -297,7 +297,7 @@ def main():
     
     if ok:
         print()
-        print("Done! Test with: nomade dashboard")
+        print("Done! Test with: nomad dashboard")
     else:
         print("Patch failed - may need manual edit")
 

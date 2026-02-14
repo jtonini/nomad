@@ -1,6 +1,6 @@
-# Contributing to NOMADE
+# Contributing to NOMAD
 
-Thank you for your interest in contributing to NOMADE! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to NOMAD! This document provides guidelines and information for contributors.
 
 ## Code of Conduct
 
@@ -15,7 +15,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 - **Questions**: Use the "question" label or start a discussion
 
 When reporting a bug, please include:
-- NOMADE version
+- NOMAD version
 - Python version
 - Operating system
 - SLURM version (if relevant)
@@ -47,8 +47,8 @@ When reporting a bug, please include:
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/nomade.git
-cd nomade
+git clone https://github.com/YOUR_USERNAME/nomad.git
+cd nomad
 
 # Create virtual environment
 python -m venv venv
@@ -139,7 +139,7 @@ Types:
 pytest
 
 # Run with coverage
-pytest --cov=nomade --cov-report=html
+pytest --cov=nomad --cov-report=html
 
 # Run specific test file
 pytest tests/test_collectors.py
@@ -160,7 +160,7 @@ Example test:
 ```python
 import pytest
 from unittest.mock import patch, MagicMock
-from nomade.collectors.disk import DiskCollector
+from nomad.collectors.disk import DiskCollector
 
 @pytest.fixture
 def disk_collector():
@@ -199,8 +199,8 @@ def test_collect_filesystem_usage(mock_run, disk_collector):
 ## Project Structure
 
 ```
-nomade/
-├── nomade/              # Main package
+nomad/
+├── nomad/              # Main package
 │   ├── collectors/      # Data collectors
 │   ├── db/             # Database layer
 │   ├── analysis/       # Analysis utilities
@@ -251,4 +251,4 @@ Contributors will be recognized in:
 - Release notes
 - The AUTHORS file
 
-Thank you for contributing to NOMADE! 🎉
+Thank you for contributing to NOMAD! 🎉

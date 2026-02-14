@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 """
-Tests for NØMADE Edu module using MockCluster.
+Tests for NØMAD Edu module using MockCluster.
 
 Run with: pytest tests/test_edu.py -v
 """
 
 import pytest
-from nomade.testing import MockCluster
-from nomade.edu.scoring import score_job, JobFingerprint, proficiency_level
-from nomade.edu.explain import explain_job, load_job, load_summary
-from nomade.edu.progress import user_trajectory, group_summary
+from nomad.testing import MockCluster
+from nomad.edu.scoring import score_job, JobFingerprint, proficiency_level
+from nomad.edu.explain import explain_job, load_job, load_summary
+from nomad.edu.progress import user_trajectory, group_summary
 
 
 class TestProficiencyScoring:
@@ -205,7 +205,7 @@ class TestPatcherFramework:
 
     def test_patch_applies(self):
         """Test that a simple patch applies correctly."""
-        from nomade.patching import Patcher, Patch
+        from nomad.patching import Patcher, Patch
         import tempfile
         import os
 
@@ -235,7 +235,7 @@ class TestPatcherFramework:
 
     def test_patch_skips_if_present(self):
         """Test that patches skip if already applied."""
-        from nomade.patching import Patcher, Patch
+        from nomad.patching import Patcher, Patch
         import tempfile
         import os
 
@@ -261,7 +261,7 @@ class TestPatcherFramework:
 
     def test_dry_run(self):
         """Test dry run doesn't modify files."""
-        from nomade.patching import Patcher, Patch
+        from nomad.patching import Patcher, Patch
         import tempfile
         import os
 

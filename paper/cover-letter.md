@@ -2,23 +2,23 @@
 
 **To:** The Editors, Journal of Open Research Software
 
-**Re:** Submission of "NØMADE: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction"
+**Re:** Submission of "NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction"
 
 ---
 
 Dear Editors,
 
-I am pleased to submit the manuscript "NØMADE: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction" for consideration as a Software Metapaper in the Journal of Open Research Software.
+I am pleased to submit the manuscript "NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction" for consideration as a Software Metapaper in the Journal of Open Research Software.
 
 ## Summary
 
-NØMADE is a lightweight monitoring and predictive analytics tool designed for computing infrastructure. Unlike heavyweight enterprise solutions that require complex infrastructure, NØMADE provides system-level monitoring on any Linux system using only a SQLite database, with optional SLURM integration for HPC-specific job analytics. The software employs machine learning models—including Graph Neural Networks, LSTMs, and Autoencoders—to predict job failures before they occur, enabling proactive intervention and user guidance.
+NØMAD is a lightweight monitoring and predictive analytics tool designed for computing infrastructure. Unlike heavyweight enterprise solutions that require complex infrastructure, NØMAD provides system-level monitoring on any Linux system using only a SQLite database, with optional SLURM integration for HPC-specific job analytics. The software employs machine learning models—including Graph Neural Networks, LSTMs, and Autoencoders—to predict job failures before they occur, enabling proactive intervention and user guidance.
 
 The software is openly available on GitHub (https://github.com/jtonini/nomade) under the AGPL-3.0 license and on PyPI (https://pypi.org/project/nomade-hpc/). A demo mode allows users to evaluate the tool without requiring HPC infrastructure.
 
 ## Relevance to JORS
 
-NØMADE addresses a gap in the HPC monitoring ecosystem by providing a zero-infrastructure alternative to enterprise tools while offering predictive capabilities absent from existing lightweight solutions. The software has been tested on clusters ranging from 6 to 200 nodes and is designed for broad reuse by small research groups, university HPC centers, and educational settings.
+NØMAD addresses a gap in the HPC monitoring ecosystem by providing a zero-infrastructure alternative to enterprise tools while offering predictive capabilities absent from existing lightweight solutions. The software has been tested on clusters ranging from 6 to 200 nodes and is designed for broad reuse by small research groups, university HPC centers, and educational settings.
 
 ## APC Waiver Request
 
@@ -26,7 +26,7 @@ I respectfully request a full waiver of the Article Processing Charge for the fo
 
 1. **No dedicated funding**: This work was developed as part of my role supporting research computing at the University of Richmond, without dedicated grant funding for software development or publication costs.
 
-2. **Open source contribution**: NØMADE is released under the AGPL-3.0 license, freely available to the research community. The goal is to democratize HPC monitoring capabilities for institutions that cannot afford enterprise solutions.
+2. **Open source contribution**: NØMAD is released under the AGPL-3.0 license, freely available to the research community. The goal is to democratize HPC monitoring capabilities for institutions that cannot afford enterprise solutions.
 
 3. **Single author from a small institution**: As the sole developer and author, I do not have access to departmental funds or co-author institutions that could share publication costs.
 

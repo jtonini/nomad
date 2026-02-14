@@ -3,22 +3,22 @@
 NOMADE Option B: Add cluster column to node_state
 ===================================================
 Adds cluster identity to every node_state record so the dashboard
-can group partitions within clusters (matching nomade demo behavior).
+can group partitions within clusters (matching nomad demo behavior).
 
 Changes:
-    1. nomade/collectors/node_state.py - add cluster to schema/collect/store
-    2. nomade/cli.py - pass cluster_name to NodeStateCollector
-    3. nomade/viz/server.py - update cluster loading to group by cluster→partition
+    1. nomad/collectors/node_state.py - add cluster to schema/collect/store
+    2. nomad/cli.py - pass cluster_name to NodeStateCollector
+    3. nomad/viz/server.py - update cluster loading to group by cluster→partition
     4. Migration: ALTER TABLE for existing databases
 
 Usage:
-    python3 patch_node_cluster.py /path/to/nomade/
+    python3 patch_node_cluster.py /path/to/nomad/
 
 After patching:
     # Migrate existing database
-    python3 patch_node_cluster.py --migrate /path/to/nomade.db [cluster_name]
+    python3 patch_node_cluster.py --migrate /path/to/nomad.db [cluster_name]
 
-    # Or add cluster_name to your nomade.toml:
+    # Or add cluster_name to your nomad.toml:
     #   cluster_name = "spydur"
 """
 
@@ -31,9 +31,9 @@ from pathlib import Path
 # PATCH: node_state.py
 # =====================================================================
 
-def patch_node_state(nomade_dir):
+def patch_node_state(nomad_dir):
     """Add cluster column to NodeStateCollector."""
-    path = nomade_dir / 'collectors' / 'node_state.py'
+    path = nomad_dir / 'collectors' / 'node_state.py'
     if not path.exists():
         print(f"  ! {path} not found")
         return False
@@ -165,9 +165,9 @@ def patch_node_state(nomade_dir):
 # PATCH: cli.py
 # =====================================================================
 
-def patch_cli(nomade_dir):
+def patch_cli(nomad_dir):
     """Pass cluster_name from config to NodeStateCollector."""
-    path = nomade_dir / 'cli.py'
+    path = nomad_dir / 'cli.py'
     if not path.exists():
         print(f"  ! {path} not found")
         return False
@@ -223,9 +223,9 @@ def patch_cli(nomade_dir):
 # PATCH: server.py - cluster loading from node_state
 # =====================================================================
 
-def patch_server(nomade_dir):
+def patch_server(nomad_dir):
     """Update server.py to group node_state data by cluster→partition."""
-    path = nomade_dir / 'viz' / 'server.py'
+    path = nomad_dir / 'viz' / 'server.py'
     if not path.exists():
         print(f"  ! {path} not found")
         return False
@@ -385,14 +385,14 @@ def migrate_db(db_path, cluster_name='default'):
 def main():
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  python3 patch_node_cluster.py /path/to/nomade/")
+        print("  python3 patch_node_cluster.py /path/to/nomad/")
         print("  python3 patch_node_cluster.py --migrate /path/to/db [cluster_name]")
         sys.exit(1)
 
     # Migration mode
     if sys.argv[1] == '--migrate':
         if len(sys.argv) < 3:
-            print("Usage: python3 patch_node_cluster.py --migrate /path/to/nomade.db [cluster_name]")
+            print("Usage: python3 patch_node_cluster.py --migrate /path/to/nomad.db [cluster_name]")
             sys.exit(1)
         db_path = Path(sys.argv[2])
         cluster_name = sys.argv[3] if len(sys.argv) > 3 else 'default'
@@ -403,44 +403,44 @@ def main():
         print(f"Cluster name: {cluster_name}")
         migrate_db(db_path, cluster_name)
         print("\nDone!")
-        print("Add to your nomade.toml:")
+        print("Add to your nomad.toml:")
         print(f'  cluster_name = "{cluster_name}"')
         return
 
     # Patch mode
-    nomade_dir = Path(sys.argv[1])
-    if (nomade_dir / 'collectors').exists():
+    nomad_dir = Path(sys.argv[1])
+    if (nomad_dir / 'collectors').exists():
         pass
-    elif (nomade_dir / 'nomade' / 'collectors').exists():
-        nomade_dir = nomade_dir / 'nomade'
+    elif (nomad_dir / 'nomad' / 'collectors').exists():
+        nomad_dir = nomad_dir / 'nomad'
     else:
-        print(f"ERROR: Could not find collectors/ in {nomade_dir}")
+        print(f"ERROR: Could not find collectors/ in {nomad_dir}")
         sys.exit(1)
 
     print()
     print("NOMADE Node Cluster Patch (Option B)")
     print("=" * 44)
-    print(f"Target: {nomade_dir}")
+    print(f"Target: {nomad_dir}")
     print()
 
-    ok1 = patch_node_state(nomade_dir)
-    ok2 = patch_cli(nomade_dir)
-    ok3 = patch_server(nomade_dir)
+    ok1 = patch_node_state(nomad_dir)
+    ok2 = patch_cli(nomad_dir)
+    ok3 = patch_server(nomad_dir)
 
     print()
     if ok1 and ok2 and ok3:
         print("Code patched! Next steps:")
         print()
-        print("1. Add cluster_name to nomade.toml:")
+        print("1. Add cluster_name to nomad.toml:")
         print('     cluster_name = "spydur"')
         print()
         print("2. Migrate existing databases:")
-        print("     python3 patch_node_cluster.py --migrate ~/.local/share/nomade/nomade.db spydur")
-        print("     python3 patch_node_cluster.py --migrate vm-simulation/nomade.db demo")
+        print("     python3 patch_node_cluster.py --migrate ~/.local/share/nomad/nomad.db spydur")
+        print("     python3 patch_node_cluster.py --migrate vm-simulation/nomad.db demo")
         print()
         print("3. Test:")
-        print("     nomade collect -C node_state --once")
-        print("     nomade dashboard")
+        print("     nomad collect -C node_state --once")
+        print("     nomad dashboard")
     else:
         print("Some patches may need manual attention.")
 

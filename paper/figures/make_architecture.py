@@ -34,7 +34,7 @@ def add_arrow(ax, start, end):
                                shrinkA=2, shrinkB=2))
 
 # Title
-ax.text(4, 8.5, 'NØMADE Architecture', ha='center', va='center',
+ax.text(4, 8.5, 'NØMAD Architecture', ha='center', va='center',
         fontsize=16, fontweight='bold')
 
 # Boxes with section labels on the left

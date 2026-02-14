@@ -1,10 +1,10 @@
-# NØMADE Architecture Summary
+# NØMAD Architecture Summary
 
 ## Data Collection Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                         NØMADE Data Collection v0.2.0                        │
+│                         NØMAD Data Collection v0.2.0                        │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  SYSTEM COLLECTORS (every 60s):                                              │
@@ -107,19 +107,19 @@
 
 ```bash
 # Core commands
-nomade status              # Full system overview
-nomade syscheck            # Verify requirements
-nomade collect --once      # Single collection cycle
-nomade collect -i 60       # Continuous (every 60s)
-nomade monitor -i 30       # Job I/O monitor (every 30s)
+nomad status              # Full system overview
+nomad syscheck            # Verify requirements
+nomad collect --once      # Single collection cycle
+nomad collect -i 60       # Continuous (every 60s)
+nomad monitor -i 30       # Job I/O monitor (every 30s)
 
 # Analysis
-nomade disk /home          # Filesystem trends
-nomade jobs --user X       # Job history
-nomade similarity          # Similarity analysis
-nomade alerts              # View alerts
+nomad disk /home          # Filesystem trends
+nomad jobs --user X       # Job history
+nomad similarity          # Similarity analysis
+nomad alerts              # View alerts
 
-# Bash helpers (source scripts/nomade.sh)
+# Bash helpers (source scripts/nomad.sh)
 nstatus    nwatch    ndisk    njobs    nsimilarity
 nalerts    ncollect  nmonitor nsyscheck nlog
 ```
@@ -128,18 +128,18 @@ nalerts    ncollect  nmonitor nsyscheck nlog
 
 ```bash
 # 1. Initialize database
-sqlite3 /var/lib/nomade/nomade.db < nomade/db/schema.sql
+sqlite3 /var/lib/nomad/nomad.db < nomad/db/schema.sql
 
 # 2. Verify system
-nomade syscheck
+nomad syscheck
 
 # 3. Test collection
-nomade collect --once
+nomad collect --once
 
 # 4. Start continuous collection
-nohup nomade collect -i 60 > /tmp/nomade-collect.log 2>&1 &
-nohup nomade monitor -i 30 > /tmp/nomade-monitor.log 2>&1 &
+nohup nomad collect -i 60 > /tmp/nomad-collect.log 2>&1 &
+nohup nomad monitor -i 30 > /tmp/nomad-monitor.log 2>&1 &
 
 # 5. Check status
-nomade status
+nomad status
 ```

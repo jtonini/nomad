@@ -1,8 +1,8 @@
-# NØMADE Cluster Configuration
+# NØMAD Cluster Configuration
 # Multi-cluster simulation with realistic sizes
 
 [cluster]
-name = "nomade-multi"
+name = "nomad-multi"
 description = "Multi-cluster simulation: minimal (1), small (10), large (100)"
 
 # ============================================================================

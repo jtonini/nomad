@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nomade-hpc"
+name = "nomad-hpc"
 version = "1.2.1"
 description = "A lightweight HPC monitoring and predictive analytics tool"
 readme = "README.md"
@@ -70,7 +70,7 @@ alerts = [
 
 # Full installation
 all = [
-    "nomade[ml,dashboard]",
+    "nomad[ml,dashboard]",
 ]
 
 # Development
@@ -84,20 +84,20 @@ dev = [
 ]
 
 [project.scripts]
-nomade = "nomade.cli:main"
+nomad = "nomad.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/jtonini/nomade"
-Documentation = "https://github.com/jtonini/nomade#readme"
-Repository = "https://github.com/jtonini/nomade"
-Issues = "https://github.com/jtonini/nomade/issues"
+Homepage = "https://github.com/jtonini/nomad"
+Documentation = "https://github.com/jtonini/nomad#readme"
+Repository = "https://github.com/jtonini/nomad"
+Issues = "https://github.com/jtonini/nomad/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["nomade*"]
+include = ["nomad*"]
 
 [tool.setuptools.package-data]
-nomade = [
+nomad = [
     "config/*.toml",
     "db/*.sql",
     "viz/static/**/*",
@@ -117,7 +117,7 @@ select = ["E", "W", "F", "I", "B", "C4", "UP"]
 ignore = ["E501", "B008"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["nomade"]
+known-first-party = ["nomad"]
 
 [tool.black]
 line-length = 100
@@ -135,6 +135,6 @@ python_files = ["test_*.py"]
 addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["nomade"]
+source = ["nomad"]
 branch = true
 omit = ["*/tests/*"]

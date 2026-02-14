@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-NØMADE Job Simulator
+NØMAD Job Simulator
 
 Generates realistic HPC job data based on cluster configuration.
-Outputs to SQLite database compatible with NØMADE dashboard.
+Outputs to SQLite database compatible with NØMAD dashboard.
 
 Usage:
     python simulator.py --config clusters/small.toml --jobs 1000 --output test.db
@@ -864,7 +864,7 @@ def print_statistics(jobs: list[Job], cluster: ClusterConfig):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='NØMADE Job Simulator - Generate realistic HPC job data',
+        description='NØMAD Job Simulator - Generate realistic HPC job data',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -893,8 +893,8 @@ Examples:
     )
     parser.add_argument(
         '--output', '-o',
-        default='nomade.db',
-        help='Output database path (default: nomade.db)'
+        default='nomad.db',
+        help='Output database path (default: nomad.db)'
     )
     parser.add_argument(
         '--seed', '-s',
@@ -924,7 +924,7 @@ Examples:
     print_statistics(jobs, cluster)
     
     print(f"\nDone! Database saved to: {args.output}")
-    print(f"View with: python -m nomade.cli dashboard --database {args.output}")
+    print(f"View with: python -m nomad.cli dashboard --database {args.output}")
 
 
 if __name__ == '__main__':

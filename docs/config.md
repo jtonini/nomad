@@ -1,25 +1,25 @@
 # Configuration
 
-NØMADE uses TOML configuration files.
+NØMAD uses TOML configuration files.
 
 ## Configuration Locations
 
 | Install Type | Path |
 |--------------|------|
-| User | `~/.config/nomade/nomade.toml` |
-| System | `/etc/nomade/nomade.toml` |
+| User | `~/.config/nomad/nomad.toml` |
+| System | `/etc/nomad/nomad.toml` |
 
 ## Example Configuration
 ```toml
-# nomade.toml
+# nomad.toml
 
 [general]
 cluster_name = "spydur"
-data_dir = "/var/lib/nomade"
+data_dir = "/var/lib/nomad"
 log_level = "INFO"
 
 [database]
-path = "/var/lib/nomade/nomade.db"
+path = "/var/lib/nomad/nomad.db"
 
 [collectors]
 enabled = ["disk", "iostat", "slurm", "gpu", "nfs"]
@@ -42,7 +42,7 @@ enabled = true
 [alerts.email]
 enabled = true
 smtp_host = "smtp.example.edu"
-from_addr = "nomade@example.edu"
+from_addr = "nomad@example.edu"
 to_addrs = ["admin@example.edu"]
 
 [alerts.slack]
@@ -63,9 +63,9 @@ similarity_threshold = 0.7
 
 | Variable | Description |
 |----------|-------------|
-| `NOMADE_CONFIG` | Config file path |
-| `NOMADE_DB` | Database path |
-| `NOMADE_LOG_LEVEL` | Log level (DEBUG, INFO, WARNING, ERROR) |
+| `NOMAD_CONFIG` | Config file path |
+| `NOMAD_DB` | Database path |
+| `NOMAD_LOG_LEVEL` | Log level (DEBUG, INFO, WARNING, ERROR) |
 
 ## Collectors
 

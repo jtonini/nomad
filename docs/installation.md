@@ -2,13 +2,13 @@
 
 ## Quick Install
 ```bash
-pip install nomade-hpc
+pip install nomad-hpc
 ```
 
 ## From Source
 ```bash
-git clone https://github.com/jtonini/nomade.git
-cd nomade
+git clone https://github.com/jtonini/nomad.git
+cd nomad
 pip install -e .
 ```
 
@@ -33,10 +33,10 @@ pip install -e .
 ## Verify Installation
 ```bash
 # Check requirements
-nomade syscheck
+nomad syscheck
 
 # Test with demo data
-nomade demo
+nomad demo
 ```
 
 ## Installation Types
@@ -45,29 +45,29 @@ nomade demo
 
 For personal use or testing:
 ```bash
-pip install nomade-hpc
-nomade init
+pip install nomad-hpc
+nomad init
 ```
 
 **Paths**:
 ```
-~/.config/nomade/nomade.toml    # Configuration
-~/.local/share/nomade/          # Database, models, logs
+~/.config/nomad/nomad.toml    # Configuration
+~/.local/share/nomad/          # Database, models, logs
 ```
 
 ### System Install
 
 For production cluster-wide deployment:
 ```bash
-sudo pip install nomade-hpc
-sudo nomade init --system
+sudo pip install nomad-hpc
+sudo nomad init --system
 ```
 
 **Paths**:
 ```
-/etc/nomade/nomade.toml         # Configuration
-/var/lib/nomade/                # Database, models
-/var/log/nomade/                # Logs
+/etc/nomad/nomad.toml         # Configuration
+/var/lib/nomad/                # Database, models
+/var/log/nomad/                # Logs
 ```
 
 See [System Install](system-install.md) for detailed permissions and setup.
@@ -76,24 +76,24 @@ See [System Install](system-install.md) for detailed permissions and setup.
 
 Recommended for isolated installation:
 ```bash
-python -m venv ~/nomade-env
-source ~/nomade-env/bin/activate
-pip install nomade-hpc
+python -m venv ~/nomad-env
+source ~/nomad-env/bin/activate
+pip install nomad-hpc
 ```
 
 ## Conda Environment
 ```bash
-conda create -n nomade python=3.11
-conda activate nomade
-pip install nomade-hpc
+conda create -n nomad python=3.11
+conda activate nomad
+pip install nomad-hpc
 ```
 
 ## Development Install
 
 For contributing:
 ```bash
-git clone https://github.com/jtonini/nomade.git
-cd nomade
+git clone https://github.com/jtonini/nomad.git
+cd nomad
 python -m venv venv
 source venv/bin/activate
 pip install -e ".[dev]"
@@ -102,13 +102,13 @@ pytest
 
 ## Upgrading
 ```bash
-pip install --upgrade nomade-hpc
+pip install --upgrade nomad-hpc
 ```
 
 ## Uninstalling
 ```bash
-pip uninstall nomade-hpc
+pip uninstall nomad-hpc
 
 # Optional: remove data
-rm -rf ~/.config/nomade ~/.local/share/nomade
+rm -rf ~/.config/nomad ~/.local/share/nomad
 ```

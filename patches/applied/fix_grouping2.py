@@ -58,7 +58,7 @@ new = """            if rows:
 if old in content:
     content = content.replace(old, new, 1)
     open(path, 'w').write(content)
-    print("Fixed! Verify with: grep -n 'Group by cluster' nomade/viz/server.py")
+    print("Fixed! Verify with: grep -n 'Group by cluster' nomad/viz/server.py")
 else:
     print("Block not found exactly. Showing diff...")
     # Find the approximate location

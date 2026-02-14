@@ -1,10 +1,10 @@
 # Educational Analytics
 
-NØMADE Edu bridges the gap between infrastructure monitoring and educational outcomes, helping instructors, mentors, and users track the development of computational proficiency.
+NØMAD Edu bridges the gap between infrastructure monitoring and educational outcomes, helping instructors, mentors, and users track the development of computational proficiency.
 
 ## Overview
 
-Traditional HPC metrics tell you *what* happened. NØMADE Edu tells you *how well* users are learning to use HPC effectively.
+Traditional HPC metrics tell you *what* happened. NØMAD Edu tells you *how well* users are learning to use HPC effectively.
 
 **Use cases**:
 
@@ -16,22 +16,22 @@ Traditional HPC metrics tell you *what* happened. NØMADE Edu tells you *how wel
 ## Quick Start
 ```bash
 # Explain a job with proficiency scores and recommendations
-nomade edu explain 12345
+nomad edu explain 12345
 
 # Track a user's improvement over time
-nomade edu trajectory alice
+nomad edu trajectory alice
 
 # Generate a report for a course or research group
-nomade edu report cs301
+nomad edu report cs301
 ```
 
 ## Commands
 
-### `nomade edu explain`
+### `nomad edu explain`
 
 Analyze a single job with proficiency scores and actionable recommendations.
 ```bash
-nomade edu explain <job_id> [options]
+nomad edu explain <job_id> [options]
 ```
 
 **Options**:
@@ -44,7 +44,7 @@ nomade edu explain <job_id> [options]
 
 **Example output**:
 ```
-  NØMADE Job Analysis — 1104
+  NØMAD Job Analysis — 1104
   ────────────────────────────────────────────────────────
   User: alice    Partition: compute    Node: node03
   State: COMPLETED    Runtime: 33h 38m / 48h 00m requested
@@ -75,11 +75,11 @@ nomade edu explain <job_id> [options]
     I/O Awareness         91.8% →  68.8%  ↓ declining
 ```
 
-### `nomade edu trajectory`
+### `nomad edu trajectory`
 
 Track a user's proficiency development over time.
 ```bash
-nomade edu trajectory <username> [options]
+nomad edu trajectory <username> [options]
 ```
 
 **Options**:
@@ -92,7 +92,7 @@ nomade edu trajectory <username> [options]
 
 **Example output**:
 ```
-  NØMADE Proficiency Trajectory — alice
+  NØMAD Proficiency Trajectory — alice
   ────────────────────────────────────────────────────────
   Jobs analyzed: 173    Period: 2026-02-04 → 2026-02-15
   Stable proficiency
@@ -111,11 +111,11 @@ nomade edu trajectory <username> [options]
     Time Estimation       81.3%  → -2.1%
 ```
 
-### `nomade edu report`
+### `nomad edu report`
 
 Generate aggregate reports for courses, research groups, or any Linux group.
 ```bash
-nomade edu report <group_name> [options]
+nomad edu report <group_name> [options]
 ```
 
 **Options**:
@@ -128,7 +128,7 @@ nomade edu report <group_name> [options]
 
 **Example output**:
 ```
-  NØMADE Group Report — cs101
+  NØMAD Group Report — cs101
   ────────────────────────────────────────────────────────
   Members: 4     Jobs: 602
   Period: 2026-02-04 → 2026-02-16
@@ -164,17 +164,17 @@ nomade edu report <group_name> [options]
 
 ## Setting Up Groups
 
-NØMADE uses Linux groups for course/lab membership. To track a class:
+NØMAD uses Linux groups for course/lab membership. To track a class:
 
 ### Option 1: Use existing Linux groups
 
 If your users are already in groups (e.g., `bio301`, `cs101`):
 ```bash
 # Collect group membership
-nomade collect -C groups --once
+nomad collect -C groups --once
 
 # Generate report
-nomade edu report bio301
+nomad edu report bio301
 ```
 
 ### Option 2: Create dedicated groups
@@ -188,8 +188,8 @@ sudo usermod -aG cs301 student02
 # ...
 
 # Collect and report
-nomade collect -C groups --once
-nomade edu report cs301
+nomad collect -C groups --once
+nomad edu report cs301
 ```
 
 ### Option 3: Manual group file
@@ -201,7 +201,7 @@ alice,cs301,3001,spydur
 bob,cs301,3001,spydur
 ```
 ```bash
-nomade edu import-groups groups.csv
+nomad edu import-groups groups.csv
 ```
 
 ## Dashboard Integration
@@ -213,7 +213,7 @@ The dashboard includes an Education tab showing:
 - Common problem areas
 - Improvement trends over time
 
-Access via: `nomade dashboard` → Education tab
+Access via: `nomad dashboard` → Education tab
 
 ## Best Practices
 
@@ -249,15 +249,15 @@ For detailed information on how proficiency is computed:
 ```
 Job 12345 not found in database.
 
-Hint: Specify a database with --db or run 'nomade init' to configure.
-  Example: nomade edu explain 12345 --db ~/nomade_demo.db
+Hint: Specify a database with --db or run 'nomad init' to configure.
+  Example: nomad edu explain 12345 --db ~/nomad_demo.db
 ```
 
 **Solutions**:
 
-1. Specify the database: `nomade edu explain 12345 --db /path/to/db`
-2. Run `nomade init` to configure the default database
-3. Ensure data collection is running: `nomade collect`
+1. Specify the database: `nomad edu explain 12345 --db /path/to/db`
+2. Run `nomad init` to configure the default database
+3. Ensure data collection is running: `nomad collect`
 
 ### "Not enough data for user"
 
@@ -267,5 +267,5 @@ The user needs at least 3 completed jobs for trajectory analysis.
 
 Ensure group membership data has been collected:
 ```bash
-nomade collect -C groups --once
+nomad collect -C groups --once
 ```

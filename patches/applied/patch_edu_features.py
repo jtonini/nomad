@@ -6,15 +6,15 @@ Adds group membership collector wiring, resource footprint tab,
 and activity heatmap tab to the NOMADE dashboard.
 
 Usage:
-    python3 patch_edu_features.py /path/to/nomade/
+    python3 patch_edu_features.py /path/to/nomad/
 
 Patches:
-    1. nomade/collectors/__init__.py  - register GroupCollector
-    2. nomade/cli.py                  - wire GroupCollector into collect()
-    3. nomade/viz/dashboard.py        - API endpoints + React tabs
+    1. nomad/collectors/__init__.py  - register GroupCollector
+    2. nomad/cli.py                  - wire GroupCollector into collect()
+    3. nomad/viz/dashboard.py        - API endpoints + React tabs
 
 Prerequisites:
-    - Copy groups.py into nomade/collectors/groups.py
+    - Copy groups.py into nomad/collectors/groups.py
     - Then run this patch
 """
 
@@ -32,7 +32,7 @@ GROUPS_IMPORT = "from .groups import GroupCollector"
 GROUPS_ALLALL = "'GroupCollector'"
 
 # -- For cli.py --
-CLI_IMPORT = "from nomade.collectors.groups import GroupCollector"
+CLI_IMPORT = "from nomad.collectors.groups import GroupCollector"
 
 CLI_WIRING = '''
     # Group membership and job accounting collector
@@ -496,9 +496,9 @@ REACT_COMPONENTS = r'''
 # PATCH FUNCTIONS
 # =====================================================================
 
-def patch_collectors_init(nomade_dir):
+def patch_collectors_init(nomad_dir):
     """Add GroupCollector to collectors/__init__.py."""
-    path = nomade_dir / 'collectors' / '__init__.py'
+    path = nomad_dir / 'collectors' / '__init__.py'
     if not path.exists():
         print(f"  ! {path} not found")
         return False
@@ -543,9 +543,9 @@ def patch_collectors_init(nomade_dir):
         return True
 
 
-def patch_cli(nomade_dir):
+def patch_cli(nomad_dir):
     """Wire GroupCollector into cli.py collect() command."""
-    path = nomade_dir / 'cli.py'
+    path = nomad_dir / 'cli.py'
     if not path.exists():
         print(f"  ! {path} not found")
         return False
@@ -555,7 +555,7 @@ def patch_cli(nomade_dir):
 
     # Add import
     if 'GroupCollector' not in content:
-        marker = "from nomade.collectors.nfs import NFSCollector"
+        marker = "from nomad.collectors.nfs import NFSCollector"
         if marker in content:
             content = content.replace(
                 marker,
@@ -598,9 +598,9 @@ def patch_cli(nomade_dir):
         return True
 
 
-def patch_dashboard(nomade_dir):
+def patch_dashboard(nomad_dir):
     """Add API endpoints and React tabs to dashboard.py."""
-    path = nomade_dir / 'viz' / 'dashboard.py'
+    path = nomad_dir / 'viz' / 'dashboard.py'
     if not path.exists():
         print(f"  ! {path} not found")
         return False
@@ -760,27 +760,27 @@ def main():
     if len(sys.argv) != 2:
         print(
             "Usage: python3 patch_edu_features.py"
-            " /path/to/nomade/")
+            " /path/to/nomad/")
         print()
         print("Prerequisites:")
         print("  1. Copy groups.py to"
-              " nomade/collectors/groups.py")
+              " nomad/collectors/groups.py")
         print("  2. Then run this patch")
         sys.exit(1)
 
-    nomade_dir = Path(sys.argv[1])
+    nomad_dir = Path(sys.argv[1])
 
-    # Handle both /path/to/nomade/ and /path/to/nomade/nomade/
-    if (nomade_dir / 'collectors').exists():
-        pass  # Already pointing to nomade/nomade/
-    elif (nomade_dir / 'nomade' / 'collectors').exists():
-        nomade_dir = nomade_dir / 'nomade'
+    # Handle both /path/to/nomad/ and /path/to/nomad/nomad/
+    if (nomad_dir / 'collectors').exists():
+        pass  # Already pointing to nomad/nomad/
+    elif (nomad_dir / 'nomad' / 'collectors').exists():
+        nomad_dir = nomad_dir / 'nomad'
     else:
-        print(f"ERROR: Could not find collectors/ in {nomade_dir}")
+        print(f"ERROR: Could not find collectors/ in {nomad_dir}")
         sys.exit(1)
 
     # Check that groups.py exists
-    groups_py = nomade_dir / 'collectors' / 'groups.py'
+    groups_py = nomad_dir / 'collectors' / 'groups.py'
     if not groups_py.exists():
         print(f"ERROR: {groups_py} not found")
         print()
@@ -793,15 +793,15 @@ def main():
     print("=" * 40)
     print()
 
-    ok1 = patch_collectors_init(nomade_dir)
-    ok2 = patch_cli(nomade_dir)
-    ok3 = patch_dashboard(nomade_dir)
+    ok1 = patch_collectors_init(nomad_dir)
+    ok2 = patch_cli(nomad_dir)
+    ok3 = patch_dashboard(nomad_dir)
 
     print()
     if ok1 and ok2 and ok3:
         print("Done! New features:")
         print("  - Group membership collector"
-              " (nomade collect -C groups)")
+              " (nomad collect -C groups)")
         print("  - /api/footprint endpoint")
         print("  - /api/heatmap endpoint")
         print("  - /api/groups endpoint")
@@ -809,8 +809,8 @@ def main():
         print("  - Activity tab in dashboard")
         print()
         print("Test:")
-        print("  nomade collect -C groups --once")
-        print("  nomade dashboard")
+        print("  nomad collect -C groups --once")
+        print("  nomad dashboard")
     else:
         print("Some patches may need manual attention."
               " Check output above.")

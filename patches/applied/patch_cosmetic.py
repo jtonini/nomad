@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-NØMADE Cosmetic Patcher
+NØMAD Cosmetic Patcher
 ========================
 Fixes two cosmetic issues in the wizard output:
   1. Final summary says "groups" for HPC clusters (should be "partitions")
   2. Extra spaces in cluster summary alignment
 
 Usage:
-    python3 patch_cosmetic.py /path/to/nomade/nomade/cli.py
+    python3 patch_cosmetic.py /path/to/nomad/nomad/cli.py
 """
 
 import sys
@@ -81,13 +81,13 @@ def patch(cli_path: str):
     print(f"Patched {changes} location(s)")
     print()
     print("Test with:")
-    print("  nomade init --force")
+    print("  nomad init --force")
 
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         print(
             "Usage: python3 patch_cosmetic.py"
-            " /path/to/nomade/nomade/cli.py")
+            " /path/to/nomad/nomad/cli.py")
         sys.exit(1)
     patch(sys.argv[1])

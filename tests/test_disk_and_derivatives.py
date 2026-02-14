@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from nomade.analysis import (
+from nomad.analysis import (
     AlertLevel,
     DerivativeAnalyzer,
     Trend,
     analyze_disk_trend,
 )
-from nomade.collectors import DiskCollector, registry
+from nomad.collectors import DiskCollector, registry
 
 
 # ============================================
@@ -31,7 +31,7 @@ def temp_db():
         db_path = Path(f.name)
     
     # Load schema
-    schema_path = Path(__file__).parent.parent / 'nomade' / 'db' / 'schema.sql'
+    schema_path = Path(__file__).parent.parent / 'nomad' / 'db' / 'schema.sql'
     
     conn = sqlite3.connect(db_path)
     with open(schema_path) as f:

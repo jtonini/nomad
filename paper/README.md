@@ -1,15 +1,15 @@
-# NØMADE JORS Paper Package
+# NØMAD JORS Paper Package
 
 This package contains the submission materials for the Journal of Open Research Software (JORS).
 
 ## Contents
 
 ```
-nomade-jors-paper/
+nomad-jors-paper/
 ├── README.md                    # This file
-├── nomade-jors-paper.tex        # LaTeX source (primary submission)
-├── nomade-jors-paper.md         # Markdown version
-├── nomade-jors-paper.pdf        # Compiled PDF (draft - needs figures)
+├── nomad-jors-paper.tex        # LaTeX source (primary submission)
+├── nomad-jors-paper.md         # Markdown version
+├── nomad-jors-paper.pdf        # Compiled PDF (draft - needs figures)
 └── figures/                     # Figure placeholders (replace with actual files)
     ├── architecture.png
     ├── dashboard.png
@@ -23,13 +23,13 @@ nomade-jors-paper/
 
 The included PDF was compiled without the actual figure files. To generate the final PDF with figures:
 
-1. Copy your actual figure files from `~/nomade/paper/figures/` to the `figures/` directory in this package
+1. Copy your actual figure files from `~/nomad/paper/figures/` to the `figures/` directory in this package
 2. Compile:
 
 ```bash
-cd nomade-jors-paper
-pdflatex nomade-jors-paper.tex
-pdflatex nomade-jors-paper.tex  # Run twice for cross-references
+cd nomad-jors-paper
+pdflatex nomad-jors-paper.tex
+pdflatex nomad-jors-paper.tex  # Run twice for cross-references
 ```
 
 ## Required Figures

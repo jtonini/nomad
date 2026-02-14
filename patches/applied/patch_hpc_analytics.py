@@ -6,15 +6,15 @@ Adds resource footprint tab and activity heatmap tab
 to the NOMADE dashboard (server.py).
 
 Usage:
-    python3 patch_hpc_analytics.py /path/to/nomade/
+    python3 patch_hpc_analytics.py /path/to/nomad/
 
 Patches:
-    1. nomade/collectors/__init__.py  - register GroupCollector
-    2. nomade/cli.py                  - wire GroupCollector into collect()
-    3. nomade/viz/server.py           - API endpoints + React tabs
+    1. nomad/collectors/__init__.py  - register GroupCollector
+    2. nomad/cli.py                  - wire GroupCollector into collect()
+    3. nomad/viz/server.py           - API endpoints + React tabs
 
 Prerequisites:
-    - Copy groups.py into nomade/collectors/groups.py
+    - Copy groups.py into nomad/collectors/groups.py
     - Then run this patch
 """
 
@@ -23,9 +23,9 @@ import shutil
 from pathlib import Path
 
 
-def patch_collectors_init(nomade_dir):
+def patch_collectors_init(nomad_dir):
     """Add GroupCollector to collectors/__init__.py."""
-    path = nomade_dir / 'collectors' / '__init__.py'
+    path = nomad_dir / 'collectors' / '__init__.py'
     if not path.exists():
         print(f"  ! {path} not found")
         return False
@@ -65,9 +65,9 @@ def patch_collectors_init(nomade_dir):
     return True
 
 
-def patch_cli(nomade_dir):
+def patch_cli(nomad_dir):
     """Wire GroupCollector into cli.py collect() command."""
-    path = nomade_dir / 'cli.py'
+    path = nomad_dir / 'cli.py'
     if not path.exists():
         print(f"  ! {path} not found")
         return False
@@ -77,12 +77,12 @@ def patch_cli(nomade_dir):
 
     # Add import
     if 'GroupCollector' not in content:
-        marker = "from nomade.collectors.nfs import NFSCollector"
+        marker = "from nomad.collectors.nfs import NFSCollector"
         if marker in content:
             content = content.replace(
                 marker,
                 marker + "\n"
-                "from nomade.collectors.groups import GroupCollector")
+                "from nomad.collectors.groups import GroupCollector")
             changes += 1
         else:
             print("  ! Could not find NFS import in cli.py")
@@ -123,9 +123,9 @@ def patch_cli(nomade_dir):
     return True
 
 
-def patch_server(nomade_dir):
+def patch_server(nomad_dir):
     """Add API endpoints and React tabs to viz/server.py."""
-    path = nomade_dir / 'viz' / 'server.py'
+    path = nomad_dir / 'viz' / 'server.py'
     if not path.exists():
         print(f"  ! viz/server.py not found")
         return False
@@ -710,27 +710,27 @@ def main():
     if len(sys.argv) != 2:
         print(
             "Usage: python3 patch_hpc_analytics.py"
-            " /path/to/nomade/")
+            " /path/to/nomad/")
         print()
         print("Prerequisites:")
         print("  1. Copy groups.py to"
-              " nomade/collectors/groups.py")
+              " nomad/collectors/groups.py")
         print("  2. Then run this patch")
         sys.exit(1)
 
-    nomade_dir = Path(sys.argv[1])
+    nomad_dir = Path(sys.argv[1])
 
-    # Handle both /path/to/nomade/ and /path/to/nomade/nomade/
-    if (nomade_dir / 'collectors').exists():
+    # Handle both /path/to/nomad/ and /path/to/nomad/nomad/
+    if (nomad_dir / 'collectors').exists():
         pass
-    elif (nomade_dir / 'nomade' / 'collectors').exists():
-        nomade_dir = nomade_dir / 'nomade'
+    elif (nomad_dir / 'nomad' / 'collectors').exists():
+        nomad_dir = nomad_dir / 'nomad'
     else:
-        print(f"ERROR: Could not find collectors/ in {nomade_dir}")
+        print(f"ERROR: Could not find collectors/ in {nomad_dir}")
         sys.exit(1)
 
     # Check that groups.py exists
-    groups_py = nomade_dir / 'collectors' / 'groups.py'
+    groups_py = nomad_dir / 'collectors' / 'groups.py'
     if not groups_py.exists():
         print(f"ERROR: {groups_py} not found")
         print()
@@ -739,7 +739,7 @@ def main():
         sys.exit(1)
 
     # Check that server.py exists
-    server_py = nomade_dir / 'viz' / 'server.py'
+    server_py = nomad_dir / 'viz' / 'server.py'
     if not server_py.exists():
         print(f"ERROR: {server_py} not found")
         sys.exit(1)
@@ -747,12 +747,12 @@ def main():
     print()
     print("NOMADE HPC Analytics Patch")
     print("=" * 40)
-    print(f"Target: {nomade_dir}")
+    print(f"Target: {nomad_dir}")
     print()
 
-    ok1 = patch_collectors_init(nomade_dir)
-    ok2 = patch_cli(nomade_dir)
-    ok3 = patch_server(nomade_dir)
+    ok1 = patch_collectors_init(nomad_dir)
+    ok2 = patch_cli(nomad_dir)
+    ok3 = patch_server(nomad_dir)
 
     print()
     if ok1 and ok2 and ok3:
@@ -762,8 +762,8 @@ def main():
         print("  - Activity tab (submission heatmap)")
         print()
         print("Test:")
-        print("  nomade collect -C groups --once")
-        print("  nomade dashboard")
+        print("  nomad collect -C groups --once")
+        print("  nomad dashboard")
     else:
         print("Some patches may need manual attention.")
 

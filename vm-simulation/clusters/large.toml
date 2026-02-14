@@ -1,8 +1,8 @@
-# NØMADE Cluster Configuration - Large (300 nodes)
+# NØMAD Cluster Configuration - Large (300 nodes)
 # For paper figures, scalability testing, stress testing
 
 [cluster]
-name = "nomade-large"
+name = "nomad-large"
 description = "Large heterogeneous cluster for papers and stress testing"
 
 # ============================================================================

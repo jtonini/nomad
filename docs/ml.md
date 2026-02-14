@@ -1,6 +1,6 @@
 # ML Framework
 
-NØMADE's machine learning framework combines multiple models for robust job failure prediction.
+NØMAD's machine learning framework combines multiple models for robust job failure prediction.
 
 ## Architecture Overview
 ```
@@ -145,7 +145,7 @@ Weights are tunable via configuration or can be learned via cross-validation.
 
 ### Data Preparation
 ```bash
-nomade train --prepare
+nomad train --prepare
 ```
 
 1. Extract completed jobs from database
@@ -158,7 +158,7 @@ nomade train --prepare
 
 ### Model Training
 ```bash
-nomade train
+nomad train
 ```
 
 For each model:
@@ -169,7 +169,7 @@ For each model:
 
 Training outputs:
 ```
-~/.local/share/nomade/models/
+~/.local/share/nomad/models/
 ├── gnn_model.pt
 ├── lstm_model.pt
 ├── autoencoder_model.pt
@@ -191,7 +191,7 @@ Training outputs:
 
 ### Real-Time Scoring
 ```bash
-nomade predict
+nomad predict
 ```
 
 For running jobs:
@@ -212,7 +212,7 @@ For running jobs:
 
 ### Actionable Recommendations
 
-When risk is elevated, NØMADE provides specific recommendations based on which features contribute most:
+When risk is elevated, NØMAD provides specific recommendations based on which features contribute most:
 ```
 ⚠️ Job 12345 has elevated failure risk (0.72)
 
@@ -247,26 +247,26 @@ Recommendations:
 ## CLI Commands
 ```bash
 # Train all models
-nomade train
+nomad train
 
 # Train specific model
-nomade train --model gnn
-nomade train --model lstm
-nomade train --model autoencoder
+nomad train --model gnn
+nomad train --model lstm
+nomad train --model autoencoder
 
 # Run predictions
-nomade predict
+nomad predict
 
 # Generate report
-nomade report
+nomad report
 
 # View model performance
-nomade ml status
+nomad ml status
 ```
 
 ## Configuration
 
-In `nomade.toml`:
+In `nomad.toml`:
 ```toml
 [ml]
 enabled = true

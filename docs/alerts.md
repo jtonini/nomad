@@ -1,6 +1,6 @@
 # Alerts
 
-NØMADE supports both threshold-based and predictive alerts.
+NØMAD supports both threshold-based and predictive alerts.
 
 ## Alert Types
 
@@ -26,7 +26,7 @@ Trigger when trends indicate future problems:
 enabled = true
 smtp_host = "smtp.example.edu"
 smtp_port = 587
-from_addr = "nomade@example.edu"
+from_addr = "nomad@example.edu"
 to_addrs = ["admin@example.edu", "hpc-team@example.edu"]
 ```
 
@@ -49,13 +49,13 @@ headers = { Authorization = "Bearer xxx" }
 ## CLI
 ```bash
 # View recent alerts
-nomade alerts
+nomad alerts
 
 # Unresolved only
-nomade alerts --unresolved
+nomad alerts --unresolved
 
 # Test alert backends
-nomade alerts test
+nomad alerts test
 ```
 
 ## Cooldowns

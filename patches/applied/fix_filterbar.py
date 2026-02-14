@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fix FilterBar flicker in Resources and Activity tabs.
 
-Usage: python3 fix_filterbar.py /path/to/nomade/nomade/viz/server.py
+Usage: python3 fix_filterbar.py /path/to/nomad/nomad/viz/server.py
 """
 import sys
 

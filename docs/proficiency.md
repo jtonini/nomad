@@ -1,12 +1,12 @@
 # Proficiency Scoring
 
-NØMADE's Educational Analytics module tracks computational proficiency development through per-job behavioral fingerprints.
+NØMAD's Educational Analytics module tracks computational proficiency development through per-job behavioral fingerprints.
 
 ## Philosophy
 
 Traditional HPC monitoring answers: *"Did the job run?"*
 
-NØMADE Edu answers: *"Did the user learn to use HPC effectively?"*
+NØMAD Edu answers: *"Did the user learn to use HPC effectively?"*
 
 This shift enables:
 
@@ -210,7 +210,7 @@ $$\text{Overall} = \frac{\sum_{d \in \text{applicable}} w_d \times s_d}{\sum_{d 
 
 ## Trajectory Tracking
 
-Beyond single jobs, NØMADE tracks proficiency development over time:
+Beyond single jobs, NØMAD tracks proficiency development over time:
 ```
 ┌────────────────────────────────────────────────────────────┐
 │           Proficiency Trajectory — alice                   │
@@ -245,11 +245,11 @@ Beyond single jobs, NØMADE tracks proficiency development over time:
 
 Aggregate proficiency across course sections or research groups:
 ```bash
-nomade edu report cs301
+nomad edu report cs301
 ```
 ```
 ┌────────────────────────────────────────────────────────────┐
-│           NØMADE Group Report — cs301                      │
+│           NØMAD Group Report — cs301                      │
 ├────────────────────────────────────────────────────────────┤
 │ Members: 24    Jobs: 1,847    Period: 2026-01-15 → 02-15  │
 ├────────────────────────────────────────────────────────────┤
@@ -317,19 +317,19 @@ CREATE TABLE proficiency_scores (
 ## CLI Commands
 ```bash
 # Explain a single job
-nomade edu explain <job_id>
-nomade edu explain <job_id> --json
-nomade edu explain <job_id> --no-progress
+nomad edu explain <job_id>
+nomad edu explain <job_id> --json
+nomad edu explain <job_id> --no-progress
 
 # User trajectory
-nomade edu trajectory <username>
-nomade edu trajectory <username> --days 30
-nomade edu trajectory <username> --json
+nomad edu trajectory <username>
+nomad edu trajectory <username> --days 30
+nomad edu trajectory <username> --json
 
 # Group report
-nomade edu report <group_name>
-nomade edu report <group_name> --days 90
-nomade edu report <group_name> --json
+nomad edu report <group_name>
+nomad edu report <group_name> --days 90
+nomad edu report <group_name> --json
 ```
 
 ## Integration with SLURM
@@ -337,9 +337,9 @@ nomade edu report <group_name> --json
 For automatic scoring, add to SLURM epilog:
 ```bash
 #!/bin/bash
-# /etc/slurm/epilog.d/nomade-edu.sh
+# /etc/slurm/epilog.d/nomad-edu.sh
 
-nomade edu explain $SLURM_JOB_ID --json >> /var/log/nomade/edu.log 2>&1
+nomad edu explain $SLURM_JOB_ID --json >> /var/log/nomad/edu.log 2>&1
 ```
 
 Users can then view their proficiency in the dashboard or via CLI.

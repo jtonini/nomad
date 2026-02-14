@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 """
-NØMADE Edu CLI Commands
+NØMAD Edu CLI Commands
 
 This file contains the CLI commands for the edu module.
-It is loaded by wire_edu_cli.py and inserted into nomade/cli.py.
+It is loaded by wire_edu_cli.py and inserted into nomad/cli.py.
 
 Having this as a separate .py file ensures:
 - Proper syntax highlighting in editors
@@ -18,7 +18,7 @@ Having this as a separate .py file ensures:
 
 @cli.group()
 def edu():
-    """NØMADE Edu — Educational analytics for HPC.
+    """NØMAD Edu — Educational analytics for HPC.
 
     Measures the development of computational proficiency over time
     by analyzing per-job behavioral fingerprints.
@@ -40,11 +40,11 @@ def edu_explain(ctx, job_id, db_path, output_json, no_progress):
     I/O awareness, and GPU utilization.
 
     Examples:
-        nomade edu explain 12345
-        nomade edu explain 12345 --json
-        nomade edu explain 12345 --no-progress
+        nomad edu explain 12345
+        nomad edu explain 12345 --json
+        nomad edu explain 12345 --no-progress
     """
-    from nomade.edu.explain import explain_job
+    from nomad.edu.explain import explain_job
 
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
@@ -78,10 +78,10 @@ def edu_trajectory(ctx, username, db_path, days, output_json):
     dimensions that need attention.
 
     Examples:
-        nomade edu trajectory student01
-        nomade edu trajectory student01 --days 30
+        nomad edu trajectory student01
+        nomad edu trajectory student01 --days 30
     """
-    from nomade.edu.progress import user_trajectory, format_trajectory
+    from nomad.edu.progress import user_trajectory, format_trajectory
     import json
 
     if not db_path:
@@ -127,14 +127,14 @@ def edu_report(ctx, group_name, db_path, days, output_json):
     "15/20 students improved memory efficiency over the semester."
 
     The group_name maps to a Linux group (from SLURM accounting or
-    LDAP). Configure group filters in nomade.toml.
+    LDAP). Configure group filters in nomad.toml.
 
     Examples:
-        nomade edu report bio301
-        nomade edu report bio301 --days 120
-        nomade edu report physics-lab --json
+        nomad edu report bio301
+        nomad edu report bio301 --days 120
+        nomad edu report physics-lab --json
     """
-    from nomade.edu.progress import group_summary, format_group_summary
+    from nomad.edu.progress import group_summary, format_group_summary
     import json
 
     if not db_path:
@@ -146,7 +146,7 @@ def edu_report(ctx, group_name, db_path, days, output_json):
     if gs is None:
         click.echo(f"No data found for group '{group_name}'.", err=True)
         click.echo("Ensure group membership data has been collected:")
-        click.echo("  nomade collect -C groups --once")
+        click.echo("  nomad collect -C groups --once")
         raise SystemExit(1)
 
     if output_json:

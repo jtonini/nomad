@@ -1,6 +1,6 @@
-# NOMADE VM Simulation Environment
+# NOMAD VM Simulation Environment
 
-Test and develop NOMADE without access to a real HPC cluster.
+Test and develop NOMAD without access to a real HPC cluster.
 
 **Author:** Joao Tonini (jtonini@richmond.edu)
 
@@ -149,7 +149,7 @@ Available configs:
 vm-simulation/
 |-- Vagrantfile              # VM definition
 |-- README.md                # This file
-|-- nomade-test.toml         # NOMADE config for testing
+|-- nomad-test.toml         # NOMAD config for testing
 |
 |-- slurm/                   # SLURM configurations
 |   |-- slurm-minimal.conf   # 1 node
@@ -170,17 +170,17 @@ vm-simulation/
     +-- *.json               # Generated samples
 ```
 
-## Testing NOMADE
+## Testing NOMAD
 
 ### Collect Metrics (in VM)
 
 ```bash
 python3 -c "
-from nomade.collectors.disk import DiskCollector
+from nomad.collectors.disk import DiskCollector
 from datetime import datetime
 import toml, json, time
 
-config = toml.load('vm-simulation/nomade-test.toml')
+config = toml.load('vm-simulation/nomad-test.toml')
 collector = DiskCollector(config['collectors']['disk'], db_path='/tmp/test.db')
 
 for i in range(10):
@@ -197,7 +197,7 @@ for i in range(10):
 
 ```bash
 python3 -c "
-from nomade.analysis.derivatives import DerivativeAnalyzer
+from nomad.analysis.derivatives import DerivativeAnalyzer
 from datetime import datetime
 
 analyzer = DerivativeAnalyzer(window_size=10)

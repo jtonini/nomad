@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# NØMADE Dashboard Quick Start
+# NØMAD Dashboard Quick Start
 # 
 # Run this on badenpowell, then from your laptop:
 #   ssh -L 8050:localhost:8050 badenpowell
@@ -18,12 +18,12 @@ echo
 
 # Check for data sources
 DATA_FLAG=""
-if [ -f "/tmp/nomade-metrics.log" ]; then
-    echo "[*] Found: /tmp/nomade-metrics.log"
-    DATA_FLAG="--data /tmp/nomade-metrics.log"
-elif [ -f "$HOME/nomade-metrics.log" ]; then
-    echo "[*] Found: $HOME/nomade-metrics.log"
-    DATA_FLAG="--data $HOME/nomade-metrics.log"
+if [ -f "/tmp/nomad-metrics.log" ]; then
+    echo "[*] Found: /tmp/nomad-metrics.log"
+    DATA_FLAG="--data /tmp/nomad-metrics.log"
+elif [ -f "$HOME/nomad-metrics.log" ]; then
+    echo "[*] Found: $HOME/nomad-metrics.log"
+    DATA_FLAG="--data $HOME/nomad-metrics.log"
 else
     echo "[*] No metrics file found, using demo data"
 fi
@@ -42,5 +42,5 @@ echo "Press Ctrl+C to stop"
 echo
 
 # Run the dashboard
-python -m nomade.cli dashboard --port 8050 $DATA_FLAG
+python -m nomad.cli dashboard --port 8050 $DATA_FLAG
 

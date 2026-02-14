@@ -1,8 +1,8 @@
-# NØMADE Cluster Configuration - Medium (100 nodes)
+# NØMAD Cluster Configuration - Medium (100 nodes)
 # For realistic testing, validation, intermediate demos
 
 [cluster]
-name = "nomade-medium"
+name = "nomad-medium"
 description = "Medium heterogeneous cluster for realistic testing"
 
 # ============================================================================

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# NØMADE Test Cluster - Manual Setup Script
+# NØMAD Test Cluster - Manual Setup Script
 #
 # Sets up SLURM on an existing Ubuntu 22.04/24.04 VM.
 # Run as root or with sudo.
@@ -20,7 +20,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "=========================================="
-echo "NØMADE Test Cluster Setup"
+echo "NØMAD Test Cluster Setup"
 echo "=========================================="
 echo ""
 
@@ -89,7 +89,7 @@ sleep 3
 
 # Set nodes to idle
 echo "[7/7] Initializing nodes..."
-scontrol update nodename=nomade-test state=idle 2>/dev/null || true
+scontrol update nodename=nomad-test state=idle 2>/dev/null || true
 
 # Create test directories - mimicking real HPC structure
 echo "[7/8] Creating filesystem structure..."

@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 
 
-def patch_scoring_oom(nomade_dir):
+def patch_scoring_oom(nomad_dir):
     """Add job state awareness to memory scoring."""
-    path = nomade_dir / 'edu' / 'scoring.py'
+    path = nomad_dir / 'edu' / 'scoring.py'
     content = path.read_text()
     
     if "OUT_OF_MEMORY" in content:
@@ -85,9 +85,9 @@ def patch_scoring_oom(nomade_dir):
         return False
 
 
-def patch_scoring_timeout(nomade_dir):
+def patch_scoring_timeout(nomad_dir):
     """Add TIMEOUT state detection to time scoring."""
-    path = nomade_dir / 'edu' / 'scoring.py'
+    path = nomad_dir / 'edu' / 'scoring.py'
     content = path.read_text()
     
     if "TIMEOUT" in content and "job_state" in content:
@@ -158,9 +158,9 @@ def patch_scoring_timeout(nomade_dir):
         return False
 
 
-def patch_demo_groups(nomade_dir):
+def patch_demo_groups(nomad_dir):
     """Add group_membership table to demo.py."""
-    path = nomade_dir / 'demo.py'
+    path = nomad_dir / 'demo.py'
     content = path.read_text()
     
     if "group_membership" in content:
@@ -212,25 +212,25 @@ def patch_demo_groups(nomade_dir):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 patch_edu_state.py /path/to/nomade/nomade/")
+        print("Usage: python3 patch_edu_state.py /path/to/nomad/nomad/")
         sys.exit(1)
     
-    nomade_dir = Path(sys.argv[1])
-    if not (nomade_dir / 'edu').exists():
-        print(f"ERROR: {nomade_dir}/edu not found")
+    nomad_dir = Path(sys.argv[1])
+    if not (nomad_dir / 'edu').exists():
+        print(f"ERROR: {nomad_dir}/edu not found")
         sys.exit(1)
     
     print("\nPatching Edu Module")
     print("=" * 30)
     
-    patch_scoring_oom(nomade_dir)
-    patch_scoring_timeout(nomade_dir)
-    patch_demo_groups(nomade_dir)
+    patch_scoring_oom(nomad_dir)
+    patch_scoring_timeout(nomad_dir)
+    patch_demo_groups(nomad_dir)
     
     print("\nDone! Regenerate demo data to test:")
-    print("  rm ~/nomade_demo.db")
-    print("  nomade demo")
-    print("  nomade edu report cs101 --db ~/nomade_demo.db")
+    print("  rm ~/nomad_demo.db")
+    print("  nomad demo")
+    print("  nomad edu report cs101 --db ~/nomad_demo.db")
 
 
 if __name__ == '__main__':
