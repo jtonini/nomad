@@ -72,29 +72,53 @@ class C:
 
 # ── Database queries ─────────────────────────────────────────────────
 
-def load_job(db_path: str, job_id: str) -> Optional[dict]:
-    """Load a job from the database."""
+def load_job(db_path: str, job_id: str, cluster: str = None) -> Optional[dict]:
+    """Load a job from the database.
+    
+    Args:
+        db_path: Path to database
+        job_id: SLURM job ID
+        cluster: Cluster name (optional, required if job_id exists in multiple clusters)
+    """
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
-        ).fetchone()
+        if cluster:
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ? AND cluster = ?", (job_id, cluster)
+            ).fetchone()
+        else:
+            # Check if job_id is unique
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
+            ).fetchall()
+            if len(rows) > 1:
+                clusters = [r['cluster'] for r in rows]
+                conn.close()
+                raise ValueError(f"Job {job_id} exists in multiple clusters: {', '.join(clusters)}. Use --cluster to specify.")
+            row = rows[0] if rows else None
         conn.close()
         return dict(row) if row else None
+    except ValueError:
+        raise
     except Exception as e:
         logger.error(f"Error loading job {job_id}: {e}")
         return None
 
 
-def load_summary(db_path: str, job_id: str) -> Optional[dict]:
+def load_summary(db_path: str, job_id: str, cluster: str = None) -> Optional[dict]:
     """Load a job summary from the database."""
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT * FROM job_summary WHERE job_id = ?", (job_id,)
-        ).fetchone()
+        if cluster:
+            row = conn.execute(
+                "SELECT * FROM job_summary WHERE job_id = ? AND cluster = ?", (job_id, cluster)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM job_summary WHERE job_id = ?", (job_id,)
+            ).fetchone()
         conn.close()
         return dict(row) if row else None
     except Exception as e:
@@ -352,6 +376,7 @@ def format_json(
 def explain_job(
     job_id: str,
     db_path: str,
+    cluster: str = None,
     show_progress: bool = True,
     output_format: str = "terminal",
 ) -> Optional[str]:
@@ -360,18 +385,22 @@ def explain_job(
 
     Args:
         job_id:         SLURM job ID
-        db_path:        Path to NOMADE database
+        db_path:        Path to NØMAD database
+        cluster:        Cluster name (optional, required if multiple clusters)
         show_progress:  Include progress comparison with recent jobs
         output_format:  "terminal" (colored text) or "json"
 
     Returns:
         Formatted string, or None if job not found.
     """
-    job = load_job(db_path, job_id)
+    try:
+        job = load_job(db_path, job_id, cluster)
+    except ValueError as e:
+        return str(e)
     if not job:
         return None
 
-    summary = load_summary(db_path, job_id)
+    summary = load_summary(db_path, job_id, cluster)
     if not summary:
         summary = {}
 

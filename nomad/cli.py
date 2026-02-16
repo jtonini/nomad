@@ -2952,11 +2952,12 @@ def edu():
 
 @edu.command('explain')
 @click.argument('job_id')
+@click.option('--cluster', '-c', default=None, help='Cluster name (required if multiple clusters)')
 @click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
 @click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
 @click.option('--no-progress', is_flag=True, help='Skip progress comparison')
 @click.pass_context
-def edu_explain(ctx, job_id, db_path, output_json, no_progress):
+def edu_explain(ctx, job_id, cluster, db_path, output_json, no_progress):
     """Explain a job in plain language with proficiency scores.
 
     Analyzes a completed job across five dimensions of computational
@@ -2965,8 +2966,8 @@ def edu_explain(ctx, job_id, db_path, output_json, no_progress):
 
     Examples:
         nomad edu explain 12345
-        nomad edu explain 12345 --json
-        nomad edu explain 12345 --no-progress
+        nomad edu explain 12345 --cluster hpc-main
+        nomad edu explain 12345 -c gpu-cluster --json
     """
     from nomad.edu.explain import explain_job
 
@@ -2976,6 +2977,7 @@ def edu_explain(ctx, job_id, db_path, output_json, no_progress):
 
     result = explain_job(
         job_id=job_id,
+        cluster=cluster,
         db_path=db_path,
         show_progress=not no_progress,
         output_format='json' if output_json else 'terminal',

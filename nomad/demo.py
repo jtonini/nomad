@@ -212,20 +212,22 @@ class DemoDatabase:
             cpu_count INTEGER, gpu_count INTEGER, memory_mb INTEGER, last_seen DATETIME)""")
 
         c.execute("""CREATE TABLE IF NOT EXISTS jobs (
-            job_id TEXT PRIMARY KEY, user_name TEXT, partition TEXT, node_list TEXT,
+            job_id TEXT NOT NULL, cluster TEXT NOT NULL, user_name TEXT, partition TEXT, node_list TEXT,
             job_name TEXT, state TEXT, exit_code INTEGER, exit_signal INTEGER,
             failure_reason INTEGER, submit_time DATETIME, start_time DATETIME,
             end_time DATETIME, req_cpus INTEGER, req_mem_mb INTEGER, req_gpus INTEGER,
-            req_time_seconds INTEGER, runtime_seconds INTEGER, wait_time_seconds INTEGER)""")
+            req_time_seconds INTEGER, runtime_seconds INTEGER, wait_time_seconds INTEGER,
+            PRIMARY KEY (job_id, cluster))""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_jobs_end_time ON jobs(end_time)")
 
         c.execute("""CREATE TABLE IF NOT EXISTS job_summary (
-            job_id TEXT PRIMARY KEY, peak_cpu_percent REAL, peak_memory_gb REAL,
+            job_id TEXT NOT NULL, cluster TEXT NOT NULL, peak_cpu_percent REAL, peak_memory_gb REAL,
             avg_cpu_percent REAL, avg_memory_gb REAL, avg_io_wait_percent REAL,
             total_nfs_read_gb REAL, total_nfs_write_gb REAL,
             total_local_read_gb REAL, total_local_write_gb REAL,
-            nfs_ratio REAL, used_gpu INTEGER, health_score REAL)""")
+            nfs_ratio REAL, used_gpu INTEGER, health_score REAL,
+            PRIMARY KEY (job_id, cluster))""")
 
         c.execute("""CREATE TABLE IF NOT EXISTS node_state (
             id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp DATETIME NOT NULL,
@@ -354,13 +356,14 @@ class DemoDatabase:
         c = conn.cursor()
 
         for job in jobs:
+            cluster_name = DEMO_CLUSTER["name"]
             c.execute("""INSERT OR REPLACE INTO jobs
-                (job_id, user_name, partition, node_list, job_name, state,
+                (job_id, cluster, user_name, partition, node_list, job_name, state,
                  exit_code, exit_signal, failure_reason, submit_time, start_time,
                  end_time, req_cpus, req_mem_mb, req_gpus, req_time_seconds,
                  runtime_seconds, wait_time_seconds)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (job.job_id, job.user_name, job.partition, job.node_list,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (job.job_id, cluster_name, job.user_name, job.partition, job.node_list,
                  job.job_name, job.state, job.exit_code, job.exit_signal,
                  job.failure_reason, job.submit_time.isoformat(),
                  job.start_time.isoformat(), job.end_time.isoformat(),
@@ -368,12 +371,12 @@ class DemoDatabase:
                  job.runtime_seconds, job.wait_time_seconds))
 
             c.execute("""INSERT OR REPLACE INTO job_summary
-                (job_id, peak_cpu_percent, peak_memory_gb, avg_cpu_percent,
+                (job_id, cluster, peak_cpu_percent, peak_memory_gb, avg_cpu_percent,
                  avg_memory_gb, avg_io_wait_percent, total_nfs_read_gb,
                  total_nfs_write_gb, total_local_read_gb, total_local_write_gb,
                  nfs_ratio, used_gpu, health_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (job.job_id, random.uniform(20, 95),
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (job.job_id, cluster_name, random.uniform(20, 95),
                  job.req_mem_mb / 1024 * random.uniform(0.3, 0.9),
                  random.uniform(15, 80),
                  job.req_mem_mb / 1024 * random.uniform(0.2, 0.7),
