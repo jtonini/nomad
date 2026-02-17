@@ -1,71 +1,75 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://jtonini.github.io/nomad/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/ARCHITECTURE/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/ARCHITECTURE/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/CONTRIBUTING/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/CONTRIBUTING/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/ROADMAP/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/ROADMAP/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/alerts/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/alerts/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/changelog/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/changelog/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/cli/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/cli/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/config/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/config/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/dashboard/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/dashboard/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/edu/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/edu/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/installation/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/extending/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/interactive/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/installation/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/ml/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/interactive/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/network/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/ml/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/proficiency/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/network/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/quickstart/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/proficiency/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
     <url>
-         <loc>https://jtonini.github.io/nomad/system-install/</loc>
-         <lastmod>2026-02-14</lastmod>
+         <loc>https://jtonini.github.io/nomad-hpc/quickstart/</loc>
+         <lastmod>2026-02-17</lastmod>
+    </url>
+    <url>
+         <loc>https://jtonini.github.io/nomad-hpc/system-install/</loc>
+         <lastmod>2026-02-17</lastmod>
     </url>
 </urlset>
