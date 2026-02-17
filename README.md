@@ -1,4 +1,4 @@
-# NØMAD
+# NØMAD-HPC
 
 **NØde Monitoring And Diagnostics** — Lightweight HPC monitoring, visualization, and predictive analytics.
 
