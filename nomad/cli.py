@@ -3291,6 +3291,37 @@ def diag_nas(ctx, hostname, db_path, hours, output_json):
         click.echo(format_diagnostic(diag))
 
 
+
+@diag.command('network')
+@click.option('--source', '-s', help='Source hostname (optional)')
+@click.option('--dest', '-d', help='Destination hostname (optional)')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', default=168, help='Hours of history to analyze (default: 168 = 1 week)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def diag_network(ctx, source, dest, db_path, hours, output_json):
+    """Diagnose network performance."""
+    from nomad.diag.network import diagnose_network, format_diagnostic
+    if not output_json:
+        click.echo("\033[2J\033[H", nl=False)
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+    if not db_path:
+        click.echo("Error: No database found.", err=True)
+        raise SystemExit(1)
+    diag = diagnose_network(db_path, source, dest, hours)
+    if not diag:
+        click.echo("No network data found.", err=True)
+        raise SystemExit(1)
+    if output_json:
+        import json
+        from dataclasses import asdict
+        result = asdict(diag)
+        click.echo(json.dumps(result, indent=2, default=str))
+    else:
+        click.echo(format_diagnostic(diag))
+
 # =============================================================================
 # COMMUNITY COMMANDS
 # =============================================================================

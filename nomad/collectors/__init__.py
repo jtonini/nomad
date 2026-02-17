@@ -44,4 +44,6 @@ __all__ = [
     'GroupCollector',
     'WorkstationCollector',
     'StorageCollector',
+    'NetworkPerfCollector',
 ]
+from .network_perf import NetworkPerfCollector
