@@ -132,7 +132,7 @@ nomad syscheck
 
 ## Documentation
 
-📖 **[jtonini.github.io/nomad](https://jtonini.github.io/nomad-hpc/)**
+📖 **[jtonini.github.io/nomad-hpc](https://jtonini.github.io/nomad-hpc/)**
 
 - [Installation & Configuration](https://jtonini.github.io/nomad-hpc/installation/)
 - [System Install (`--system`)](https://jtonini.github.io/nomad-hpc/system-install/)
