@@ -1,25 +1,26 @@
-site_name: NØMAD Documentation
-site_url: https://jtonini.github.io/nomad/
+site_name: NØMAD-HPC Documentation
+site_url: https://jtonini.github.io/nomad-hpc/
 site_description: Lightweight HPC monitoring, visualization, and predictive analytics
 site_author: João Tonini
-repo_url: https://github.com/jtonini/nomad
-repo_name: jtonini/nomad
+
+repo_url: https://github.com/jtonini/nomad-hpc
+repo_name: jtonini/nomad-hpc
 
 theme:
   name: material
   palette:
+    - scheme: slate
+      primary: cyan
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
     - scheme: default
       primary: teal
       accent: cyan
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    - scheme: slate
-      primary: teal
-      accent: cyan
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
   features:
     - navigation.tabs
     - navigation.sections
@@ -52,6 +53,7 @@ nav:
     - CLI Reference: cli.md
   - Development:
     - Contributing: CONTRIBUTING.md
+    - Extending NØMAD: extending.md
     - Roadmap: ROADMAP.md
     - Changelog: changelog.md
 
@@ -78,8 +80,8 @@ extra_javascript:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/jtonini/nomad
+      link: https://github.com/jtonini/nomad-hpc
     - icon: fontawesome/solid/paper-plane
       link: mailto:jtonini@richmond.edu
 
-copyright: Copyright &copy; 2026 João Tonini
+copyright: Copyright &copy; 2024-2026 João Tonini
