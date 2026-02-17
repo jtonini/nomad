@@ -73,15 +73,22 @@ def get_network_state(db_path: str, source: str = None, dest: str = None) -> Opt
         
         if source and dest:
             row = conn.execute("""
-                SELECT * FROM network_perf 
+                SELECT * FROM network_perf
                 WHERE source_host = ? AND dest_host = ?
                 ORDER BY timestamp DESC LIMIT 1
             """, (source, dest)).fetchone()
-        else:
+        elif dest:
             row = conn.execute("""
-                SELECT * FROM network_perf 
+                SELECT * FROM network_perf
+                WHERE dest_host = ?
                 ORDER BY timestamp DESC LIMIT 1
-            """).fetchone()
+            """, (dest,)).fetchone()
+        elif source:
+            row = conn.execute("""
+                SELECT * FROM network_perf
+                WHERE source_host = ?
+                ORDER BY timestamp DESC LIMIT 1
+            """, (source,)).fetchone()
         
         conn.close()
         return dict(row) if row else None

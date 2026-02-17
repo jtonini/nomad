@@ -479,6 +479,101 @@ class DemoDatabase:
         conn.close()
 
 
+    def write_network_perf(self):
+        """Write demo network performance data."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS network_perf (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME NOT NULL,
+                source_host TEXT NOT NULL,
+                dest_host TEXT NOT NULL,
+                path_type TEXT,
+                status TEXT,
+                ping_min_ms REAL,
+                ping_avg_ms REAL,
+                ping_max_ms REAL,
+                ping_mdev_ms REAL,
+                ping_loss_pct REAL,
+                throughput_mbps REAL,
+                bytes_transferred INTEGER,
+                tcp_retrans INTEGER
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_netperf_timestamp ON network_perf(timestamp)")
+        
+        # Generate 1 week of network data (every 30 min = 336 samples per path)
+        network_paths = [
+            ('head-node', 'nas-01', 'switch'),
+            ('head-node', 'nas-01-direct', 'direct'),
+        ]
+        
+        base_time = datetime.now() - timedelta(days=7)
+        
+        for source, dest, path_type in network_paths:
+            for i in range(336):  # 7 days * 48 samples/day
+                sample_time = base_time + timedelta(minutes=i * 30)
+                hour = sample_time.hour
+                weekday = sample_time.weekday()
+                
+                # Base throughput depends on path type
+                if path_type == 'direct':
+                    base_throughput = 940  # ~1 Gbps direct wire
+                    throughput_var = 20
+                else:
+                    base_throughput = 800  # Switch path
+                    throughput_var = 100
+                    # Add business hours congestion (9am-5pm weekdays)
+                    if weekday < 5 and 9 <= hour < 17:
+                        base_throughput -= random.randint(100, 300)
+                        throughput_var = 150
+                
+                throughput = max(100, base_throughput + random.randint(-throughput_var, throughput_var))
+                
+                # Latency correlates inversely with throughput
+                if path_type == 'direct':
+                    latency_avg = random.uniform(0.1, 0.5)
+                    jitter = random.uniform(0.01, 0.1)
+                else:
+                    latency_avg = random.uniform(0.5, 2.0)
+                    jitter = random.uniform(0.1, 0.5)
+                    if weekday < 5 and 9 <= hour < 17:
+                        latency_avg += random.uniform(0.5, 2.0)
+                        jitter += random.uniform(0.2, 0.5)
+                
+                # TCP retransmits - more on congested switch
+                if path_type == 'direct':
+                    retrans = random.randint(0, 2)
+                else:
+                    retrans = random.randint(0, 5)
+                    if weekday < 5 and 9 <= hour < 17:
+                        retrans += random.randint(0, 10)
+                
+                # Packet loss - rare
+                loss = 0.0 if random.random() > 0.05 else random.uniform(0.1, 1.0)
+                
+                status = 'healthy' if throughput > 500 and loss < 1 else 'degraded'
+                
+                c.execute("""
+                    INSERT INTO network_perf (
+                        timestamp, source_host, dest_host, path_type, status,
+                        ping_min_ms, ping_avg_ms, ping_max_ms, ping_mdev_ms, ping_loss_pct,
+                        throughput_mbps, bytes_transferred, tcp_retrans
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    sample_time.isoformat(),
+                    source, dest, path_type, status,
+                    latency_avg * 0.8, latency_avg, latency_avg * 1.3, jitter, loss,
+                    throughput, int(throughput * 1024 * 1024 / 8 * 10), retrans
+                ))
+        
+        conn.commit()
+        conn.close()
+        print(f"    Network samples: {336 * len(network_paths)} (2 paths x 7 days)")
+
+
 def get_demo_db_path() -> Path:
     """Get path for demo database (in search path for find_database)."""
     return Path.home() / "nomad_demo.db"
@@ -521,6 +616,7 @@ def run_demo(
     db.write_job_accounting(jobs)
     db.write_interactive_sessions()
     db.write_gpu_stats()
+    db.write_network_perf()
 
     success = sum(1 for j in jobs if j.failure_reason == 0)
     print(f"\nGenerated:")

@@ -438,3 +438,43 @@ max_idle_sessions = 5        # Users with more idle sessions get flagged
 # # ssh_user = "nomade"
 # # ssh_key = "/home/nomade/.ssh/id_rsa"
 # # ssh_timeout = 30
+
+# ============================================
+# NETWORK PERFORMANCE COLLECTOR
+# ============================================
+# Measures host-to-host network throughput using fileiotest methodology.
+# For NFS-specific stats, see [collectors.nfs] which uses nfsiostat.
+
+[collectors.network_perf]
+enabled = false
+interval = 3600  # 1 hour (throughput tests are resource-intensive)
+
+# Ping settings
+ping_count = 10
+
+# Quick mode: uses iperf3 (preferred) or ssh+dd
+iperf_duration = 10
+
+# Full fileiotest mode: random files, cold/hot cache, true write
+# More accurate but slower - good for weekly comparisons
+full_test = false
+num_files = 3       # Number of 10MB random files
+file_size_mb = 10   # Size per file
+
+# ─── Network paths to test ─────────────────────────────────────────────
+# path_type: 'switch' (campus network) or 'direct' (point-to-point baseline)
+
+# Path through campus network switch
+[[network_tests]]
+source = "head-node"
+dest = "storage-server"
+path_type = "switch"
+user = "root"
+
+# Direct point-to-point connection (baseline, no switch)
+# Compare with switch path to quantify congestion/overhead
+[[network_tests]]
+source = "wire-src"
+dest = "10.0.0.1"        # Private IP on direct cable
+path_type = "direct"
+user = "root"
