@@ -32,7 +32,7 @@ A job requesting 64GB with 50% utilization has a similar profile to one requesti
 
 Each completed job produces a 19-dimensional feature vector with all values bounded [0-1]:
 
-````
+```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    Feature Vector for Similarity Analysis                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
