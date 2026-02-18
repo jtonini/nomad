@@ -113,7 +113,7 @@ pip install nomad-hpc
 
 ### From Source
 ```bash
-git clone https://github.com/jtonini/nomad.git
+git clone https://github.com/jtonini/nomad-hpc
 cd nomad && pip install -e .
 ```
 
@@ -161,7 +161,7 @@ Dual-licensed:
   author = {Tonini, João Filipe Riva},
   title = {NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction},
   year = {2026},
-  url = {https://github.com/jtonini/nomad},
+  url = {https://github.com/jtonini/nomad-hpc},
   doi = {10.5281/zenodo.18614517}
 }
 ```
@@ -178,4 +178,4 @@ See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 
 - **Author**: João Tonini
 - **Email**: jtonini@richmond.edu
-- **Issues**: [GitHub Issues](https://github.com/jtonini/nomad/issues)
+- **Issues**: [GitHub Issues](https://github.com/jtonini/nomad-hpc/issues)
