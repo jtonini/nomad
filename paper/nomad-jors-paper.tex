@@ -131,6 +131,13 @@ NØMAD is implemented in Python and follows a modular architecture with four mai
 
 \textbf{Alert System} supports both threshold-based alerts (disk usage, GPU temperature) and predictive alerts using derivative analysis. When the rate of change indicates a threshold will be breached, alerts fire before the actual breach occurs. Notifications route through email, Slack, or webhooks with configurable cooldowns.
 
+\textbf{Data Readiness Estimator} helps administrators determine when sufficient data has been collected for reliable ML predictions. The estimator assesses sample size adequacy (minimum 100 jobs, recommended 500, optimal 1000+), class balance between successful and failed jobs, feature coverage and variance, and data recency. Based on current collection rates, it forecasts time-to-readiness: ``At 125 jobs/day, recommended threshold will be reached in approximately 3 days.'' The command \texttt{nomad readiness} produces a detailed report with scores for each dimension and actionable recommendations.
+
+\textbf{Diagnostics Module} provides targeted analysis for common HPC issues. The \texttt{nomad diag} commands analyze network performance between nodes (\texttt{nomad diag network}), storage health and I/O patterns (\texttt{nomad diag storage}), and node-level resource bottlenecks (\texttt{nomad diag node}). Each diagnostic produces both summary statistics and detailed drill-down capabilities, helping administrators quickly identify root causes of performance issues.
+
+\textbf{Infrastructure Monitoring} extends beyond compute nodes to cover research workstations and storage systems. The dashboard includes dedicated views for departmental workstations (tracking CPU, memory, disk usage, and logged-in users) and storage servers (monitoring ZFS pool health, NFS client connections, IOPS, throughput, and latency). This holistic view enables administrators to correlate job failures with infrastructure-wide issues such as NFS server congestion or storage capacity constraints.
+
+
 \subsection*{Web Dashboard}
 NØMAD provides a real-time web dashboard for monitoring cluster health and job status (Figure~\ref{fig:dashboard}). The dashboard displays partition-specific metrics including queue depth, node utilization, and resource consumption patterns.
 
@@ -282,6 +289,19 @@ Licence: & AGPL-3.0-or-later \\
 Date published: & December 2025 \\
 \end{tabular}
 
+
+\subsubsection*{Package Repository}
+\begin{tabular}{ll}
+Name: & PyPI \\
+Identifier: & \url{https://pypi.org/project/nomad-hpc/} \\
+Installation: & \texttt{pip install nomad-hpc} \\
+\end{tabular}
+
+\subsubsection*{Project Website}
+\begin{tabular}{ll}
+URL: & \url{https://nomad-hpc.com} \\
+Documentation: & \url{https://jtonini.github.io/nomad-hpc/} \\
+\end{tabular}
 \subsection*{Language}
 English
 
