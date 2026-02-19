@@ -573,6 +573,253 @@ class DemoDatabase:
         conn.close()
         print(f"    Network samples: {336 * len(network_paths)} (2 paths x 7 days)")
 
+    def write_workstation_state(self):
+        """Write demo workstation monitoring data."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS workstation_state (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME NOT NULL,
+                hostname TEXT NOT NULL,
+                department TEXT,
+                location TEXT,
+                status TEXT DEFAULT 'online',
+                cpu_percent REAL,
+                memory_percent REAL,
+                disk_percent REAL,
+                users_logged_in INTEGER DEFAULT 0,
+                load_1m REAL,
+                load_5m REAL,
+                load_15m REAL,
+                uptime_seconds INTEGER,
+                last_user TEXT,
+                os_version TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ws_hostname ON workstation_state(hostname)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ws_timestamp ON workstation_state(timestamp)")
+
+        # Demo workstations by department
+        workstations = [
+            # Chemistry department
+            {"hostname": "chem-ws01", "department": "Chemistry", "location": "Gottwald B102", "os": "Ubuntu 22.04"},
+            {"hostname": "chem-ws02", "department": "Chemistry", "location": "Gottwald B102", "os": "Ubuntu 22.04"},
+            {"hostname": "chem-ws03", "department": "Chemistry", "location": "Gottwald B104", "os": "Ubuntu 22.04"},
+            {"hostname": "chem-ws04", "department": "Chemistry", "location": "Gottwald B104", "os": "Rocky 9.2"},
+            # Biology department
+            {"hostname": "bio-ws01", "department": "Biology", "location": "ISC 201", "os": "Ubuntu 22.04"},
+            {"hostname": "bio-ws02", "department": "Biology", "location": "ISC 201", "os": "Ubuntu 22.04"},
+            {"hostname": "bio-ws03", "department": "Biology", "location": "ISC 203", "os": "Rocky 9.2"},
+            # Physics department
+            {"hostname": "phys-ws01", "department": "Physics", "location": "Jepson 102", "os": "Ubuntu 22.04"},
+            {"hostname": "phys-ws02", "department": "Physics", "location": "Jepson 102", "os": "Rocky 9.2"},
+            {"hostname": "phys-ws03", "department": "Physics", "location": "Jepson 104", "os": "Ubuntu 22.04"},
+            # Math/CS department
+            {"hostname": "mathcs-ws01", "department": "Math/CS", "location": "JPSN 218", "os": "Ubuntu 22.04"},
+            {"hostname": "mathcs-ws02", "department": "Math/CS", "location": "JPSN 218", "os": "Ubuntu 22.04"},
+            {"hostname": "mathcs-ws03", "department": "Math/CS", "location": "JPSN 220", "os": "Rocky 9.2"},
+            {"hostname": "mathcs-ws04", "department": "Math/CS", "location": "JPSN 220", "os": "Ubuntu 22.04"},
+        ]
+
+        demo_users = ["alice", "bob", "charlie", "diana", "eve", "frank"]
+        base_time = datetime.now() - timedelta(days=7)
+
+        for ws in workstations:
+            # Each workstation gets samples every 5 minutes for 7 days
+            for i in range(2016):  # 7 days * 288 samples/day (every 5 min)
+                sample_time = base_time + timedelta(minutes=i * 5)
+                hour = sample_time.hour
+                weekday = sample_time.weekday()
+
+                # Status - most online, some degraded or offline
+                if random.random() < 0.02:
+                    status = "offline"
+                    cpu = memory = disk = load1 = load5 = load15 = 0
+                    users = 0
+                    uptime = 0
+                elif random.random() < 0.05:
+                    status = "degraded"
+                    cpu = random.uniform(85, 99)
+                    memory = random.uniform(85, 98)
+                    disk = random.uniform(60, 90)
+                    load1 = random.uniform(8, 16)
+                    load5 = random.uniform(6, 12)
+                    load15 = random.uniform(4, 10)
+                    users = random.randint(1, 3)
+                    uptime = random.randint(3600, 86400 * 30)
+                else:
+                    status = "online"
+                    # Higher usage during work hours
+                    if weekday < 5 and 9 <= hour < 17:
+                        cpu = random.uniform(20, 70)
+                        memory = random.uniform(30, 75)
+                        users = random.randint(0, 2)
+                        load1 = random.uniform(0.5, 4)
+                    else:
+                        cpu = random.uniform(1, 15)
+                        memory = random.uniform(20, 40)
+                        users = random.randint(0, 1) if random.random() > 0.7 else 0
+                        load1 = random.uniform(0.1, 1)
+                    disk = random.uniform(30, 70)
+                    load5 = load1 * random.uniform(0.8, 1.1)
+                    load15 = load5 * random.uniform(0.8, 1.0)
+                    uptime = random.randint(86400, 86400 * 90)
+
+                last_user = random.choice(demo_users) if users > 0 else None
+
+                c.execute("""
+                    INSERT INTO workstation_state (
+                        timestamp, hostname, department, location, status,
+                        cpu_percent, memory_percent, disk_percent,
+                        users_logged_in, load_1m, load_5m, load_15m,
+                        uptime_seconds, last_user, os_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    sample_time.isoformat(),
+                    ws["hostname"], ws["department"], ws["location"], status,
+                    round(cpu, 1), round(memory, 1), round(disk, 1),
+                    users, round(load1, 2), round(load5, 2), round(load15, 2),
+                    uptime, last_user, ws["os"]
+                ))
+
+        conn.commit()
+        conn.close()
+        print(f"    Workstations: {len(workstations)} machines, {2016 * len(workstations)} samples")
+
+    def write_storage_state(self):
+        """Write demo storage/NAS monitoring data."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS storage_state (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME NOT NULL,
+                hostname TEXT NOT NULL,
+                storage_type TEXT,
+                status TEXT DEFAULT 'online',
+                total_bytes INTEGER,
+                used_bytes INTEGER,
+                free_bytes INTEGER,
+                usage_percent REAL,
+                iops_read INTEGER,
+                iops_write INTEGER,
+                throughput_read_mbps REAL,
+                throughput_write_mbps REAL,
+                latency_read_ms REAL,
+                latency_write_ms REAL,
+                nfs_clients_connected INTEGER,
+                active_operations INTEGER,
+                pools_json TEXT,
+                arc_stats_json TEXT,
+                nfs_exports_json TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_storage_hostname ON storage_state(hostname)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_storage_timestamp ON storage_state(timestamp)")
+
+        # Demo storage servers
+        storage_servers = [
+            {
+                "hostname": "nas-01",
+                "storage_type": "ZFS",
+                "total_tb": 100,
+                "pools": ["tank", "scratch"],
+                "exports": ["/home", "/scratch", "/data/shared"]
+            },
+            {
+                "hostname": "nas-02",
+                "storage_type": "ZFS",
+                "total_tb": 50,
+                "pools": ["archive"],
+                "exports": ["/archive", "/backup"]
+            },
+            {
+                "hostname": "fast-scratch",
+                "storage_type": "NVMe",
+                "total_tb": 20,
+                "pools": ["nvme-pool"],
+                "exports": ["/fast-scratch"]
+            },
+        ]
+
+        base_time = datetime.now() - timedelta(days=7)
+
+        for storage in storage_servers:
+            total_bytes = storage["total_tb"] * 1024 * 1024 * 1024 * 1024
+            base_used_pct = random.uniform(0.4, 0.7)
+
+            # Samples every 5 minutes for 7 days
+            for i in range(2016):
+                sample_time = base_time + timedelta(minutes=i * 5)
+                hour = sample_time.hour
+                weekday = sample_time.weekday()
+
+                # Status
+                if random.random() < 0.01:
+                    status = "degraded"
+                else:
+                    status = "online"
+
+                # Usage grows slowly over time
+                growth = i / 2016 * 0.02  # 2% growth over week
+                used_pct = min(0.95, base_used_pct + growth + random.uniform(-0.01, 0.01))
+                used_bytes = int(total_bytes * used_pct)
+                free_bytes = total_bytes - used_bytes
+
+                # I/O patterns - higher during work hours
+                if weekday < 5 and 9 <= hour < 17:
+                    iops_read = random.randint(500, 5000)
+                    iops_write = random.randint(200, 2000)
+                    throughput_read = random.uniform(100, 800)
+                    throughput_write = random.uniform(50, 400)
+                    nfs_clients = random.randint(20, 80)
+                    active_ops = random.randint(10, 100)
+                else:
+                    iops_read = random.randint(50, 500)
+                    iops_write = random.randint(20, 200)
+                    throughput_read = random.uniform(10, 100)
+                    throughput_write = random.uniform(5, 50)
+                    nfs_clients = random.randint(5, 20)
+                    active_ops = random.randint(1, 20)
+
+                # NVMe is faster
+                if storage["storage_type"] == "NVMe":
+                    latency_read = random.uniform(0.1, 0.5)
+                    latency_write = random.uniform(0.2, 0.8)
+                    iops_read *= 3
+                    iops_write *= 3
+                else:
+                    latency_read = random.uniform(0.5, 3)
+                    latency_write = random.uniform(1, 5)
+
+                # JSON fields
+                import json
+                pools_json = json.dumps([{"name": p, "health": "ONLINE"} for p in storage["pools"]])
+                arc_json = json.dumps({"hit_rate": random.uniform(0.85, 0.98), "size_gb": random.uniform(16, 64)})
+                exports_json = json.dumps(storage["exports"])
+
+                c.execute("""
+                    INSERT INTO storage_state (
+                        timestamp, hostname, storage_type, status,
+                        total_bytes, used_bytes, free_bytes, usage_percent,
+                        iops_read, iops_write, throughput_read_mbps, throughput_write_mbps,
+                        latency_read_ms, latency_write_ms, nfs_clients_connected,
+                        active_operations, pools_json, arc_stats_json, nfs_exports_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    sample_time.isoformat(),
+                    storage["hostname"], storage["storage_type"], status,
+                    total_bytes, used_bytes, free_bytes, round(used_pct * 100, 1),
+                    iops_read, iops_write, round(throughput_read, 1), round(throughput_write, 1),
+                    round(latency_read, 2), round(latency_write, 2), nfs_clients,
+                    active_ops, pools_json, arc_json, exports_json
+                ))
+
+        conn.commit()
+        conn.close()
+        print(f"    Storage servers: {len(storage_servers)}, {2016 * len(storage_servers)} samples")
+
 
 def get_demo_db_path() -> Path:
     """Get path for demo database (in search path for find_database)."""
@@ -617,6 +864,8 @@ def run_demo(
     db.write_interactive_sessions()
     db.write_gpu_stats()
     db.write_network_perf()
+    db.write_workstation_state()
+    db.write_storage_state()
 
     success = sum(1 for j in jobs if j.failure_reason == 0)
     print(f"\nGenerated:")
