@@ -33,17 +33,14 @@ ORCID: 0000-0002-4730-3805
 \end{enumerate}
 
 \subsection*{Abstract}
-NØMAD (NOde Monitoring And Diagnostics) is a lightweight monitoring and predictive analytics tool for computing infrastructure. Metric collectors run via systemd timers, gathering system metrics (disk, CPU, memory, I/O, GPU utilization and temperature) from standard Linux tools and storing them in SQLite. With optional SLURM \cite{slurm} integration, collectors also capture job-level analytics from scheduler commands and per-process I/O statistics. Machine learning models predict job failures before they occur; a data readiness estimator helps administrators determine when sufficient data has been collected for reliable predictions. Diagnostic tools enable targeted analysis of network performance, storage health, and node-level bottlenecks. A key innovation is modeling jobs as nodes in a similarity network, where connections represent shared resource usage patterns. Jobs with similar characteristics often share similar outcomes, and the network structure reveals failure-prone regions in the feature space. The tool provides a real-time web dashboard and supports alerts via email, Slack, or webhooks. NØMAD requires no external databases or complex infrastructure, making it suitable for small-to-medium HPC centers and research groups.
+NØMAD (NOde Monitoring And Diagnostics) is a lightweight monitoring and predictive analytics tool designed for computing infrastructure that requires minimal deployment overhead. At its core, metric collectors scheduled via systemd timers gather system metrics---disk, CPU, memory, I/O, and GPU utilization---from standard Linux tools, storing everything in a single SQLite database. When SLURM is available, these collectors extend to capture job-level analytics from scheduler commands and per-process I/O statistics, enabling deeper insight into workload behavior. The system employs machine learning models to predict job failures before they occur, while a data readiness estimator helps administrators determine when sufficient historical data has been collected for reliable predictions. Beyond prediction, diagnostic tools provide targeted analysis of network performance, storage health, and node-level bottlenecks. A key innovation is modeling jobs as nodes in a similarity network, where edges connect jobs with comparable resource usage patterns; because jobs with similar characteristics tend to share similar outcomes, the network structure reveals failure-prone regions in the feature space. The tool includes a real-time web dashboard for visualization and supports alerts via email, Slack, or webhooks. By requiring no external databases or complex infrastructure, NØMAD is particularly well-suited for small-to-medium HPC centers and research groups seeking sophisticated monitoring without enterprise-scale overhead.
 
 \subsection*{Keywords}
 HPC; high-performance computing; monitoring; machine learning; SLURM; predictive analytics; failure prediction
 
 \subsection*{Introduction}
 
-HPC administrators face a persistent challenge: detecting job failures
-before they impact researchers. Traditional monitoring approaches fall
-into two categories: enterprise IT solutions and HPC-specific tools,
-each with distinct trade-offs.
+HPC administrators face a persistent challenge: detecting job failures before they impact researchers. While traditional monitoring tools offer valuable capabilities, they have evolved along two separate paths---enterprise IT solutions and HPC-specific tools---neither of which fully addresses this need.
 
 Enterprise monitoring solutions like Prometheus \cite{prometheus},
 Grafana \cite{grafana}, and Nagios \cite{nagios} provide mature, feature-rich platforms but require
@@ -52,23 +49,9 @@ dedicated hardware---that may be impractical for small-to-medium HPC
 centers. These tools target general IT workloads and lack native
 understanding of HPC concepts such as job schedulers, batch queues, and
 compute allocations.
+HPC-specific tools address this domain gap but introduce their own complexity. TACC Stats \cite{tacc}, for example, provides comprehensive hardware counter data and correlates system metrics with job performance, enabling detailed post-hoc analysis of application behavior. At the institutional scale, XDMoD \cite{xdmod} offers sophisticated job accounting and resource utilization reporting, though its deployment requires multiple database backends and web services. For large-scale continuous monitoring, the Lightweight Distributed Metric Service (LDMS) \cite{ldms} achieves impressive scalability through a distributed architecture. What these tools share, despite their different approaches, is an emphasis on retrospective analysis---understanding what happened after a failure---rather than real-time prediction of failures before they occur.
 
-HPC-specific tools address this domain gap but introduce their own
-complexity. TACC Stats \cite{tacc} provides comprehensive hardware
-counter data and correlates system metrics with job performance,
-enabling detailed post-hoc analysis of application behavior. XDMoD
-\cite{xdmod} offers institutional-scale job accounting and resource
-utilization reporting with sophisticated visualization capabilities, but
-its deployment involves multiple database backends and web services. The
-Lightweight Distributed Metric Service (LDMS) \cite{ldms} achieves
-impressive scalability for continuous monitoring on large systems
-through its lightweight, distributed architecture. These tools excel at
-retrospective analysis---understanding what happened after a
-failure---but provide limited support for real-time prediction of
-failures before they occur.
-
-A complementary approach treats failure prediction as a pattern
-recognition problem. Jobs that fail often share common characteristics:
+A complementary approach treats failure prediction as a pattern recognition problem. Jobs that fail often share common characteristics:
 excessive NFS writes, memory pressure, or inefficient CPU utilization.
 Machine learning methods have been applied to HPC failure prediction
 \cite{mlhpc}, typically using classification models trained on job
@@ -102,17 +85,7 @@ successful and failing workloads without predefined failure categories.
 The similarity threshold (default $\geq 0.7$) controls network density:
 higher thresholds create sparser networks with tighter clusters, while
 lower thresholds reveal broader patterns at the cost of specificity.
-
-NØMAD provides: (1) zero-infrastructure deployment using a single
-SQLite database with no external services; (2) system-level monitoring
-that works on any Linux system without requiring HPC software; (3)
-optional SLURM integration for job-level analytics and predictive
-alerts; (4) similarity network analysis that learns failure patterns
-from historical data; and (5) educational analytics that track the
-development of computational proficiency over time, enabling insights
-such as ``15 of 20 students improved memory efficiency over the
-semester.''
-
+In practice, NØMAD achieves zero-infrastructure deployment through a single SQLite database with no external services required. The system provides system-level monitoring that works on any Linux machine without requiring HPC software, while optional SLURM integration enables job-level analytics and predictive alerts. The similarity network analysis learns failure patterns directly from historical data, adapting to site-specific workload characteristics. Beyond operational monitoring, an educational analytics module tracks the development of computational proficiency over time, enabling instructors to generate insights such as ``15 of 20 students improved memory efficiency over the semester.''
 \subsection*{Implementation and Architecture}
 NØMAD is implemented in Python and follows a modular architecture with seven main components (Figure~\ref{fig:architecture}):
 
@@ -123,21 +96,19 @@ NØMAD is implemented in Python and follows a modular architecture with seven ma
 \label{fig:architecture}
 \end{figure}
 
-\textbf{Collectors} are scheduled via systemd timers at configurable intervals (default: 60 seconds). They gather metrics from standard Linux tools (\texttt{iostat}, \texttt{vmstat}, \texttt{nvidia-smi}, \texttt{nfsiostat}) and filesystem utilities. When SLURM is available, additional collectors provide queue state (\texttt{squeue}, \texttt{sinfo}), job history (\texttt{sacct}), and per-job I/O statistics from \texttt{/proc/[pid]/io}. Collectors gracefully skip when their requirements are not met (e.g., no GPU monitoring without \texttt{nvidia-smi}).
+\textbf{Collectors} form the foundation of the system, gathering metrics via systemd timers at configurable intervals (default: 60 seconds). They pull data from standard Linux tools---\texttt{iostat}, \texttt{vmstat}, \texttt{nvidia-smi}, and \texttt{nfsiostat}---along with filesystem utilities. When SLURM is available, additional collectors capture queue state, job history, and per-job I/O statistics from \texttt{/proc/[pid]/io}. Importantly, collectors degrade gracefully when their requirements are not met: a system without GPUs simply skips GPU monitoring rather than failing.
 
-\textbf{Feature Engineering} transforms raw metrics into a feature vector per job. System-level features include I/O wait, memory pressure, swap activity, and device utilization from \texttt{iostat}, \texttt{mpstat}, and \texttt{vmstat}. When SLURM is available, job-specific features (CPU/memory efficiency, NFS write ratios, runtime) extend the vector to 17 dimensions. These features enable similarity-based analysis across jobs using cosine similarity.
+Raw metrics then flow through \textbf{Feature Engineering}, which transforms them into a standardized feature vector for each job. System-level features capture I/O wait, memory pressure, swap activity, and device utilization. With SLURM integration, job-specific features---CPU and memory efficiency, NFS write ratios, runtime characteristics---extend the vector to 17 dimensions, enabling meaningful similarity comparisons across jobs.
 
-\textbf{ML Prediction} uses an ensemble of three models: a Graph Neural Network (GNN) that captures relationships between similar jobs based on cosine similarity of feature vectors; an LSTM that detects temporal patterns and early warning trajectories; and an Autoencoder that identifies anomalous jobs deviating from normal behavior. The ensemble outputs a continuous risk score (0--1) rather than binary classification.
+These features feed into the \textbf{ML Prediction} engine, which employs an ensemble of three complementary models: a Graph Neural Network (GNN) that captures relationships between similar jobs, an LSTM that detects temporal patterns and early warning trajectories, and an Autoencoder that identifies anomalous jobs deviating from learned normal behavior. Rather than producing binary classifications, the ensemble outputs a continuous risk score between 0 and 1, allowing administrators to set thresholds based on their operational needs.
 
-\textbf{Alert System} supports both threshold-based alerts (disk usage, GPU temperature) and predictive alerts using derivative analysis. When the rate of change indicates a threshold will be breached, alerts fire before the actual breach occurs. Notifications route through email, Slack, or webhooks with configurable cooldowns.
+The \textbf{Alert System} acts on both threshold-based triggers (such as disk usage or GPU temperature) and predictive signals from the ML engine. A key capability is derivative analysis: when the rate of change indicates an impending threshold breach, alerts fire proactively rather than reactively. Notifications route through email, Slack, or webhooks, with configurable cooldowns to prevent alert fatigue.
 
-\textbf{Data Readiness Estimator} helps administrators determine when sufficient data has been collected for reliable ML predictions. The estimator assesses sample size adequacy (minimum 100 jobs, recommended 500, optimal 1000+), class balance between successful and failed jobs, feature coverage and variance, and data recency. Based on current collection rates, it forecasts time-to-readiness: ``At 125 jobs/day, recommended threshold will be reached in approximately 3 days.'' The command \texttt{nomad readiness} produces a detailed report with scores for each dimension and actionable recommendations.
+Before ML models can provide reliable predictions, sufficient training data must be collected. The \textbf{Data Readiness Estimator} addresses this bootstrap problem by assessing sample size adequacy, class balance between successful and failed jobs, feature coverage and variance, and data recency. Based on current collection rates, it forecasts time-to-readiness---for example, ``At 125 jobs/day, recommended threshold will be reached in approximately 3 days.'' The \texttt{nomad readiness} command produces detailed reports with actionable recommendations.
 
-\textbf{Diagnostics Module} provides targeted analysis for common HPC issues. The \texttt{nomad diag} commands analyze network performance between nodes (\texttt{nomad diag network}), storage health and I/O patterns (\texttt{nomad diag storage}), and node-level resource bottlenecks (\texttt{nomad diag node}). Each diagnostic produces both summary statistics and detailed drill-down capabilities, helping administrators quickly identify root causes of performance issues.
+For troubleshooting, the \textbf{Diagnostics Module} provides targeted analysis through \texttt{nomad diag} commands that examine network performance between nodes, storage health and I/O patterns, or node-level resource bottlenecks. Each diagnostic produces both summary statistics and detailed breakdowns, accelerating root cause identification.
 
-\textbf{Infrastructure Monitoring} extends beyond compute nodes to cover research workstations and storage systems. The dashboard includes dedicated views for departmental workstations (tracking CPU, memory, disk usage, and logged-in users) and storage servers (monitoring ZFS pool health, NFS client connections, IOPS, throughput, and latency). This holistic view enables administrators to correlate job failures with infrastructure-wide issues such as NFS server congestion or storage capacity constraints.
-
-
+Finally, \textbf{Infrastructure Monitoring} extends visibility beyond compute nodes to encompass the broader research environment. The dashboard includes dedicated views for departmental workstations---tracking CPU, memory, disk usage, and logged-in users---as well as storage servers with ZFS pool health, NFS client connections, and I/O metrics. This holistic perspective enables administrators to correlate job failures with infrastructure-wide issues such as NFS server congestion or storage capacity constraints.
 \subsection*{Web Dashboard}
 NØMAD provides a real-time web dashboard for monitoring cluster health and job status (Figure~\ref{fig:dashboard}). The dashboard displays partition-specific metrics including queue depth, node utilization, and resource consumption patterns.
 
@@ -163,8 +134,6 @@ The dashboard provides additional analytics views for resource tracking and infr
 \caption{Interactive computing sessions dashboard showing active RStudio and Jupyter sessions with memory usage, session age, and status.}
 \label{fig:interactive}
 \end{figure}
-
-
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.85\textwidth]{figures/infrastructure.png}
@@ -182,26 +151,15 @@ A distinguishing feature of NØMAD is the job similarity network visualization (
 \end{figure}
 
 The feature variance panel helps administrators verify normal cluster operation and identify which metrics contribute most to failure prediction.
-
 \subsection*{Quality Control}
-NØMAD includes a comprehensive test suite covering unit tests for collectors, feature engineering, and ML components; integration tests for the full data pipeline; a demo mode (\texttt{nomad demo}) that generates synthetic HPC data for testing without requiring a real cluster; and continuous integration via GitHub Actions.
+NØMAD includes a comprehensive test suite that ensures reliability across all components. Unit tests cover collectors, feature engineering, and ML components individually, while integration tests verify the full data pipeline from metric collection through prediction. For evaluation without a production cluster, a demo mode (\texttt{nomad demo}) generates synthetic HPC data with realistic patterns. Continuous integration via GitHub Actions runs the test suite on every commit.
 
 The software has been tested on clusters ranging from 6 to 200 nodes, including both CPU-only and GPU-enabled partitions. The codebase follows PEP 8 style guidelines and includes type hints for improved maintainability.
-
 \subsection*{Educational Analytics}
 
-NØMAD includes an educational analytics module (\texttt{nomad edu}) designed
-for classroom instruction, research mentorship, and HPC training programs. The
-module tracks the development of computational proficiency over time by
-analyzing per-job behavioral fingerprints across five dimensions: CPU
-efficiency, memory sizing, time estimation, I/O awareness, and GPU utilization.
+NØMAD includes an educational analytics module (\texttt{nomad edu}) designed for classroom instruction, research mentorship, and HPC training programs. The module tracks the development of computational proficiency over time by analyzing per-job behavioral fingerprints across five dimensions: CPU efficiency, memory sizing, time estimation, I/O awareness, and GPU utilization.
 
-\textbf{Job Explanation} (\texttt{nomad edu explain}): Translates raw job data
-into plain-language feedback. For each completed job, the system provides
-dimension-specific scores (0--100), proficiency levels (Excellent, Good,
-Developing, Needs Work), and actionable recommendations. For example, a job
-with 21\% CPU utilization receives the feedback: ``Very low CPU utilization---
-requested 4 cores but used $\sim$1. Try: \texttt{\#SBATCH --ntasks=1}.''
+The \textbf{Job Explanation} feature (\texttt{nomad edu explain}) translates raw job data into plain-language feedback that students can immediately act upon. For each completed job, the system provides dimension-specific scores (0--100), proficiency levels (Excellent, Good, Developing, Needs Work), and actionable recommendations. For example, a job with 21\% CPU utilization receives the feedback: ``Very low CPU utilization---requested 4 cores but used $\sim$1. Try: \texttt{\#SBATCH --ntasks=1}.''
 
 \begin{figure}[htbp]
 \centering
@@ -221,17 +179,9 @@ section with per-student breakdown.}
 \label{fig:edu}
 \end{figure}
 
-\textbf{User Trajectories} (\texttt{nomad edu trajectory}): Tracks an
-individual's improvement across their job submissions. The system computes
-sliding-window averages to identify trends (improving, stable, declining) for
-each proficiency dimension, enabling mentors to provide targeted guidance.
+Beyond individual job feedback, \textbf{User Trajectories} (\texttt{nomad edu trajectory}) track each person's improvement across their job submissions. The system computes sliding-window averages to identify trends---improving, stable, or declining---for each proficiency dimension, enabling mentors to provide targeted guidance where it is most needed.
 
-\textbf{Group Reports} (\texttt{nomad edu report}): Aggregates proficiency
-data across course sections or research groups. Instructors can generate
-summaries such as ``15 of 20 students improved memory efficiency over the
-semester'' or identify that a majority of students struggle with I/O patterns,
-suggesting curriculum adjustments.
-
+At the class level, \textbf{Group Reports} (\texttt{nomad edu report}) aggregate proficiency data across course sections or research groups. Instructors can generate summaries such as ``15 of 20 students improved memory efficiency over the semester'' or identify that a majority of students struggle with I/O patterns, suggesting curriculum adjustments.
 These features address a common challenge in HPC education: students submit
 jobs that technically complete but exhibit significant resource waste or
 suboptimal patterns. Traditional approaches require manual inspection of
@@ -296,8 +246,6 @@ Identifier: & \url{https://github.com/jtonini/nomad-hpc} \\
 Licence: & AGPL-3.0-or-later \\
 Date published: & December 2025 \\
 \end{tabular}
-
-
 \subsubsection*{Package Repository}
 \begin{tabular}{ll}
 Name: & PyPI \\
