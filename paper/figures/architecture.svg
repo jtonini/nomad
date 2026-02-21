@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 950" width="800" height="950">
+  <style>
+    .title { font-family: Helvetica, Arial, sans-serif; font-size: 32px; font-weight: bold; fill: #1a1a1a; }
+    .layer-label { font-family: Helvetica, Arial, sans-serif; font-size: 14px; fill: #666666; }
+    .box-title { font-family: Helvetica, Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #ffffff; }
+    .box-title-dark { font-family: Helvetica, Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #333333; }
+    .box-subtitle { font-family: Helvetica, Arial, sans-serif; font-size: 12px; fill: rgba(255,255,255,0.85); font-style: italic; }
+    .box-subtitle-dark { font-family: Helvetica, Arial, sans-serif; font-size: 12px; fill: #555555; font-style: italic; }
+    .connector { stroke: #888888; stroke-width: 2; fill: none; }
+  </style>
+  
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#888888"/>
+    </marker>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="800" height="950" fill="#ffffff"/>
+  
+  <!-- Title -->
+  <text x="400" y="45" text-anchor="middle" class="title">NØMAD Architecture</text>
+  
+  <!-- Layer Labels (left side) -->
+  <text x="70" y="130" text-anchor="middle" class="layer-label">Notification</text>
+  <text x="70" y="250" text-anchor="middle" class="layer-label">Alerting</text>
+  <text x="70" y="400" text-anchor="middle" class="layer-label">Analysis</text>
+  <text x="70" y="590" text-anchor="middle" class="layer-label">Storage</text>
+  <text x="70" y="730" text-anchor="middle" class="layer-label">Collection</text>
+  <text x="70" y="870" text-anchor="middle" class="layer-label">Infrastructure</text>
+  
+  <!-- ============ BOXES ============ -->
+  
+  <!-- Alert Dispatcher (top) - brown/rust -->
+  <rect x="200" y="90" width="400" height="80" rx="8" fill="#B07840"/>
+  <text x="400" y="125" text-anchor="middle" class="box-title">ALERT DISPATCHER</text>
+  <text x="400" y="150" text-anchor="middle" class="box-subtitle">Email · Slack · Webhook · Dashboard</text>
+  
+  <!-- Alert Engine - tan/beige -->
+  <rect x="200" y="210" width="400" height="80" rx="8" fill="#C9B896"/>
+  <text x="400" y="245" text-anchor="middle" class="box-title-dark">ALERT ENGINE</text>
+  <text x="400" y="270" text-anchor="middle" class="box-subtitle-dark">Rules · Derivatives · Deduplication · Cooldowns</text>
+  
+  <!-- Analysis Layer - 3 boxes -->
+  <!-- Monitoring -->
+  <rect x="130" y="355" width="170" height="90" rx="8" fill="#ffffff" stroke="#cccccc" stroke-width="2"/>
+  <text x="215" y="390" text-anchor="middle" class="box-title-dark">MONITORING</text>
+  <text x="215" y="415" text-anchor="middle" class="box-subtitle-dark">Threshold-based</text>
+  
+  <!-- Prediction -->
+  <rect x="315" y="355" width="170" height="90" rx="8" fill="#ffffff" stroke="#cccccc" stroke-width="2"/>
+  <text x="400" y="390" text-anchor="middle" class="box-title-dark">PREDICTION</text>
+  <text x="400" y="415" text-anchor="middle" class="box-subtitle-dark">ML Ensemble</text>
+  
+  <!-- Diagnostics (new) -->
+  <rect x="500" y="355" width="170" height="90" rx="8" fill="#ffffff" stroke="#cccccc" stroke-width="2"/>
+  <text x="585" y="390" text-anchor="middle" class="box-title-dark">DIAGNOSTICS</text>
+  <text x="585" y="415" text-anchor="middle" class="box-subtitle-dark">Network · Storage · Node</text>
+  
+  <!-- Data Readiness (new) - smaller box below Prediction -->
+  <rect x="305" y="460" width="190" height="45" rx="6" fill="#E8E4DF" stroke="#cccccc" stroke-width="1"/>
+  <text x="400" y="488" text-anchor="middle" style="font-family: Helvetica, Arial, sans-serif; font-size: 13px; fill: #555555;">Data Readiness Estimator</text>
+  
+  <!-- Data Layer - teal -->
+  <rect x="150" y="550" width="500" height="80" rx="8" fill="#6BAB9E"/>
+  <text x="400" y="585" text-anchor="middle" class="box-title">DATA LAYER</text>
+  <text x="400" y="610" text-anchor="middle" class="box-subtitle">SQLite · Time-series · Job History · I/O Samples</text>
+  
+  <!-- Collectors - teal (darker) -->
+  <rect x="150" y="690" width="500" height="80" rx="8" fill="#4A9085"/>
+  <text x="400" y="725" text-anchor="middle" class="box-title">COLLECTORS</text>
+  <text x="400" y="750" text-anchor="middle" class="box-subtitle">disk · slurm · job_metrics · iostat · mpstat · vmstat · gpu · nfs</text>
+  
+  <!-- Infrastructure Monitoring (new) - teal (lightest) -->
+  <rect x="150" y="830" width="500" height="80" rx="8" fill="#7DBFB4"/>
+  <text x="400" y="865" text-anchor="middle" class="box-title">INFRASTRUCTURE MONITORING</text>
+  <text x="400" y="890" text-anchor="middle" class="box-subtitle">Workstations · Storage Servers · Network Performance</text>
+  
+  <!-- ============ ARROWS (bottom to top) ============ -->
+  
+  <!-- Infrastructure → Collectors (single line up) -->
+  <line x1="400" y1="830" x2="400" y2="775" class="connector"/>
+  <polygon points="400,775 396,785 404,785" fill="#888888"/>
+  
+  <!-- Collectors → Data Layer (single line up) -->
+  <line x1="400" y1="690" x2="400" y2="635" class="connector"/>
+  <polygon points="400,635 396,645 404,645" fill="#888888"/>
+  
+  <!-- Data Layer → Analysis boxes (horizontal bar with 3 vertical lines) -->
+  <!-- Vertical line down from Data Layer -->
+  <line x1="400" y1="550" x2="400" y2="520" class="connector"/>
+  <!-- Horizontal connector bar -->
+  <line x1="215" y1="520" x2="585" y2="520" class="connector"/>
+  <!-- Vertical lines up to each Analysis box -->
+  <line x1="215" y1="520" x2="215" y2="450" class="connector"/>
+  <polygon points="215,450 211,460 219,460" fill="#888888"/>
+  <line x1="400" y1="520" x2="400" y2="510" class="connector"/>
+  <polygon points="400,510 396,520 404,520" fill="#888888"/>
+  <line x1="585" y1="520" x2="585" y2="450" class="connector"/>
+  <polygon points="585,450 581,460 589,460" fill="#888888"/>
+  
+  <!-- Analysis boxes → Alert Engine (horizontal bar with lines converging) -->
+  <!-- Vertical lines down from Monitoring and Diagnostics -->
+  <line x1="215" y1="355" x2="215" y2="325" class="connector"/>
+  <line x1="400" y1="355" x2="400" y2="325" class="connector"/>
+  <line x1="585" y1="355" x2="585" y2="325" class="connector"/>
+  <!-- Horizontal connector bar -->
+  <line x1="215" y1="325" x2="585" y2="325" class="connector"/>
+  <!-- Single line up to Alert Engine -->
+  <line x1="400" y1="325" x2="400" y2="295" class="connector"/>
+  <polygon points="400,295 396,305 404,305" fill="#888888"/>
+  
+  <!-- Alert Engine → Alert Dispatcher (single line up) -->
+  <line x1="400" y1="210" x2="400" y2="175" class="connector"/>
+  <polygon points="400,175 396,185 404,185" fill="#888888"/>
+  
+</svg>
