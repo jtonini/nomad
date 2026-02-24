@@ -1021,9 +1021,9 @@ def version(ctx: click.Context) -> None:
 @cli.command()
 @click.option('--host', default='localhost', help='Host to bind to (use 0.0.0.0 for all interfaces)')
 @click.option('--port', '-p', type=int, default=8050, help='Port to listen on')
-@click.option('--data', '-d', type=click.Path(), help='Data source (db file or metrics log)')
+@click.option('--db', '-d', type=click.Path(), help='Path to database file')
 @click.pass_context
-def dashboard(ctx, host, port, data):
+def dashboard(ctx, host, port, db):
     """Start the interactive web dashboard.
     
     The dashboard provides a 3D visualization of job networks with two view modes:
@@ -1038,12 +1038,12 @@ def dashboard(ctx, host, port, data):
     Examples:
         nomad dashboard                      # Start with demo data
         nomad dashboard --port 9000          # Custom port
-        nomad dashboard --data /path/to.db   # Use database
+        nomad dashboard --db /path/to.db   # Use database
     """
     from nomad.viz.server import serve_dashboard
     
     # Try to find data source
-    data_source = data
+    data_source = db
     if not data_source:
         config = ctx.obj.get('config', {})
         # Try database first
@@ -1067,7 +1067,7 @@ def dashboard(ctx, host, port, data):
     click.echo(click.style("===========================================", fg='cyan'))
     click.echo()
     
-    serve_dashboard(host, port, data_source)
+    serve_dashboard(host, port, db_path=data_source)
 
 
 @cli.command()
