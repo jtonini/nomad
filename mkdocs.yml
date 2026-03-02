@@ -45,6 +45,9 @@ nav:
     - Educational Analytics: edu.md
     - Alerts: alerts.md
     - Interactive Sessions: interactive.md
+    - Data Readiness: readiness.md
+    - Diagnostics: diagnostics.md
+    - Infrastructure: infrastructure.md
   - Technical:
     - Architecture: ARCHITECTURE.md
     - Network Methodology: network.md
@@ -85,3 +88,7 @@ extra:
       link: mailto:jtonini@richmond.edu
 
 copyright: Copyright &copy; 2024-2026 João Tonini
+
+# Custom fonts
+extra_css:
+  - stylesheets/extra.css
