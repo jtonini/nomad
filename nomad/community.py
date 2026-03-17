@@ -9,10 +9,10 @@ Ensures privacy through pseudonymization while preserving analytical value.
 
 import hashlib
 import json
-from datetime import datetime, date
-from pathlib import Path
-from typing import Optional, Dict, List, Any
 import sqlite3
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
 
 try:
     import pandas as pd
@@ -102,7 +102,7 @@ def classify_resource_profile(job: dict) -> str:
     mem_eff = job.get('mem_efficiency', 0) or 0
     gpu_util = job.get('gpu_util', 0) or 0
     io_wait = job.get('io_wait_pct', 0) or 0
-    
+
     if gpu_util > 0.5:
         return 'gpu_intensive'
     if io_wait > 30:
@@ -127,7 +127,7 @@ def anonymize_job(job: dict, salt: str) -> dict:
     exit_code = job.get('exit_code', 0) or job.get('failure_reason', 0) or 0
     if isinstance(exit_code, str):
         exit_code = 1  # Non-zero for string failure reasons
-        
+
     return {
         'job_id': pseudonymize(str(job.get('job_id', '')), salt, 'job'),
         'user_id': pseudonymize(str(job.get('user_name', job.get('user', job.get('user_id', '')))), salt, 'user'),
@@ -155,7 +155,7 @@ def anonymize_job(job: dict, salt: str) -> dict:
     }
 
 
-def compute_user_stats(jobs: List[dict]) -> Dict[str, dict]:
+def compute_user_stats(jobs: list[dict]) -> dict[str, dict]:
     """Compute per-user aggregate statistics."""
     user_jobs = {}
     for job in jobs:
@@ -163,7 +163,7 @@ def compute_user_stats(jobs: List[dict]) -> Dict[str, dict]:
         if uid not in user_jobs:
             user_jobs[uid] = []
         user_jobs[uid].append(job)
-    
+
     user_stats = {}
     for uid, ujobs in user_jobs.items():
         successes = sum(1 for j in ujobs if j['success'])
@@ -171,17 +171,17 @@ def compute_user_stats(jobs: List[dict]) -> Dict[str, dict]:
         failure_counts = {}
         for f in failures:
             failure_counts[f] = failure_counts.get(f, 0) + 1
-        
+
         # Get most common failure types
         common_failures = sorted(failure_counts.items(), key=lambda x: -x[1])[:3]
-        
+
         # Determine resource profile
         profiles = [classify_resource_profile(j) for j in ujobs]
         profile_counts = {}
         for p in profiles:
             profile_counts[p] = profile_counts.get(p, 0) + 1
         dominant_profile = max(profile_counts.items(), key=lambda x: x[1])[0]
-        
+
         user_stats[uid] = {
             'job_count': len(ujobs),
             'success_rate': round(successes / len(ujobs), 3) if ujobs else 0,
@@ -189,29 +189,29 @@ def compute_user_stats(jobs: List[dict]) -> Dict[str, dict]:
             'common_failure_types': [f[0] for f in common_failures],
             'resource_profile': dominant_profile,
         }
-    
+
     return user_stats
 
 
-def load_jobs_from_db(db_path: Path, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[dict]:
+def load_jobs_from_db(db_path: Path, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
     """Load jobs from NØMAD database."""
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    
+
     query = "SELECT * FROM jobs WHERE 1=1"
     params = []
-    
+
     if start_date:
         query += " AND submit_time >= ?"
         params.append(start_date)
     if end_date:
         query += " AND submit_time <= ?"
         params.append(end_date)
-    
+
     cursor = conn.execute(query, params)
     jobs = [dict(row) for row in cursor.fetchall()]
     conn.close()
-    
+
     return jobs
 
 
@@ -221,8 +221,8 @@ def export_community_data(
     salt: str,
     institution_type: str = "academic",
     cluster_type: str = "mixed_small",
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     min_jobs: int = 100,
 ) -> dict:
     """
@@ -244,32 +244,32 @@ def export_community_data(
     # Load jobs
     print(f"Loading jobs from {db_path}...")
     jobs = load_jobs_from_db(db_path, start_date, end_date)
-    
+
     if len(jobs) < min_jobs:
         raise ValueError(f"Insufficient data: {len(jobs)} jobs (minimum {min_jobs} required)")
-    
+
     # Anonymize
     print(f"Anonymizing {len(jobs)} jobs...")
     anon_jobs = [anonymize_job(job, salt) for job in jobs]
-    
+
     # Compute statistics
     user_stats = compute_user_stats(anon_jobs)
-    
+
     successes = sum(1 for j in anon_jobs if j['success'])
     failure_types = {}
     for j in anon_jobs:
         if not j['success']:
             ft = j['failure_type']
             failure_types[ft] = failure_types.get(ft, 0) + 1
-    
+
     # Get date range
     dates = [j['timestamp'] for j in anon_jobs]
     date_min = min(dates) if dates else date.today()
     date_max = max(dates) if dates else date.today()
-    
+
     # Build export structure
     institution_id = pseudonymize(salt[:16], "nomad_community_2025", "inst")
-    
+
     export_data = {
         'version': '1.0',
         'institution': {
@@ -291,17 +291,17 @@ def export_community_data(
         'users': user_stats,
         'jobs': anon_jobs,
     }
-    
+
     # Save output
     output_path = Path(output_path)
-    
+
     if output_path.suffix == '.parquet' and HAS_ARROW:
         print(f"Saving to {output_path} (Parquet)...")
         df = pd.DataFrame(anon_jobs)
         # Convert date objects to strings for parquet
         df['timestamp'] = df['timestamp'].astype(str)
         df.to_parquet(output_path, index=False)
-        
+
         # Also save metadata
         meta_path = output_path.with_suffix('.meta.json')
         meta = {k: v for k, v in export_data.items() if k != 'jobs'}
@@ -315,14 +315,14 @@ def export_community_data(
         print(f"Saving to {output_path} (JSON)...")
         with open(output_path, 'w') as f:
             json.dump(export_data, f, indent=2, default=str)
-    
-    print(f"\n✓ Export complete!")
+
+    print("\n✓ Export complete!")
     print(f"  Institution ID: {institution_id}")
     print(f"  Jobs: {len(anon_jobs)}")
     print(f"  Users: {len(user_stats)} (pseudonymized)")
     print(f"  Success rate: {export_data['summary']['success_rate']*100:.1f}%")
     print(f"  Date range: {export_data['date_range']['start']} to {export_data['date_range']['end']}")
-    
+
     return export_data['summary']
 
 
@@ -331,7 +331,7 @@ def verify_export(file_path: Path) -> dict:
     file_path = Path(file_path)
     issues = []
     warnings = []
-    
+
     # Load data
     if file_path.suffix == '.parquet':
         if not HAS_ARROW:
@@ -342,11 +342,11 @@ def verify_export(file_path: Path) -> dict:
         with open(file_path) as f:
             export = json.load(f)
         data = export.get('jobs', [])
-    
+
     # Check minimum jobs
     if len(data) < 100:
         issues.append(f"Insufficient jobs: {len(data)} (minimum 100)")
-    
+
     # Check for real usernames (common patterns)
     suspicious_users = []
     for job in data[:100]:  # Sample check
@@ -355,21 +355,21 @@ def verify_export(file_path: Path) -> dict:
             suspicious_users.append(uid)
     if suspicious_users:
         issues.append(f"Non-pseudonymized user IDs found: {suspicious_users[:3]}")
-    
+
     # Check for paths
     for job in data[:100]:
         for key, val in job.items():
             if isinstance(val, str) and ('/' in val or '\\' in val):
                 if key not in ['timestamp']:
                     warnings.append(f"Possible path in field '{key}': {val[:50]}")
-    
+
     # Check timestamp precision
     timestamps = [job.get('timestamp', '') for job in data[:100]]
     for ts in timestamps:
         if isinstance(ts, str) and 'T' in ts:
             warnings.append("Timestamps have time precision (should be date only)")
             break
-    
+
     result = {
         'valid': len(issues) == 0,
         'issues': issues,
@@ -379,39 +379,39 @@ def verify_export(file_path: Path) -> dict:
             'users': len(set(j.get('user_id', '') for j in data)),
         }
     }
-    
+
     print("\n=== Export Verification ===")
     print(f"File: {file_path}")
     print(f"Jobs: {result['stats']['jobs']}")
     print(f"Users: {result['stats']['users']}")
-    
+
     if issues:
         print("\n❌ ISSUES (must fix):")
         for issue in issues:
             print(f"  - {issue}")
-    
+
     if warnings:
         print("\n⚠️  WARNINGS (review):")
         for warn in warnings[:5]:
             print(f"  - {warn}")
-    
+
     if result['valid']:
         print("\n✓ Export is valid for community submission")
     else:
         print("\n✗ Export has issues that must be resolved")
-    
+
     return result
 
 
 def preview_export(file_path: Path, n_samples: int = 5):
     """Preview an export file."""
     file_path = Path(file_path)
-    
+
     if file_path.suffix == '.parquet':
         if not HAS_ARROW:
             raise ImportError("pyarrow required for parquet files")
         df = pd.read_parquet(file_path)
-        
+
         # Load metadata if exists
         meta_path = file_path.with_suffix('.meta.json')
         if meta_path.exists():
@@ -424,25 +424,25 @@ def preview_export(file_path: Path, n_samples: int = 5):
             export = json.load(f)
         df = pd.DataFrame(export.get('jobs', []))
         meta = {k: v for k, v in export.items() if k != 'jobs'}
-    
+
     print("\n=== Export Preview ===")
     print(f"File: {file_path}")
-    
+
     if meta:
         print(f"\nInstitution ID: {meta.get('institution', {}).get('id', 'N/A')}")
         print(f"Cluster Type: {meta.get('institution', {}).get('cluster_type', 'N/A')}")
         print(f"Date Range: {meta.get('date_range', {}).get('start', 'N/A')} to {meta.get('date_range', {}).get('end', 'N/A')}")
-        
+
         summary = meta.get('summary', {})
         print(f"\nTotal Jobs: {summary.get('total_jobs', len(df))}")
         print(f"Total Users: {summary.get('total_users', 'N/A')} (pseudonymized)")
         print(f"Success Rate: {summary.get('success_rate', 0)*100:.1f}%")
-        
+
         if summary.get('failure_types'):
             print("\nFailure Types:")
             for ft, count in sorted(summary['failure_types'].items(), key=lambda x: -x[1])[:5]:
                 print(f"  {ft}: {count}")
-    
+
     print(f"\nSample Records ({n_samples}):")
     print(df[['job_id', 'user_id', 'timestamp', 'success', 'failure_type']].head(n_samples).to_string(index=False))
 
@@ -450,14 +450,14 @@ def preview_export(file_path: Path, n_samples: int = 5):
 # CLI integration
 if __name__ == '__main__':
     import sys
-    
+
     if len(sys.argv) < 2:
         print("Usage: python community.py <command> [args]")
         print("Commands: export, verify, preview")
         sys.exit(1)
-    
+
     cmd = sys.argv[1]
-    
+
     if cmd == 'export':
         # Example usage
         export_community_data(

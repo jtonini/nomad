@@ -8,14 +8,18 @@ Provides unified diagnostics for HPC infrastructure:
 - Network (network paths and performance)
 """
 
-from .node import diagnose_node, format_diagnostic as format_node_diagnostic
-from .workstation import diagnose_workstation, format_diagnostic as format_workstation_diagnostic
-from .storage import diagnose_storage, format_diagnostic as format_storage_diagnostic
-from .network import diagnose_network, format_diagnostic as format_network_diagnostic
+from .network import diagnose_network
+from .network import format_diagnostic as format_network_diagnostic
+from .node import diagnose_node
+from .node import format_diagnostic as format_node_diagnostic
+from .storage import diagnose_storage
+from .storage import format_diagnostic as format_storage_diagnostic
+from .workstation import diagnose_workstation
+from .workstation import format_diagnostic as format_workstation_diagnostic
 
 __all__ = [
     'diagnose_node',
-    'diagnose_workstation', 
+    'diagnose_workstation',
     'diagnose_storage',
     'diagnose_network',
     'format_node_diagnostic',

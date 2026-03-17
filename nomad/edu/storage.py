@@ -11,11 +11,11 @@ This enables:
     - Research on HPC training effectiveness
 """
 
-import sqlite3
 import logging
+import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nomad.edu.scoring import JobFingerprint
@@ -91,21 +91,21 @@ def save_proficiency_score(
         True if saved successfully, False otherwise
     """
     import json
-    
+
     try:
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
-        
+
         # Ensure table exists
         c.executescript(PROFICIENCY_SCHEMA)
-        
+
         # Extract dimension scores
         cpu = fingerprint.dimensions.get("cpu")
         memory = fingerprint.dimensions.get("memory")
         time = fingerprint.dimensions.get("time")
         io = fingerprint.dimensions.get("io")
         gpu = fingerprint.dimensions.get("gpu")
-        
+
         c.execute("""
             INSERT OR REPLACE INTO proficiency_scores (
                 timestamp, job_id, user_name, cluster,
@@ -138,12 +138,12 @@ def save_proficiency_score(
             json.dumps([d.name for d in fingerprint.needs_work]),
             json.dumps([d.name for d in fingerprint.strengths]),
         ))
-        
+
         conn.commit()
         conn.close()
         logger.debug(f"Saved proficiency score for job {fingerprint.job_id}")
         return True
-        
+
     except Exception as e:
         logger.error(f"Failed to save proficiency score: {e}")
         return False
@@ -172,25 +172,25 @@ def get_user_proficiency_history(
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    
+
     query = """
         SELECT * FROM proficiency_scores
         WHERE user_name = ?
         AND timestamp >= datetime('now', ?)
     """
     params = [username, f'-{days} days']
-    
+
     if cluster:
         query += " AND cluster = ?"
         params.append(cluster)
-    
+
     query += " ORDER BY timestamp DESC LIMIT ?"
     params.append(limit)
-    
+
     c.execute(query, params)
     rows = [dict(row) for row in c.fetchall()]
     conn.close()
-    
+
     return rows
 
 
@@ -213,18 +213,18 @@ def get_group_proficiency_stats(
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    
+
     # Get group members
     c.execute("""
         SELECT DISTINCT username FROM group_membership
         WHERE group_name = ?
     """, (group_name,))
     members = [row['username'] for row in c.fetchall()]
-    
+
     if not members:
         conn.close()
         return None
-    
+
     # Get proficiency stats for members
     placeholders = ','.join('?' * len(members))
     c.execute(f"""
@@ -242,10 +242,10 @@ def get_group_proficiency_stats(
         AND timestamp >= datetime('now', ?)
         GROUP BY user_name
     """, members + [f'-{days} days'])
-    
+
     user_stats = [dict(row) for row in c.fetchall()]
     conn.close()
-    
+
     return {
         'group_name': group_name,
         'member_count': len(members),

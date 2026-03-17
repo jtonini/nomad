@@ -8,9 +8,9 @@ by capturing per-job behavioral fingerprints that enable administrators and
 faculty to measure the development of computational proficiency over time.
 """
 
-from nomad.edu.scoring import score_job, JobFingerprint
 from nomad.edu.explain import explain_job
-from nomad.edu.progress import user_trajectory, group_summary
+from nomad.edu.progress import group_summary, user_trajectory
+from nomad.edu.scoring import JobFingerprint, score_job
 
 __all__ = [
     "score_job",
@@ -22,8 +22,8 @@ __all__ = [
 
 # Storage functions for proficiency tracking
 from nomad.edu.storage import (
+    get_group_proficiency_stats,
+    get_user_proficiency_history,
     init_proficiency_table,
     save_proficiency_score,
-    get_user_proficiency_history,
-    get_group_proficiency_stats,
 )

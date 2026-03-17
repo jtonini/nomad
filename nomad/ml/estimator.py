@@ -18,9 +18,7 @@ Key thresholds based on literature and empirical testing:
 import math
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Optional
+from datetime import datetime
 
 
 @dataclass
@@ -297,13 +295,13 @@ def generate_recommendations(report: ReadinessReport) -> list:
     recs = []
     if report.total_jobs < report.minimum_jobs:
         needed = report.minimum_jobs - report.total_jobs
-        recs.append("[!] Collect {} more jobs to reach minimum viable sample size".format(needed))
+        recs.append(f"[!] Collect {needed} more jobs to reach minimum viable sample size")
     elif report.total_jobs < report.recommended_jobs:
         needed = report.recommended_jobs - report.total_jobs
-        recs.append("[*] Collect {} more jobs for recommended sample size".format(needed))
+        recs.append(f"[*] Collect {needed} more jobs for recommended sample size")
     elif report.total_jobs < report.optimal_jobs:
         needed = report.optimal_jobs - report.total_jobs
-        recs.append("[i] Collect {} more jobs for optimal prediction accuracy".format(needed))
+        recs.append(f"[i] Collect {needed} more jobs for optimal prediction accuracy")
     if report.failure_jobs == 0:
         recs.append("[!] No failure data - predictions will be unreliable")
     elif report.balance_score < 40:
@@ -425,70 +423,68 @@ def format_readiness_report(report: ReadinessReport, verbose: bool = False) -> s
 
     lines = []
     lines.append("")
-    lines.append("  {}NOMAD-HPC Data Readiness{}".format(BOLD, RESET))
+    lines.append(f"  {BOLD}NOMAD-HPC Data Readiness{RESET}")
     lines.append("  " + chr(9472) * 56)
     oc = score_color(report.overall_score)
-    lines.append("  Status: {}{}  {}%   {}{}".format(
-        oc, bar(report.overall_score), report.overall_score, report.status.upper(), RESET))
+    lines.append(f"  Status: {oc}{bar(report.overall_score)}  {report.overall_score}%   {report.status.upper()}{RESET}")
     lines.append("")
-    lines.append("  {}Sample Size{}".format(BOLD, RESET))
+    lines.append(f"  {BOLD}Sample Size{RESET}")
     lines.append("  " + chr(9472) * 56)
     progress = min(100, int(report.total_jobs / report.optimal_jobs * 100)) if report.optimal_jobs > 0 else 0
     pc = score_color(progress)
-    lines.append("    Total Jobs       {}{}{}  {:,}".format(pc, bar(progress), RESET, report.total_jobs))
+    lines.append(f"    Total Jobs       {pc}{bar(progress)}{RESET}  {report.total_jobs:,}")
     if report.total_jobs > 0:
         success_pct = report.success_jobs / report.total_jobs * 100
         failure_pct = report.failure_jobs / report.total_jobs * 100
         success_blocks = round(success_pct / 10)
         failure_blocks = 10 - success_blocks
-        ratio_bar = "{}{}{}{}".format(GREEN, chr(9608) * success_blocks, RED, chr(9608) * failure_blocks)
-        lines.append("    Success/Fail     {}{}  {:.0f}%/{:.0f}%".format(ratio_bar, RESET, success_pct, failure_pct))
-    lines.append("    {}Thresholds       min:{} | rec:{} | opt:{}{}".format(
-        DIM, report.minimum_jobs, report.recommended_jobs, report.optimal_jobs, RESET))
+        ratio_bar = f"{GREEN}{chr(9608) * success_blocks}{RED}{chr(9608) * failure_blocks}"
+        lines.append(f"    Success/Fail     {ratio_bar}{RESET}  {success_pct:.0f}%/{failure_pct:.0f}%")
+    lines.append(f"    {DIM}Thresholds       min:{report.minimum_jobs} | rec:{report.recommended_jobs} | opt:{report.optimal_jobs}{RESET}")
     lines.append("")
-    lines.append("  {}Readiness Scores{}".format(BOLD, RESET))
+    lines.append(f"  {BOLD}Readiness Scores{RESET}")
     lines.append("  " + chr(9472) * 56)
     c = score_color(report.sample_score)
-    lines.append("    Sample Size      {}{}{}  {:3.0f}%   {}".format(c, bar(report.sample_score), RESET, report.sample_score, level(report.sample_score)))
+    lines.append(f"    Sample Size      {c}{bar(report.sample_score)}{RESET}  {report.sample_score:3.0f}%   {level(report.sample_score)}")
     c = score_color(report.balance_score)
-    lines.append("    Class Balance    {}{}{}  {:3.0f}%   {}".format(c, bar(report.balance_score), RESET, report.balance_score, level(report.balance_score)))
+    lines.append(f"    Class Balance    {c}{bar(report.balance_score)}{RESET}  {report.balance_score:3.0f}%   {level(report.balance_score)}")
     if report.total_jobs > 0:
         failure_rate = report.failure_jobs / report.total_jobs * 100
-        lines.append("    {}                 failure rate: {:.1f}% (ideal: 15-35%){}".format(DIM, failure_rate, RESET))
+        lines.append(f"    {DIM}                 failure rate: {failure_rate:.1f}% (ideal: 15-35%){RESET}")
     c = score_color(report.feature_score)
-    lines.append("    Feature Quality  {}{}{}  {:3.0f}%   {}".format(c, bar(report.feature_score), RESET, report.feature_score, level(report.feature_score)))
+    lines.append(f"    Feature Quality  {c}{bar(report.feature_score)}{RESET}  {report.feature_score:3.0f}%   {level(report.feature_score)}")
     c = score_color(report.recency_score)
-    lines.append("    Data Recency     {}{}{}  {:3.0f}%   {}".format(c, bar(report.recency_score), RESET, report.recency_score, level(report.recency_score)))
+    lines.append(f"    Data Recency     {c}{bar(report.recency_score)}{RESET}  {report.recency_score:3.0f}%   {level(report.recency_score)}")
     lines.append("    " + chr(9472) * 52)
     oc = score_color(report.overall_score)
-    lines.append("    {}Overall          {}{}{}  {:3.0f}%   {}{}".format(BOLD, oc, bar(report.overall_score), RESET, report.overall_score, level(report.overall_score), RESET))
+    lines.append(f"    {BOLD}Overall          {oc}{bar(report.overall_score)}{RESET}  {report.overall_score:3.0f}%   {level(report.overall_score)}{RESET}")
     lines.append("")
     if verbose and report.feature_coverage:
-        lines.append("  {}Feature Coverage{}".format(BOLD, RESET))
+        lines.append(f"  {BOLD}Feature Coverage{RESET}")
         lines.append("  " + chr(9472) * 56)
         for feature, stats in sorted(report.feature_coverage.items()):
             cov = stats['pct_coverage']
             c = score_color(cov)
-            ok = "{}[ok]{}".format(GREEN, RESET) if stats['has_variance'] and cov > 70 else "{}[--]{}".format(DIM, RESET)
-            lines.append("    {:18s} {}{}{}  {:5.1f}%  {}".format(feature[:18], c, bar(cov), RESET, cov, ok))
+            ok = f"{GREEN}[ok]{RESET}" if stats['has_variance'] and cov > 70 else f"{DIM}[--]{RESET}"
+            lines.append(f"    {feature[:18]:18s} {c}{bar(cov)}{RESET}  {cov:5.1f}%  {ok}")
         lines.append("")
-    lines.append("  {}Estimated Model Performance{}".format(BOLD, RESET))
+    lines.append(f"  {BOLD}Estimated Model Performance{RESET}")
     lines.append("  " + chr(9472) * 56)
     acc = report.estimated_accuracy * 100
     c = score_color(acc)
-    lines.append("    Accuracy         {}{}{}  {:.0f}%".format(c, bar(acc), RESET, acc))
-    lines.append("    {}95% CI           {:.0f}% - {:.0f}%{}".format(DIM, report.confidence_interval[0] * 100, report.confidence_interval[1] * 100, RESET))
+    lines.append(f"    Accuracy         {c}{bar(acc)}{RESET}  {acc:.0f}%")
+    lines.append(f"    {DIM}95% CI           {report.confidence_interval[0] * 100:.0f}% - {report.confidence_interval[1] * 100:.0f}%{RESET}")
     lines.append("")
     # Collection forecast
     te = report.time_estimate
     if te and te.get('collection_rate', 0) > 0:
-        lines.append("  {}Collection Forecast{}".format(BOLD, RESET))
+        lines.append(f"  {BOLD}Collection Forecast{RESET}")
         lines.append("  " + chr(9472) * 56)
         lines.append("    Current rate     {}{:.1f} jobs/day{}".format(CYAN, te['collection_rate'], RESET))
         if te.get('failure_rate', 0) > 0:
             lines.append("    Failure rate     {}{:.2f} failures/day{}".format(DIM, te['failure_rate'], RESET))
         if report.ready_for_training:
-            lines.append("    {}Data is ready for ML training!{}".format(GREEN, RESET))
+            lines.append(f"    {GREEN}Data is ready for ML training!{RESET}")
         else:
             if te.get('days_to_minimum', 0) > 0:
                 lines.append("    Minimum ready    ~{} days ({} more jobs)".format(te['days_to_minimum'], report.minimum_jobs - report.total_jobs))
@@ -497,20 +493,20 @@ def format_readiness_report(report: ReadinessReport, verbose: bool = False) -> s
             if te.get('days_to_optimal', 0) > 0:
                 lines.append("    Optimal          ~{} days ({} more jobs)".format(te['days_to_optimal'], report.optimal_jobs - report.total_jobs))
         if te.get('estimate_confidence') == 'low':
-            lines.append("    {}Note: Estimates based on limited data{}".format(DIM, RESET))
+            lines.append(f"    {DIM}Note: Estimates based on limited data{RESET}")
         lines.append("")
     if report.recommendations:
-        lines.append("  {}Recommendations{}".format(BOLD, RESET))
+        lines.append(f"  {BOLD}Recommendations{RESET}")
         lines.append("  " + chr(9472) * 56)
         for rec in report.recommendations:
             if "[ok]" in rec:
-                lines.append("    {}{}{}".format(GREEN, rec, RESET))
+                lines.append(f"    {GREEN}{rec}{RESET}")
             elif "[!]" in rec:
-                lines.append("    {}{}{}".format(RED, rec, RESET))
+                lines.append(f"    {RED}{rec}{RESET}")
             elif "[*]" in rec:
-                lines.append("    {}{}{}".format(YELLOW, rec, RESET))
+                lines.append(f"    {YELLOW}{rec}{RESET}")
             else:
-                lines.append("    {}".format(rec))
+                lines.append(f"    {rec}")
         lines.append("")
     return "\n".join(lines)
 

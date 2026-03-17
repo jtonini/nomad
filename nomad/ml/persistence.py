@@ -22,7 +22,7 @@ def init_ml_tables(db_path: str):
     """Create ML tables in database if they don't exist."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     # Model metadata table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ml_models (
@@ -35,7 +35,7 @@ def init_ml_tables(db_path: str):
             is_active INTEGER DEFAULT 1
         )
     ''')
-    
+
     # Predictions table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ml_predictions (
@@ -50,7 +50,7 @@ def init_ml_tables(db_path: str):
             FOREIGN KEY (model_id) REFERENCES ml_models(id)
         )
     ''')
-    
+
     # Job-level predictions
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS job_predictions (
@@ -66,7 +66,7 @@ def init_ml_tables(db_path: str):
             FOREIGN KEY (prediction_id) REFERENCES ml_predictions(id)
         )
     ''')
-    
+
     conn.commit()
     conn.close()
 
@@ -75,12 +75,12 @@ def save_ensemble_models(models_dir: Path, gnn_model, lstm_model, ae_model, meta
     """Save trained ensemble models to disk."""
     if not HAS_TORCH:
         return None
-    
+
     models_dir = Path(models_dir)
     models_dir.mkdir(parents=True, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    
+
     # Save models
     if gnn_model:
         torch.save(gnn_model.state_dict(), models_dir / f'gnn_{timestamp}.pt')
@@ -88,13 +88,13 @@ def save_ensemble_models(models_dir: Path, gnn_model, lstm_model, ae_model, meta
         torch.save(lstm_model.state_dict(), models_dir / f'lstm_{timestamp}.pt')
     if ae_model:
         torch.save(ae_model.state_dict(), models_dir / f'ae_{timestamp}.pt')
-    
+
     # Save metadata
     metadata['timestamp'] = timestamp
     metadata['saved_at'] = datetime.now().isoformat()
     with open(models_dir / f'metadata_{timestamp}.json', 'w') as f:
         json.dump(metadata, f, indent=2)
-    
+
     return timestamp
 
 
@@ -102,23 +102,23 @@ def load_latest_models(models_dir: Path):
     """Load most recent trained models."""
     if not HAS_TORCH:
         return None
-    
+
     models_dir = Path(models_dir)
     if not models_dir.exists():
         return None
-    
+
     # Find latest metadata
     metadata_files = sorted(models_dir.glob('metadata_*.json'), reverse=True)
     if not metadata_files:
         return None
-    
+
     with open(metadata_files[0]) as f:
         metadata = json.load(f)
-    
+
     timestamp = metadata.get('timestamp')
     if not timestamp:
         return None
-    
+
     return {
         'metadata': metadata,
         'gnn_path': models_dir / f'gnn_{timestamp}.pt',
@@ -131,10 +131,10 @@ def save_predictions_to_db(db_path: str, predictions: dict, model_id: int = None
     """Save ML predictions to database."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     # Ensure tables exist
     init_ml_tables(db_path)
-    
+
     # Insert prediction summary
     cursor.execute('''
         INSERT INTO ml_predictions 
@@ -148,9 +148,9 @@ def save_predictions_to_db(db_path: str, predictions: dict, model_id: int = None
         json.dumps(predictions.get('high_risk', [])),
         json.dumps(predictions.get('summary', {}))
     ))
-    
+
     prediction_id = cursor.lastrowid
-    
+
     # Insert job-level predictions
     for job_pred in predictions.get('job_predictions', []):
         cursor.execute('''
@@ -167,10 +167,10 @@ def save_predictions_to_db(db_path: str, predictions: dict, model_id: int = None
             json.dumps(job_pred.get('gnn_probs', [])),
             json.dumps(job_pred.get('lstm_probs', []))
         ))
-    
+
     conn.commit()
     conn.close()
-    
+
     return prediction_id
 
 
@@ -179,13 +179,13 @@ def load_predictions_from_db(db_path: str):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     # Check if table exists
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ml_predictions'")
     if not cursor.fetchone():
         conn.close()
         return None
-    
+
     # Get latest prediction
     cursor.execute('''
         SELECT * FROM ml_predictions 
@@ -193,11 +193,11 @@ def load_predictions_from_db(db_path: str):
         LIMIT 1
     ''')
     row = cursor.fetchone()
-    
+
     if not row:
         conn.close()
         return None
-    
+
     predictions = {
         'status': 'loaded',
         'prediction_id': row['id'],
@@ -208,16 +208,16 @@ def load_predictions_from_db(db_path: str):
         'high_risk': json.loads(row['high_risk_jobs']) if row['high_risk_jobs'] else [],
         'summary': json.loads(row['summary']) if row['summary'] else {}
     }
-    
+
     # Get job-level predictions
     cursor.execute('''
         SELECT * FROM job_predictions 
         WHERE prediction_id = ?
         ORDER BY anomaly_score DESC
     ''', (row['id'],))
-    
+
     predictions['job_predictions'] = [dict(r) for r in cursor.fetchall()]
-    
+
     conn.close()
     return predictions
 
@@ -227,19 +227,19 @@ def get_prediction_history(db_path: str, limit: int = 10):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ml_predictions'")
     if not cursor.fetchone():
         conn.close()
         return []
-    
+
     cursor.execute('''
         SELECT id, created_at, n_jobs, n_anomalies, threshold
         FROM ml_predictions 
         ORDER BY created_at DESC 
         LIMIT ?
     ''', (limit,))
-    
+
     history = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return history

@@ -21,9 +21,8 @@ Configuration example (nomad.toml):
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
 
-from .dispatcher import send_alert, get_dispatcher, init_dispatcher
+from .dispatcher import get_dispatcher, init_dispatcher, send_alert
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +69,7 @@ DEFAULT_THRESHOLDS = {
 
 class ThresholdChecker:
     """Check collected data against thresholds and trigger alerts."""
-    
+
     def __init__(self, config: dict):
         """
         Initialize with config.
@@ -85,7 +84,7 @@ class ThresholdChecker:
         """
         self.config = config
         self.enabled = config.get('alerts', {}).get('enabled', True)
-        
+
         # Merge user thresholds with defaults
         self.thresholds = DEFAULT_THRESHOLDS.copy()
         user_thresholds = config.get('alerts', {}).get('thresholds', {})
@@ -94,11 +93,11 @@ class ThresholdChecker:
                 self.thresholds[category].update(values)
             else:
                 self.thresholds[category] = values
-        
+
         # Initialize dispatcher if not already done
         if not get_dispatcher():
             init_dispatcher(config)
-    
+
     def check(self, collector_name: str, data: list[dict], host: str = None) -> list[dict]:
         """
         Check collected data against thresholds.
@@ -113,24 +112,24 @@ class ThresholdChecker:
         """
         if not self.enabled:
             return []
-        
+
         alerts = []
-        
+
         for item in data:
             item_alerts = self._check_item(collector_name, item, host)
             alerts.extend(item_alerts)
-        
+
         return alerts
-    
+
     def _check_item(self, collector_name: str, item: dict, host: str) -> list[dict]:
         """Check a single data item against thresholds."""
         alerts = []
         thresholds = self.thresholds.get(collector_name, {})
-        
+
         for key, value in item.items():
             if not isinstance(value, (int, float)):
                 continue
-            
+
             # Check for critical threshold
             critical_key = f"{key}_critical"
             if critical_key in thresholds:
@@ -146,7 +145,7 @@ class ThresholdChecker:
                     )
                     alerts.append(alert)
                     continue  # Don't also trigger warning
-            
+
             # Check for warning threshold
             warning_key = f"{key}_warning"
             if warning_key in thresholds:
@@ -161,9 +160,9 @@ class ThresholdChecker:
                         item=item
                     )
                     alerts.append(alert)
-        
+
         return alerts
-    
+
     def _create_alert(
         self,
         severity: str,
@@ -175,10 +174,10 @@ class ThresholdChecker:
         item: dict
     ) -> dict:
         """Create and dispatch an alert."""
-        
+
         # Generate human-readable message
         message = self._format_message(source, metric, value, threshold, item)
-        
+
         alert = {
             'severity': severity,
             'source': source,
@@ -192,14 +191,14 @@ class ThresholdChecker:
             },
             'timestamp': datetime.now().isoformat()
         }
-        
+
         # Dispatch alert
         send_alert(severity=alert["severity"], source=alert["source"], message=alert["message"], host=alert["host"], details=alert["details"])
-        
+
         logger.info(f"Alert triggered: {severity} - {source} - {message}")
-        
+
         return alert
-    
+
     def _format_message(
         self,
         source: str,
@@ -209,12 +208,12 @@ class ThresholdChecker:
         item: dict
     ) -> str:
         """Generate human-readable alert message."""
-        
+
         # Source-specific formatting
         if source == 'disk':
             path = item.get('path', 'unknown')
             return f"Disk {path} at {value:.1f}% (threshold: {threshold}%)"
-        
+
         elif source == 'nfs':
             mount = item.get('mount_point', 'unknown')
             if 'retrans' in metric:
@@ -223,7 +222,7 @@ class ThresholdChecker:
                 return f"NFS {mount} latency {value:.1f}ms (threshold: {threshold}ms)"
             else:
                 return f"NFS {mount} {metric}={value:.2f} (threshold: {threshold})"
-        
+
         elif source == 'gpu':
             gpu_id = item.get('index', item.get('gpu_id', '?'))
             if 'memory' in metric:
@@ -232,7 +231,7 @@ class ThresholdChecker:
                 return f"GPU {gpu_id} temperature {value:.0f}°C (threshold: {threshold}°C)"
             else:
                 return f"GPU {gpu_id} {metric}={value:.2f} (threshold: {threshold})"
-        
+
         elif source == 'node':
             node_name = item.get('hostname', item.get('node', 'unknown'))
             if 'load' in metric:
@@ -241,7 +240,7 @@ class ThresholdChecker:
                 return f"Node {node_name} memory at {value:.1f}% (threshold: {threshold}%)"
             else:
                 return f"Node {node_name} {metric}={value:.2f} (threshold: {threshold})"
-        
+
         else:
             return f"{source}: {metric}={value:.2f} exceeded threshold {threshold}"
 
@@ -276,24 +275,24 @@ class PredictiveChecker:
     Instead of just threshold alerts (disk > 95%), this predicts
     when resources will be exhausted and alerts early.
     """
-    
+
     def __init__(self, config: dict):
         self.config = config.get('alerts', {}).get('predictive', {})
         self.enabled = self.config.get('enabled', True)
-        
+
         # Default predictive thresholds
         self.days_warning = self.config.get('days_until_full_warning', 7)
         self.days_critical = self.config.get('days_until_full_critical', 1)
         self.accel_warning = self.config.get('acceleration_warning', 0.05)
         self.accel_critical = self.config.get('acceleration_critical', 0.10)
-    
+
     def check_disk_trend(
-        self, 
-        history: list[dict], 
+        self,
+        history: list[dict],
         limit_bytes: int,
         host: str = None,
         path: str = None
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Check disk usage trend and alert if approaching full.
         
@@ -308,14 +307,14 @@ class PredictiveChecker:
         """
         if not self.enabled or len(history) < 3:
             return None
-        
+
         try:
-            from nomad.analysis.derivatives import analyze_disk_trend, AlertLevel
-            
+            from nomad.analysis.derivatives import AlertLevel, analyze_disk_trend
+
             analysis = analyze_disk_trend(history, limit_bytes=limit_bytes)
-            
+
             alert = None
-            
+
             # Check days until full
             if analysis.days_until_limit is not None:
                 if analysis.days_until_limit <= self.days_critical:
@@ -346,15 +345,15 @@ class PredictiveChecker:
                             'trend': analysis.trend.value
                         }
                     )
-            
+
             # Check acceleration (accelerating growth is dangerous)
             if not alert and analysis.second_derivative is not None:
                 d2_per_day = analysis.second_derivative * 86400 * 86400  # per day²
-                
+
                 if analysis.first_derivative and analysis.first_derivative > 0:
                     d1_per_day = analysis.first_derivative * 86400
                     accel_ratio = abs(d2_per_day) / (abs(d1_per_day) + 0.001)
-                    
+
                     if d2_per_day > 0 and accel_ratio > self.accel_critical:
                         alert = self._create_alert(
                             severity='critical',
@@ -381,16 +380,16 @@ class PredictiveChecker:
                                 'trend': analysis.trend.value
                             }
                         )
-            
+
             return alert
-            
+
         except ImportError:
             logger.debug("Derivative analysis not available")
             return None
         except Exception as e:
             logger.error(f"Predictive check failed: {e}")
             return None
-    
+
     def _create_alert(self, severity: str, source: str, host: str, message: str, details: dict) -> dict:
         """Create alert dict and dispatch."""
         alert = {
@@ -401,7 +400,7 @@ class PredictiveChecker:
             'details': details,
             'timestamp': datetime.now().isoformat()
         }
-        
+
         send_alert(
             severity=severity,
             source=source,
@@ -409,9 +408,9 @@ class PredictiveChecker:
             host=host,
             details=details
         )
-        
+
         logger.info(f"Predictive alert: {severity} - {message}")
-        
+
         return alert
 
 
@@ -421,7 +420,7 @@ def check_disk_prediction(
     config: dict,
     host: str = None,
     path: str = None
-) -> Optional[dict]:
+) -> dict | None:
     """
     Convenience function for predictive disk checking.
     

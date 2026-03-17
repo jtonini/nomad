@@ -23,11 +23,12 @@ import os
 import random
 import sqlite3
 import tempfile
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Generator, Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 
@@ -73,9 +74,9 @@ class MockJob:
     req_gpus: int = 0
     req_time_seconds: int = 3600
     runtime_seconds: int = 1800
-    submit_time: Optional[datetime] = None
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    submit_time: datetime | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     # Performance metrics
     avg_cpu_percent: float = 75.0
@@ -127,12 +128,12 @@ class MockCluster:
     })
 
     # Internal state
-    _temp_dir: Optional[tempfile.TemporaryDirectory] = field(default=None, repr=False)
-    _db_path: Optional[Path] = field(default=None, repr=False)
+    _temp_dir: tempfile.TemporaryDirectory | None = field(default=None, repr=False)
+    _db_path: Path | None = field(default=None, repr=False)
     _nodes: list[MockNode] = field(default_factory=list, repr=False)
     _jobs: list[MockJob] = field(default_factory=list, repr=False)
 
-    def __enter__(self) -> 'MockCluster':
+    def __enter__(self) -> MockCluster:
         self._temp_dir = tempfile.TemporaryDirectory()
         self._db_path = Path(self._temp_dir.name) / "test_nomad.db"
         self._setup_database()
@@ -304,7 +305,7 @@ class MockCluster:
         with patch("subprocess.run", side_effect=mock_run):
             yield
 
-    def get_job(self, job_id: int) -> Optional[MockJob]:
+    def get_job(self, job_id: int) -> MockJob | None:
         """Get a specific job by ID."""
         return next((j for j in self._jobs if j.job_id == job_id), None)
 

@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +207,7 @@ def score_memory(job: dict, summary: dict) -> DimensionScore:
                     f"was insufficient. Your job needed more memory than allocated."),
             suggestion=f"Try: #SBATCH --mem={suggested_gb}G  (increase memory request)",
         )
-    
+
     peak_mem_gb = summary.get("peak_memory_gb") or summary.get("peak_mem_gb") or 0
     req_mem_mb = job.get("req_mem_mb", 0)
     req_mem_gb = req_mem_mb / 1024 if req_mem_mb else 0
@@ -297,11 +296,11 @@ def score_time(job: dict, summary: dict) -> DimensionScore:
             name="Time Estimation",
             score=20,
             level="Needs Work",
-            detail=(f"Job was killed for exceeding walltime. "
-                    f"Your job needed more time than the requested limit."),
+            detail=("Job was killed for exceeding walltime. "
+                    "Your job needed more time than the requested limit."),
             suggestion=f"Try: #SBATCH --time={suggested_str}  (increase time request)",
         )
-    
+
     runtime = job.get("runtime_seconds", 0)
     req_time = job.get("req_time_seconds", 0)
 

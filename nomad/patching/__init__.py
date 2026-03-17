@@ -25,9 +25,10 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class Patch:
     new: str                           # Replacement text
     skip_if_present: str = ""          # Skip if this text already exists
     required: bool = True              # Fail if patch can't be applied
-    validator: Optional[Callable[[str], bool]] = None  # Optional validation
+    validator: Callable[[str], bool] | None = None  # Optional validation
 
     def should_skip(self, content: str) -> bool:
         """Check if patch should be skipped (already applied)."""
@@ -130,12 +131,12 @@ class Patcher:
         self.patches: list[Patch] = []
         self._file_cache: dict[str, str] = {}
 
-    def add(self, patch: Patch) -> 'Patcher':
+    def add(self, patch: Patch) -> Patcher:
         """Add a patch to the queue. Returns self for chaining."""
         self.patches.append(patch)
         return self
 
-    def add_all(self, patches: list[Patch]) -> 'Patcher':
+    def add_all(self, patches: list[Patch]) -> Patcher:
         """Add multiple patches. Returns self for chaining."""
         self.patches.extend(patches)
         return self

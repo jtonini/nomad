@@ -23,16 +23,16 @@ logger = logging.getLogger(__name__)
 
 class NotificationBackend(ABC):
     """Base class for notification backends."""
-    
+
     def __init__(self, config: dict):
         self.config = config
         self.enabled = config.get('enabled', False)
-    
+
     @abstractmethod
     def send(self, alert: dict) -> bool:
         """Send alert notification. Returns True on success."""
         pass
-    
+
     @abstractmethod
     def test(self) -> bool:
         """Test the backend configuration. Returns True if working."""
@@ -41,7 +41,7 @@ class NotificationBackend(ABC):
 
 class EmailBackend(NotificationBackend):
     """Send alerts via SMTP email."""
-    
+
     def __init__(self, config: dict):
         super().__init__(config)
         self.smtp_server = config.get('smtp_server', 'localhost')
@@ -51,23 +51,23 @@ class EmailBackend(NotificationBackend):
         self.password = config.get('password')
         self.from_addr = config.get('from_address', 'nomad@localhost')
         self.recipients = config.get('recipients', [])
-    
+
     def send(self, alert: dict) -> bool:
         if not self.enabled or not self.recipients:
             return False
-        
+
         try:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = self._format_subject(alert)
             msg['From'] = self.from_addr
             msg['To'] = ', '.join(self.recipients)
-            
+
             text_body = self._format_text(alert)
             msg.attach(MIMEText(text_body, 'plain'))
-            
+
             html_body = self._format_html(alert)
             msg.attach(MIMEText(html_body, 'html'))
-            
+
             if self.use_tls:
                 context = ssl.create_default_context()
                 with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
@@ -80,14 +80,14 @@ class EmailBackend(NotificationBackend):
                     if self.username and self.password:
                         server.login(self.username, self.password)
                     server.sendmail(self.from_addr, self.recipients, msg.as_string())
-            
+
             logger.info(f"Email sent to {self.recipients}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Email send failed: {e}")
             return False
-    
+
     def test(self) -> bool:
         try:
             if self.use_tls:
@@ -101,12 +101,12 @@ class EmailBackend(NotificationBackend):
         except Exception as e:
             logger.error(f"SMTP test failed: {e}")
             return False
-    
+
     def _format_subject(self, alert: dict) -> str:
         severity = alert.get('severity', 'INFO').upper()
         source = alert.get('source', 'NOMADE')
         return f"[{severity}] NOMADE Alert: {source}"
-    
+
     def _format_text(self, alert: dict) -> str:
         return f"""NOMADE Alert
 ============
@@ -121,11 +121,11 @@ Message:
 Details:
 {json.dumps(alert.get('details', {}), indent=2)}
 """
-    
+
     def _format_html(self, alert: dict) -> str:
         severity = alert.get('severity', 'INFO').upper()
         color = {'CRITICAL': '#e74c3c', 'WARNING': '#f39c12', 'INFO': '#3498db'}.get(severity, '#95a5a6')
-        
+
         return f"""
 <html>
 <body style="font-family: Arial, sans-serif; padding: 20px;">
@@ -147,22 +147,22 @@ Details:
 
 class SlackBackend(NotificationBackend):
     """Send alerts to Slack via webhook."""
-    
+
     def __init__(self, config: dict):
         super().__init__(config)
         self.webhook_url = config.get('webhook_url')
         self.channel = config.get('channel')
         self.username = config.get('username', 'NOMADE')
         self.icon_emoji = config.get('icon_emoji', ':warning:')
-    
+
     def send(self, alert: dict) -> bool:
         if not self.enabled or not self.webhook_url:
             return False
-        
+
         try:
             severity = alert.get('severity', 'INFO').upper()
             color = {'CRITICAL': '#e74c3c', 'WARNING': '#f39c12', 'INFO': '#3498db'}.get(severity, '#95a5a6')
-            
+
             payload = {
                 'username': self.username,
                 'icon_emoji': self.icon_emoji,
@@ -178,27 +178,27 @@ class SlackBackend(NotificationBackend):
                     'footer': 'NOMADE HPC Monitor'
                 }]
             }
-            
+
             if self.channel:
                 payload['channel'] = self.channel
-            
+
             req = Request(
                 self.webhook_url,
                 data=json.dumps(payload).encode('utf-8'),
                 headers={'Content-Type': 'application/json'}
             )
-            
+
             with urlopen(req, timeout=10) as response:
                 if response.status == 200:
                     logger.info("Slack notification sent")
                     return True
-            
+
             return False
-            
+
         except Exception as e:
             logger.error(f"Slack send failed: {e}")
             return False
-    
+
     def test(self) -> bool:
         if not self.webhook_url:
             return False
@@ -218,47 +218,47 @@ class SlackBackend(NotificationBackend):
 
 class WebhookBackend(NotificationBackend):
     """Send alerts to generic HTTP webhook."""
-    
+
     def __init__(self, config: dict):
         super().__init__(config)
         self.url = config.get('url')
         self.method = config.get('method', 'POST')
         self.headers = config.get('headers', {})
         self.auth_token = config.get('auth_token')
-    
+
     def send(self, alert: dict) -> bool:
         if not self.enabled or not self.url:
             return False
-        
+
         try:
             headers = {'Content-Type': 'application/json'}
             headers.update(self.headers)
-            
+
             if self.auth_token:
                 headers['Authorization'] = f'Bearer {self.auth_token}'
-            
+
             payload = {
                 'event': 'nomad_alert',
                 'alert': alert
             }
-            
+
             req = Request(
                 self.url,
                 data=json.dumps(payload).encode('utf-8'),
                 headers=headers,
                 method=self.method
             )
-            
+
             with urlopen(req, timeout=10) as response:
                 if response.status in (200, 201, 202):
                     logger.info(f"Webhook sent to {self.url}")
                     return True
-            
+
             return False
-            
+
         except Exception as e:
             logger.error(f"Webhook send failed: {e}")
             return False
-    
+
     def test(self) -> bool:
         return bool(self.url)

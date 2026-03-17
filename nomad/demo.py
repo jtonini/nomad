@@ -17,8 +17,6 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
-
 
 # ============================================================================
 # Embedded Cluster Configuration (no external files needed)
@@ -57,8 +55,8 @@ class Job:
     node_list: str
     job_name: str
     state: str
-    exit_code: Optional[int]
-    exit_signal: Optional[int]
+    exit_code: int | None
+    exit_signal: int | None
     failure_reason: int
     submit_time: datetime
     start_time: datetime
@@ -79,7 +77,7 @@ class Job:
 class DemoGenerator:
     """Generates realistic synthetic HPC job data."""
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: int | None = None):
         if seed is not None:
             random.seed(seed)
         self.job_counter = 1000
@@ -253,12 +251,12 @@ class DemoDatabase:
             needs_work TEXT, strengths TEXT,
             UNIQUE(job_id))""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_prof_user ON proficiency_scores(user_name)")
-        
+
         # Group membership for edu module
         c.execute("""CREATE TABLE IF NOT EXISTS group_membership (
             username TEXT, group_name TEXT, gid INTEGER, cluster TEXT,
             PRIMARY KEY (username, group_name, cluster))""")
-        
+
         # Populate with demo users in demo groups
         demo_groups = [
             ("alice", "cs101", 2001, "demo"),
@@ -410,7 +408,7 @@ class DemoDatabase:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         now = datetime.now()
-        
+
         # Create demo servers
         servers = [
             ("rstudio-server", "RStudio Server", "Demo RStudio instance", "local"),
@@ -421,7 +419,7 @@ class DemoDatabase:
                 (id, name, description, method, enabled, last_collection)
                 VALUES (?, ?, ?, ?, ?, ?)""",
                 (sid, name, desc, method, True, now.isoformat()))
-        
+
         # Create demo sessions
         users = DEMO_CLUSTER["users"]
         session_types = ["RStudio", "Jupyter (Python)", "Jupyter (R)"]
@@ -461,7 +459,7 @@ class DemoDatabase:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         now = datetime.now()
-        
+
         # Get GPU nodes
         gpu_nodes = [n for n in DEMO_CLUSTER["nodes"] if n["gpus"] > 0]
         for node in gpu_nodes:
@@ -483,7 +481,7 @@ class DemoDatabase:
         """Write demo network performance data."""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        
+
         c.execute("""
             CREATE TABLE IF NOT EXISTS network_perf (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -503,21 +501,21 @@ class DemoDatabase:
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_netperf_timestamp ON network_perf(timestamp)")
-        
+
         # Generate 1 week of network data (every 30 min = 336 samples per path)
         network_paths = [
             ('head-node', 'nas-01', 'switch'),
             ('head-node', 'nas-01-direct', 'direct'),
         ]
-        
+
         base_time = datetime.now() - timedelta(days=7)
-        
+
         for source, dest, path_type in network_paths:
             for i in range(336):  # 7 days * 48 samples/day
                 sample_time = base_time + timedelta(minutes=i * 30)
                 hour = sample_time.hour
                 weekday = sample_time.weekday()
-                
+
                 # Base throughput depends on path type
                 if path_type == 'direct':
                     base_throughput = 940  # ~1 Gbps direct wire
@@ -529,9 +527,9 @@ class DemoDatabase:
                     if weekday < 5 and 9 <= hour < 17:
                         base_throughput -= random.randint(100, 300)
                         throughput_var = 150
-                
+
                 throughput = max(100, base_throughput + random.randint(-throughput_var, throughput_var))
-                
+
                 # Latency correlates inversely with throughput
                 if path_type == 'direct':
                     latency_avg = random.uniform(0.1, 0.5)
@@ -542,7 +540,7 @@ class DemoDatabase:
                     if weekday < 5 and 9 <= hour < 17:
                         latency_avg += random.uniform(0.5, 2.0)
                         jitter += random.uniform(0.2, 0.5)
-                
+
                 # TCP retransmits - more on congested switch
                 if path_type == 'direct':
                     retrans = random.randint(0, 2)
@@ -550,12 +548,12 @@ class DemoDatabase:
                     retrans = random.randint(0, 5)
                     if weekday < 5 and 9 <= hour < 17:
                         retrans += random.randint(0, 10)
-                
+
                 # Packet loss - rare
                 loss = 0.0 if random.random() > 0.05 else random.uniform(0.1, 1.0)
-                
+
                 status = 'healthy' if throughput > 500 and loss < 1 else 'degraded'
-                
+
                 c.execute("""
                     INSERT INTO network_perf (
                         timestamp, source_host, dest_host, path_type, status,
@@ -568,7 +566,7 @@ class DemoDatabase:
                     latency_avg * 0.8, latency_avg, latency_avg * 1.3, jitter, loss,
                     throughput, int(throughput * 1024 * 1024 / 8 * 10), retrans
                 ))
-        
+
         conn.commit()
         conn.close()
         print(f"    Network samples: {336 * len(network_paths)} (2 paths x 7 days)")
@@ -1085,7 +1083,7 @@ def get_demo_db_path() -> Path:
 def run_demo(
     n_jobs: int = 1000,
     days: int = 7,
-    seed: Optional[int] = None,
+    seed: int | None = None,
     launch_dashboard: bool = True,
     port: int = 5000,
 ) -> str:
@@ -1128,7 +1126,7 @@ def run_demo(
     db.write_vmstat()
 
     success = sum(1 for j in jobs if j.failure_reason == 0)
-    print(f"\nGenerated:")
+    print("\nGenerated:")
     print(f"  Nodes: {len(DEMO_CLUSTER['nodes'])}")
     print(f"  Jobs:  {n_jobs}")
     print(f"  Success rate: {success/n_jobs*100:.1f}%")

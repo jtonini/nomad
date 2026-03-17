@@ -18,17 +18,13 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any, Optional
 
 from nomad.edu.scoring import (
     JobFingerprint,
-    DimensionScore,
-    proficiency_level,
-    score_job,
     bar,
+    score_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,7 +170,7 @@ def user_trajectory(
     username: str,
     days: int = 90,
     window_size: int = 7,
-) -> Optional[UserTrajectory]:
+) -> UserTrajectory | None:
     """
     Compute a user's proficiency trajectory.
 
@@ -282,7 +278,7 @@ def group_summary(
     db_path: str,
     group_name: str,
     days: int = 90,
-) -> Optional[GroupSummary]:
+) -> GroupSummary | None:
     """
     Compute aggregate proficiency for a course or lab group.
 

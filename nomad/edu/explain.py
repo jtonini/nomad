@@ -16,21 +16,17 @@ Usage:
 
 from __future__ import annotations
 
-from nomad.edu.storage import save_proficiency_score
-
 import json
-import textwrap
 import logging
 import sqlite3
-from pathlib import Path
-from typing import Any, Optional
+import textwrap
 
 from nomad.edu.scoring import (
     JobFingerprint,
     bar,
-    proficiency_level,
     score_job,
 )
+from nomad.edu.storage import save_proficiency_score
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +68,7 @@ class C:
 
 # ── Database queries ─────────────────────────────────────────────────
 
-def load_job(db_path: str, job_id: str, cluster: str = None) -> Optional[dict]:
+def load_job(db_path: str, job_id: str, cluster: str = None) -> dict | None:
     """Load a job from the database.
     
     Args:
@@ -106,7 +102,7 @@ def load_job(db_path: str, job_id: str, cluster: str = None) -> Optional[dict]:
         return None
 
 
-def load_summary(db_path: str, job_id: str, cluster: str = None) -> Optional[dict]:
+def load_summary(db_path: str, job_id: str, cluster: str = None) -> dict | None:
     """Load a job summary from the database."""
     try:
         conn = sqlite3.connect(db_path)
@@ -166,7 +162,6 @@ def compute_progress(db_path: str, user: str, current_fp: JobFingerprint) -> dic
 
     # Score each historical job
     from nomad.edu.scoring import score_job
-    from nomad.edu.storage import save_proficiency_score
 
     # Split the job and summary fields from the joined row
     job_fields = [
@@ -379,7 +374,7 @@ def explain_job(
     cluster: str = None,
     show_progress: bool = True,
     output_format: str = "terminal",
-) -> Optional[str]:
+) -> str | None:
     """
     Generate a plain-language explanation of a job.
 
@@ -406,7 +401,7 @@ def explain_job(
 
     # Score the job
     fingerprint = score_job(job, summary)
-    
+
     # Save proficiency score to database for historical tracking
     save_proficiency_score(db_path, fingerprint)
 

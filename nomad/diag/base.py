@@ -12,12 +12,11 @@ Analyzers are reusable across device types. For example, MemoryAnalyzer
 can detect OOM issues on HPC nodes, workstations, or any monitored system.
 """
 
-import sqlite3
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Any
-from dataclasses import dataclass, field
+import sqlite3
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +37,11 @@ class Colors:
     MAGENTA = '\033[95m'
     CYAN = '\033[96m'
     GRAY = '\033[90m'
-    
+
     @classmethod
     def disable(cls):
         """Disable colors (for non-TTY output)."""
-        for attr in ['RESET', 'BOLD', 'DIM', 'RED', 'GREEN', 'YELLOW', 
+        for attr in ['RESET', 'BOLD', 'DIM', 'RED', 'GREEN', 'YELLOW',
                      'BLUE', 'MAGENTA', 'CYAN', 'GRAY']:
             setattr(cls, attr, '')
 
@@ -62,15 +61,15 @@ class Issue:
     recommendations: list = field(default_factory=list)
 
 
-@dataclass 
+@dataclass
 class DeviceInfo:
     """Base device information."""
     name: str
     device_type: str       # 'node', 'workstation', 'nas'
-    cluster: Optional[str] = None
-    department: Optional[str] = None
+    cluster: str | None = None
+    department: str | None = None
     status: str = 'unknown'
-    last_seen: Optional[datetime] = None
+    last_seen: datetime | None = None
     metadata: dict = field(default_factory=dict)
 
 
@@ -85,12 +84,12 @@ class DiagnosticReport:
     users: list = field(default_factory=list)         # Active/recent users
     jobs: list = field(default_factory=list)          # Recent jobs (for HPC)
     recommendations: list = field(default_factory=list)  # Aggregated recommendations
-    
+
     def add_issue(self, issue: Issue):
         """Add an issue and its recommendations."""
         self.issues.append(issue)
         self.recommendations.extend(issue.recommendations)
-    
+
     @property
     def severity(self) -> str:
         """Overall severity based on worst issue."""
@@ -109,26 +108,26 @@ class DiagnosticReport:
 
 class DeviceCollector(ABC):
     """Base class for device data collectors."""
-    
+
     def __init__(self, db_path: str):
         self.db_path = db_path
-    
+
     def get_connection(self):
         """Get database connection with row factory."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
-    
+
     @abstractmethod
     def collect(self, name: str, **kwargs) -> DeviceInfo:
         """Collect device information."""
         pass
-    
+
     @abstractmethod
     def get_metrics(self, name: str, hours: int = 24) -> dict:
         """Get device metrics history."""
         pass
-    
+
     @abstractmethod
     def get_history(self, name: str, hours: int = 24) -> list:
         """Get device state history."""
@@ -137,9 +136,9 @@ class DeviceCollector(ABC):
 
 class Analyzer(ABC):
     """Base class for diagnostic analyzers."""
-    
+
     category: str = 'general'  # Override in subclass
-    
+
     @abstractmethod
     def analyze(self, report: DiagnosticReport) -> list:
         """
@@ -156,7 +155,7 @@ class Analyzer(ABC):
 
 class Formatter(ABC):
     """Base class for output formatters."""
-    
+
     @abstractmethod
     def format(self, report: DiagnosticReport) -> str:
         """Format report for output."""
@@ -210,10 +209,10 @@ def time_ago(dt) -> str:
             dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
         except ValueError:
             return dt
-    
+
     delta = datetime.now() - dt
     seconds = delta.total_seconds()
-    
+
     if seconds < 60:
         return "just now"
     elif seconds < 3600:
@@ -255,24 +254,24 @@ def status_color(status: str, c=Colors) -> str:
 
 class AnalyzerRegistry:
     """Registry of available analyzers."""
-    
+
     _analyzers: dict = {}
-    
+
     @classmethod
     def register(cls, name: str, analyzer_class: type):
         """Register an analyzer."""
         cls._analyzers[name] = analyzer_class
-    
+
     @classmethod
-    def get(cls, name: str) -> Optional[type]:
+    def get(cls, name: str) -> type | None:
         """Get analyzer by name."""
         return cls._analyzers.get(name)
-    
+
     @classmethod
     def all(cls) -> dict:
         """Get all registered analyzers."""
         return cls._analyzers.copy()
-    
+
     @classmethod
     def for_device(cls, device_type: str) -> list:
         """Get analyzers applicable to a device type."""

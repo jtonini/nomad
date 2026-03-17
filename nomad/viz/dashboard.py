@@ -6,19 +6,17 @@ NOMADE Dashboard Server - Integrated Version
 Connects to TOML config, NOMADE database, and falls back to demo data.
 """
 
-import json
 import http.server
+import json
+import logging
+import math
+import random
 import socketserver
 import sqlite3
-import random
-import math
-import os
-import logging
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
-from typing import Any, Optional
-from collections import defaultdict
+from urllib.parse import parse_qs, urlparse
 
 # Try to import toml (fall back to tomllib in Python 3.11+)
 try:
@@ -48,7 +46,7 @@ DEFAULT_CONFIG = {
     }
 }
 
-def find_config_file() -> Optional[Path]:
+def find_config_file() -> Path | None:
     """Search for TOML config in standard locations."""
     search_paths = [
         Path("/etc/nomad/nomad.toml"),
@@ -62,13 +60,13 @@ def find_config_file() -> Optional[Path]:
     return None
 
 
-def load_config(config_path: Optional[Path] = None) -> dict:
+def load_config(config_path: Path | None = None) -> dict:
     """Load configuration from TOML file."""
     config = DEFAULT_CONFIG.copy()
-    
+
     if config_path is None:
         config_path = find_config_file()
-    
+
     if config_path and config_path.exists() and tomllib:
         logger.info(f"Loading config from {config_path}")
         try:
@@ -84,7 +82,7 @@ def load_config(config_path: Optional[Path] = None) -> dict:
             logger.warning(f"Failed to load config: {e}")
     else:
         logger.info("No config file found, using defaults")
-    
+
     return config
 
 
@@ -92,7 +90,7 @@ def load_config(config_path: Optional[Path] = None) -> dict:
 # Database Connection
 # ============================================================================
 
-def find_database() -> Optional[Path]:
+def find_database() -> Path | None:
     """Search for NOMADE database."""
     search_paths = [
         Path("/var/lib/nomad/nomad.db"),
@@ -126,10 +124,10 @@ def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
     Groups nodes by partition or cluster field.
     """
     clusters = {}
-    
+
     try:
         conn = get_db_connection(db_path)
-        
+
         # Try NOMADE's node_state table first
         try:
             rows = conn.execute("""
@@ -137,22 +135,22 @@ def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
                 FROM node_state
                 WHERE timestamp = (SELECT MAX(timestamp) FROM node_state)
             """).fetchall()
-            
+
             if rows:
                 # Group by partition
                 partition_nodes = defaultdict(list)
                 gpu_nodes = set()
-                
+
                 for row in rows:
                     node = row['node_name']
                     partitions = row['partitions'] or 'default'
                     # Use first partition as primary
                     primary_partition = partitions.split(',')[0]
                     partition_nodes[primary_partition].append(node)
-                    
+
                     if row['gres'] and 'gpu' in row['gres'].lower():
                         gpu_nodes.add(node)
-                
+
                 for partition, nodes in partition_nodes.items():
                     cluster_id = partition.lower().replace(' ', '-')
                     clusters[cluster_id] = {
@@ -162,13 +160,13 @@ def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
                         "gpu_nodes": [n for n in nodes if n in gpu_nodes],
                         "type": "gpu" if any(n in gpu_nodes for n in nodes) else "cpu"
                     }
-                
+
                 conn.close()
                 return clusters
-                
+
         except sqlite3.OperationalError:
             pass  # Table doesn't exist
-        
+
         # Try cluster_monitor's node_status table
         try:
             rows = conn.execute("""
@@ -176,12 +174,12 @@ def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
                 FROM node_status
                 WHERE timestamp = (SELECT MAX(timestamp) FROM node_status)
             """).fetchall()
-            
+
             if rows:
                 cluster_nodes = defaultdict(list)
                 for row in rows:
                     cluster_nodes[row['cluster']].append(row['node_name'])
-                
+
                 for cluster_name, nodes in cluster_nodes.items():
                     cluster_id = cluster_name.lower().replace(' ', '-')
                     # Detect GPU nodes by name pattern
@@ -193,25 +191,25 @@ def load_clusters_from_db(db_path: Path, config: dict = None) -> dict:
                         "gpu_nodes": gpu_nodes,
                         "type": "hybrid" if gpu_nodes else "cpu"
                     }
-                    
+
         except sqlite3.OperationalError:
             pass
-            
+
         conn.close()
-        
+
     except Exception as e:
         logger.warning(f"Failed to load clusters from database: {e}")
-    
+
     return clusters
 
 
 def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
     """Load real node statistics from database."""
     nodes = {}
-    
+
     try:
         conn = get_db_connection(db_path)
-        
+
         # Try NOMADE's node_state table
         try:
             rows = conn.execute("""
@@ -223,7 +221,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                 FROM node_state
                 WHERE timestamp = (SELECT MAX(timestamp) FROM node_state)
             """).fetchall()
-            
+
             if rows:
                 # Get job statistics per node from jobs table
                 job_stats = {}
@@ -237,7 +235,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                         WHERE start_time > datetime('now', '-1 day')
                         GROUP BY node_list, state
                     """).fetchall()
-                    
+
                     for row in job_rows:
                         if row['node_list']:
                             for node in row['node_list'].split(','):
@@ -250,29 +248,29 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                                     job_stats[node]['failed'] += row['count']
                 except:
                     pass
-                
+
                 for row in rows:
                     node_name = row['node_name']
-                    
+
                     # Find which cluster this node belongs to
                     cluster_id = None
                     for cid, cluster in clusters.items():
                         if node_name in cluster['nodes']:
                             cluster_id = cid
                             break
-                    
+
                     if not cluster_id:
                         continue
-                    
+
                     is_down = not row['is_healthy'] or 'DOWN' in (row['state'] or '').upper()
-                    
+
                     # Calculate job stats
                     stats = job_stats.get(node_name, {'success': 0, 'failed': 0})
                     total_jobs = stats['success'] + stats['failed']
                     success_rate = stats['success'] / total_jobs if total_jobs > 0 else 1.0
-                    
+
                     has_gpu = row['gres'] and 'gpu' in row['gres'].lower()
-                    
+
                     # Determine partition from node_state data
                     node_partition = None
                     if cluster_id:
@@ -305,7 +303,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                         "drain_reason": row['reason'],
                         "last_seen": datetime.now().isoformat()
                     }
-                
+
                 # Get GPU stats
                 try:
                     gpu_rows = conn.execute("""
@@ -316,13 +314,13 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                     # TODO: map GPU stats to nodes
                 except:
                     pass
-                    
+
                 conn.close()
                 return nodes
-                
+
         except sqlite3.OperationalError:
             pass
-        
+
         # Try cluster_monitor's node_status table
         try:
             rows = conn.execute("""
@@ -330,20 +328,20 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                 FROM node_status
                 WHERE timestamp = (SELECT MAX(timestamp) FROM node_status)
             """).fetchall()
-            
+
             if rows:
                 for row in rows:
                     node_name = row['node_name']
                     cluster_id = row['cluster'].lower().replace(' ', '-')
-                    
+
                     # Status can be 'ok', 'online', or other values
                     is_down = not row['is_available'] or row['status'] not in ('ok', 'online', 'up')
-                    
+
                     # Detect GPU by node name pattern (node51-53 are GPU nodes on Arachne)
                     has_gpu = any(x in node_name.lower() for x in ['gpu']) or \
                               node_name in ('node51', 'node52', 'node53') or \
                               (node_name.startswith('arachne') and node_name[-2:] in ['04', '05', '06'])
-                    
+
                     # Determine partition from node_state data
                     node_partition = None
                     if cluster_id:
@@ -375,25 +373,25 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                         "load_avg": round(random.uniform(1, 12), 2) if not is_down else 0,
                         "last_seen": datetime.now().isoformat()
                     }
-                    
+
         except sqlite3.OperationalError:
             pass
-            
+
         conn.close()
-        
+
     except Exception as e:
         logger.warning(f"Failed to load node data from database: {e}")
-    
+
     return nodes
 
 
 def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
     """Load job data for network visualization with all available features."""
     jobs = []
-    
+
     try:
         conn = get_db_connection(db_path)
-        
+
         # Get comprehensive job data joining multiple tables
         try:
             rows = conn.execute("""
@@ -421,7 +419,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                 ORDER BY j.end_time DESC
                 LIMIT ?
             """, (limit,)).fetchall()
-            
+
             if rows:
                 # Also get aggregated io_samples per job
                 io_data = {}
@@ -443,11 +441,11 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                         }
                 except:
                     pass
-                
+
                 for row in rows:
                     job_id = row['job_id']
                     io_info = io_data.get(job_id, {})
-                    
+
                     # Get failure_reason from job if available, otherwise compute from state
                     failure_reason = row.get('failure_reason', 0)
                     if failure_reason is None:
@@ -465,7 +463,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                             failure_reason = 6
                         else:
                             failure_reason = 3  # Generic failure
-                    
+
                     jobs.append({
                         "job_id": job_id,
                         "state": row['state'],
@@ -500,10 +498,10 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                     })
                 conn.close()
                 return jobs
-                
+
         except sqlite3.OperationalError as e:
             logger.debug(f"Job query failed: {e}")
-        
+
         # Fallback: Try jobs table directly
         try:
             rows = conn.execute("""
@@ -514,7 +512,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                 ORDER BY end_time DESC
                 LIMIT ?
             """, (limit,)).fetchall()
-            
+
             if rows:
                 for row in rows:
                     # Get failure_reason from job if available, otherwise compute from state
@@ -533,7 +531,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                             failure_reason = 6
                         else:
                             failure_reason = 3
-                    
+
                     jobs.append({
                         "job_id": row['job_id'],
                         "state": row['state'],
@@ -550,15 +548,15 @@ def load_jobs_from_db(db_path: Path, limit: int = 500) -> list:
                         "total_write_mb": 0,
                         "req_cpus": 1,
                     })
-                    
+
         except sqlite3.OperationalError:
             pass
-            
+
         conn.close()
-        
+
     except Exception as e:
         logger.warning(f"Failed to load jobs from database: {e}")
-    
+
     return jobs
 
 
@@ -566,36 +564,36 @@ def compute_feature_stats(jobs: list) -> dict:
     """Compute statistics for each numeric feature to help users choose axes."""
     if not jobs:
         return {}
-    
+
     # Identify numeric features
     numeric_features = []
     sample_job = jobs[0]
     for key, value in sample_job.items():
         if isinstance(value, (int, float)) and key not in ('job_id', 'success'):
             numeric_features.append(key)
-    
+
     stats = {}
     for feature in numeric_features:
         values = [j.get(feature, 0) or 0 for j in jobs]
         if not values:
             continue
-            
+
         mean = sum(values) / len(values)
         min_val = min(values)
         max_val = max(values)
         range_val = max_val - min_val
-        
+
         # Variance and standard deviation
         variance = sum((x - mean) ** 2 for x in values) / len(values)
         std = variance ** 0.5
-        
+
         # Coefficient of variation (normalized measure of spread)
         cv = (std / mean * 100) if mean != 0 else 0
-        
+
         # Count non-zero values
         non_zero = sum(1 for v in values if v != 0)
         non_zero_pct = non_zero / len(values) * 100
-        
+
         stats[feature] = {
             "mean": round(mean, 3),
             "std": round(std, 3),
@@ -606,7 +604,7 @@ def compute_feature_stats(jobs: list) -> dict:
             "non_zero_pct": round(non_zero_pct, 1),
             "n": len(values)
         }
-    
+
     return stats
 
 
@@ -614,21 +612,21 @@ def suggest_best_axes(feature_stats: dict, n: int = 3) -> list:
     """Suggest the best features for visualization based on variance and coverage."""
     if not feature_stats:
         return ["runtime_sec", "wait_time_sec", "total_write_mb"]
-    
+
     # Score features by: high CV + high non-zero percentage
     scored = []
     for feature, stats in feature_stats.items():
         # Skip features with no variation or all zeros
         if stats['range'] == 0 or stats['non_zero_pct'] < 10:
             continue
-        
+
         # Score = CV * (non_zero_pct / 100)
         score = stats['cv'] * (stats['non_zero_pct'] / 100)
         scored.append((feature, score, stats))
-    
+
     # Sort by score descending
     scored.sort(key=lambda x: -x[1])
-    
+
     # Return top N feature names
     return [f[0] for f in scored[:n]]
 
@@ -640,13 +638,13 @@ def compute_correlation_matrix(jobs: list, features: list = None) -> dict:
     """
     if not jobs:
         return {"features": [], "matrix": [], "high_correlations": []}
-    
+
     # Get numeric features if not specified
     if features is None:
         sample_job = jobs[0]
-        features = [k for k, v in sample_job.items() 
+        features = [k for k, v in sample_job.items()
                    if isinstance(v, (int, float)) and k not in ('job_id', 'success')]
-    
+
     # Extract values for each feature
     data = {}
     for f in features:
@@ -655,24 +653,24 @@ def compute_correlation_matrix(jobs: list, features: list = None) -> dict:
         if max(values) == min(values):
             continue
         data[f] = values
-    
+
     valid_features = list(data.keys())
     n = len(valid_features)
-    
+
     if n == 0:
         return {"features": [], "matrix": [], "high_correlations": []}
-    
+
     # Compute means and standard deviations
     means = {f: sum(data[f]) / len(data[f]) for f in valid_features}
     stds = {}
     for f in valid_features:
         variance = sum((x - means[f]) ** 2 for x in data[f]) / len(data[f])
         stds[f] = variance ** 0.5 if variance > 0 else 1
-    
+
     # Compute correlation matrix
     matrix = []
     high_correlations = []
-    
+
     for i, f1 in enumerate(valid_features):
         row = []
         for j, f2 in enumerate(valid_features):
@@ -684,12 +682,12 @@ def compute_correlation_matrix(jobs: list, features: list = None) -> dict:
             else:
                 # Compute Pearson correlation
                 n_samples = len(data[f1])
-                cov = sum((data[f1][k] - means[f1]) * (data[f2][k] - means[f2]) 
+                cov = sum((data[f1][k] - means[f1]) * (data[f2][k] - means[f2])
                          for k in range(n_samples)) / n_samples
                 r = cov / (stds[f1] * stds[f2]) if (stds[f1] * stds[f2]) > 0 else 0
                 r = max(-1, min(1, r))  # Clamp to [-1, 1]
                 row.append(round(r, 3))
-                
+
                 # Track high correlations for warnings
                 if abs(r) >= 0.7 and i != j:
                     high_correlations.append({
@@ -699,7 +697,7 @@ def compute_correlation_matrix(jobs: list, features: list = None) -> dict:
                         "strength": "strong" if abs(r) >= 0.85 else "moderate"
                     })
         matrix.append(row)
-    
+
     return {
         "features": valid_features,
         "matrix": matrix,
@@ -714,16 +712,16 @@ def suggest_decorrelated_axes(feature_stats: dict, correlation_data: dict, n: in
     """
     if not feature_stats or not correlation_data.get('features'):
         return suggest_best_axes(feature_stats, n)
-    
+
     corr_features = correlation_data['features']
     corr_matrix = correlation_data['matrix']
-    
+
     # Build correlation lookup
     corr_lookup = {}
     for i, f1 in enumerate(corr_features):
         for j, f2 in enumerate(corr_features):
             corr_lookup[(f1, f2)] = corr_matrix[i][j]
-    
+
     # Score features by variance (CV * coverage)
     scored = []
     for feature, stats in feature_stats.items():
@@ -733,15 +731,15 @@ def suggest_decorrelated_axes(feature_stats: dict, correlation_data: dict, n: in
             continue
         score = stats['cv'] * (stats['non_zero_pct'] / 100)
         scored.append((feature, score))
-    
+
     scored.sort(key=lambda x: -x[1])
-    
+
     # Greedy selection: pick highest scored, then next highest that's not correlated
     selected = []
     for feature, score in scored:
         if len(selected) >= n:
             break
-        
+
         # Check correlation with already selected features
         is_correlated = False
         for sel in selected:
@@ -749,10 +747,10 @@ def suggest_decorrelated_axes(feature_stats: dict, correlation_data: dict, n: in
             if abs(r) > 0.7:  # Threshold for "too correlated"
                 is_correlated = True
                 break
-        
+
         if not is_correlated:
             selected.append(feature)
-    
+
     # If we couldn't find enough decorrelated features, fall back
     if len(selected) < n:
         for feature, score in scored:
@@ -760,20 +758,20 @@ def suggest_decorrelated_axes(feature_stats: dict, correlation_data: dict, n: in
                 selected.append(feature)
             if len(selected) >= n:
                 break
-    
+
     return selected[:n]
 
 
 def load_similarity_edges_from_db(db_path: Path, job_ids: list, threshold: float = 0.85) -> list:
     """Load pre-computed similarity edges from database."""
     edges = []
-    
+
     try:
         conn = get_db_connection(db_path)
-        
+
         # Create job_id to index mapping
         job_id_to_idx = {jid: idx for idx, jid in enumerate(job_ids)}
-        
+
         rows = conn.execute("""
             SELECT job_id_a, job_id_b, similarity
             FROM job_similarity
@@ -784,7 +782,7 @@ def load_similarity_edges_from_db(db_path: Path, job_ids: list, threshold: float
             ','.join('?' * len(job_ids)),
             ','.join('?' * len(job_ids))
         ), [threshold] + job_ids + job_ids).fetchall()
-        
+
         for row in rows:
             if row['job_id_a'] in job_id_to_idx and row['job_id_b'] in job_id_to_idx:
                 edges.append({
@@ -792,12 +790,12 @@ def load_similarity_edges_from_db(db_path: Path, job_ids: list, threshold: float
                     "target": job_id_to_idx[row['job_id_b']],
                     "similarity": row['similarity']
                 })
-                
+
         conn.close()
-        
+
     except Exception as e:
         logger.debug(f"Failed to load similarity edges: {e}")
-    
+
     return edges
 
 
@@ -908,12 +906,12 @@ def generate_demo_node_data(clusters):
         for _pid, _part in _cl.get("partitions", {}).items():
             for _n in _part["nodes"]:
                 node_partition_map[_n] = _pid
-    
+
     for cluster_id, cluster in clusters.items():
         for node_name in cluster["nodes"]:
             random.seed(hash(node_name) % 2**32)
             is_down = random.random() < 0.08
-            
+
             if is_down:
                 nodes[node_name] = {
                     "name": node_name,
@@ -941,10 +939,10 @@ def generate_demo_node_data(clusters):
                     success_rate = random.uniform(0.65, 0.85)
                 else:
                     success_rate = random.uniform(0.85, 0.99)
-                
+
                 jobs_success = int(jobs_total * success_rate)
                 jobs_failed = jobs_total - jobs_success
-                
+
                 failures = {}
                 remaining = jobs_failed
                 for ft in random.sample(failure_types, min(3, len(failure_types))):
@@ -953,7 +951,7 @@ def generate_demo_node_data(clusters):
                     count = random.randint(1, max(1, remaining))
                     failures[ft] = count
                     remaining -= count
-                
+
                 node_users = random.sample(users, random.randint(2, 5))
                 top_users = []
                 jobs_remaining = jobs_total
@@ -963,9 +961,9 @@ def generate_demo_node_data(clusters):
                     jobs_remaining -= count
                 top_users.append({"user": node_users[-1], "jobs": jobs_remaining})
                 top_users.sort(key=lambda x: -x["jobs"])
-                
+
                 has_gpu = node_name in cluster.get("gpu_nodes", [])
-                
+
                 nodes[node_name] = {
                     "name": node_name,
                     "cluster": cluster_id,
@@ -985,7 +983,7 @@ def generate_demo_node_data(clusters):
                     "load_avg": round(random.uniform(0.5, 16.0), 2),
                     "last_seen": datetime.now().isoformat()
                 }
-    
+
     random.seed()
     return nodes
 
@@ -994,7 +992,7 @@ def generate_demo_jobs(count=150):
     """Generate demo job data for network visualization."""
     jobs = []
     partitions = ["general", "gpu", "highmem", "compute"]
-    
+
     # State to failure_reason mapping
     # 0=success, 1=timeout, 2=cancelled, 3=failed_generic, 4=oom, 5=segfault, 6=node_fail, 7=dependency
     state_to_failure = {
@@ -1006,9 +1004,9 @@ def generate_demo_jobs(count=150):
         "SEGFAULT": 5,  # We'll add this state for variety
         "NODE_FAIL": 6,
     }
-    
+
     states = ["COMPLETED", "FAILED", "TIMEOUT", "OUT_OF_MEMORY", "CANCELLED", "SEGFAULT", "NODE_FAIL"]
-    
+
     for i in range(count):
         nfs_write = random.uniform(0, 100)
         local_write = random.uniform(0, 100)
@@ -1018,7 +1016,7 @@ def generate_demo_jobs(count=150):
         req_time_sec = int(runtime_sec * random.uniform(1.0, 2.0))  # Requested time >= runtime
         req_cpus = random.choice([1, 2, 4, 8, 16, 32])
         req_mem_mb = random.choice([1024, 2048, 4096, 8192, 16384, 32768])
-        
+
         # State probabilities based on I/O patterns
         if local_write > 50:
             state = random.choices(states, weights=[80, 3, 5, 4, 3, 3, 2])[0]
@@ -1026,14 +1024,14 @@ def generate_demo_jobs(count=150):
             state = random.choices(states, weights=[35, 15, 20, 12, 5, 8, 5])[0]
         else:
             state = random.choices(states, weights=[68, 8, 10, 6, 3, 3, 2])[0]
-        
+
         # Get failure_reason from state
         failure_reason = state_to_failure.get(state, 3)
-        
+
         # Generate exit_code and exit_signal based on failure_reason
         exit_code = None
         exit_signal = None
-        
+
         if failure_reason == 0:  # SUCCESS
             exit_code = 0
         elif failure_reason == 1:  # TIMEOUT
@@ -1050,10 +1048,10 @@ def generate_demo_jobs(count=150):
             exit_signal = 11
         elif failure_reason == 6:  # NODE_FAIL
             exit_code = None  # Unknown - node died
-        
+
         # Map SEGFAULT to FAILED for display state
         display_state = "FAILED" if state == "SEGFAULT" else state
-        
+
         jobs.append({
             "job_id": 10000 + i,
             "nfs_write_gb": round(nfs_write, 2),
@@ -1075,7 +1073,7 @@ def generate_demo_jobs(count=150):
             "health_score": random.uniform(0.3, 1.0) if failure_reason == 0 else random.uniform(0, 0.5),
             "time_efficiency": runtime_sec / max(req_time_sec, 1),
         })
-    
+
     return jobs
 
 
@@ -1083,20 +1081,20 @@ def generate_demo_interactive():
     """Generate demo interactive session data."""
     import random
     from datetime import datetime, timedelta
-    
+
     users = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "henry", "ivan", "judy"]
     session_types = [
         ("RStudio", 0.3),
         ("Jupyter (Python)", 0.6),
         ("Jupyter (R)", 0.1)
     ]
-    
+
     sessions = []
     user_sessions = {}
-    
+
     # Generate 80-120 sessions
     n_sessions = random.randint(80, 120)
-    
+
     for i in range(n_sessions):
         user = random.choice(users)
         # Weighted session type selection
@@ -1107,22 +1105,22 @@ def generate_demo_interactive():
             session_type = "Jupyter (Python)"
         else:
             session_type = "Jupyter (R)"
-        
+
         # Memory: 50MB to 4GB, with some outliers
         if random.random() < 0.1:
             mem_mb = random.uniform(4000, 8000)  # Memory hog
         else:
             mem_mb = random.uniform(50, 2000)
-        
+
         # Age: 0 to 72 hours
         age_hours = random.uniform(0, 72)
-        
+
         # CPU: mostly idle
         cpu = random.uniform(0, 5) if random.random() < 0.9 else random.uniform(20, 80)
         is_idle = cpu < 1.0
-        
+
         start_time = (datetime.now() - timedelta(hours=age_hours)).isoformat()
-        
+
         sessions.append({
             "timestamp": datetime.now().isoformat(),
             "server_id": "demo-server",
@@ -1137,7 +1135,7 @@ def generate_demo_interactive():
             "age_hours": round(age_hours, 1),
             "is_idle": is_idle
         })
-        
+
         # Track per user
         if user not in user_sessions:
             user_sessions[user] = {"sessions": 0, "memory_mb": 0, "idle": 0, "rstudio": 0, "jupyter": 0}
@@ -1149,11 +1147,11 @@ def generate_demo_interactive():
             user_sessions[user]["jupyter"] += 1
         if is_idle:
             user_sessions[user]["idle"] += 1
-    
+
     # Build summary
     total_mem = sum(s["mem_mb"] for s in sessions)
     idle_count = sum(1 for s in sessions if s["is_idle"])
-    
+
     by_type = {
         "RStudio": {"total": 0, "idle": 0, "memory_mb": 0},
         "Jupyter (Python)": {"total": 0, "idle": 0, "memory_mb": 0},
@@ -1167,18 +1165,18 @@ def generate_demo_interactive():
             by_type[t]["memory_mb"] += s["mem_mb"]
             if s["is_idle"]:
                 by_type[t]["idle"] += 1
-    
+
     user_list = [{"user": u, **v} for u, v in sorted(user_sessions.items(), key=lambda x: -x[1]["memory_mb"])]
-    
+
     # Alerts
     idle_session_hours = 24
     memory_hog_mb = 4096
     max_idle_sessions = 5
-    
+
     stale = [s for s in sessions if s["is_idle"] and s["age_hours"] >= idle_session_hours]
     hogs = [s for s in sessions if s["mem_mb"] >= memory_hog_mb]
     idle_hogs = [u for u in user_list if u["idle"] > max_idle_sessions]
-    
+
     return {
         "timestamp": datetime.now().isoformat(),
         "server_id": "demo-server",
@@ -1213,27 +1211,27 @@ def build_job_network(jobs, threshold=0.95, features=None):
     """
     if features is None:
         features = ["nfs_write_gb", "local_write_gb", "io_wait_pct"]
-    
+
     edges = []
-    
+
     for i, job1 in enumerate(jobs):
         vec1 = [job1.get(f, 0) or 0 for f in features]
         mag1 = math.sqrt(sum(x*x for x in vec1)) or 1
-        
+
         for j, job2 in enumerate(jobs[i+1:], i+1):
             vec2 = [job2.get(f, 0) or 0 for f in features]
             mag2 = math.sqrt(sum(x*x for x in vec2)) or 1
-            
+
             dot = sum(a*b for a, b in zip(vec1, vec2))
             similarity = dot / (mag1 * mag2) if (mag1 * mag2) > 0 else 0
-            
+
             if similarity >= threshold:
                 edges.append({
                     "source": i,
                     "target": j,
                     "similarity": round(similarity, 4)
                 })
-    
+
     return edges
 
 
@@ -1250,56 +1248,56 @@ def discretize_features(jobs: list, features: list = None, n_bins: int = 3) -> d
     """
     if not jobs:
         return {'bin_labels': [], 'job_bins': [], 'bin_thresholds': {}}
-    
+
     if features is None:
         sample = jobs[0]
-        features = [k for k, v in sample.items() 
+        features = [k for k, v in sample.items()
                    if isinstance(v, (int, float)) and k not in ('job_id', 'success')]
-    
+
     # Compute quantile thresholds for each feature
     bin_thresholds = {}
     bin_suffixes = ['low', 'med', 'high'] if n_bins == 3 else [f'q{i+1}' for i in range(n_bins)]
-    
+
     for feature in features:
         values = sorted([j.get(feature, 0) or 0 for j in jobs])
         n = len(values)
-        
+
         # Skip constant features
         if values[0] == values[-1]:
             continue
-            
+
         # Compute quantile boundaries
         thresholds = []
         for q in range(1, n_bins):
             idx = int(n * q / n_bins)
             thresholds.append(values[idx])
-        
+
         bin_thresholds[feature] = thresholds
-    
+
     # Create all possible bin labels
     all_bin_labels = []
     for feature in bin_thresholds.keys():
         for suffix in bin_suffixes:
             all_bin_labels.append(f"{feature}_{suffix}")
-    
+
     # Assign bins to each job
     job_bins = []
     for job in jobs:
         bins = set()
         for feature, thresholds in bin_thresholds.items():
             value = job.get(feature, 0) or 0
-            
+
             # Find which bin this value falls into
             bin_idx = 0
             for thresh in thresholds:
                 if value > thresh:
                     bin_idx += 1
-            
+
             bin_label = f"{feature}_{bin_suffixes[bin_idx]}"
             bins.add(bin_label)
-        
+
         job_bins.append(bins)
-    
+
     return {
         'bin_labels': all_bin_labels,
         'job_bins': job_bins,
@@ -1330,20 +1328,20 @@ def simpson_similarity(set1: set, set2: set) -> float:
     """
     if not set1 or not set2:
         return 0.0
-    
+
     a = len(set1 & set2)  # intersection
     b = len(set1 - set2)  # unique to set1
     c = len(set2 - set1)  # unique to set2
-    
+
     denominator = a + min(b, c)
-    
+
     if denominator == 0:
         return 1.0 if a > 0 else 0.0
-    
+
     return a / denominator
 
 
-def build_bipartite_network(jobs: list, features: list = None, 
+def build_bipartite_network(jobs: list, features: list = None,
                             threshold: float = 0.5, n_bins: int = 3,
                             max_edges: int = 10000) -> dict:
     """
@@ -1376,27 +1374,27 @@ def build_bipartite_network(jobs: list, features: list = None,
     """
     if not jobs:
         return {'edges': [], 'discretization': {}, 'stats': {}}
-    
+
     # Step 1: Discretize features into bins
     disc = discretize_features(jobs, features, n_bins)
     job_bins = disc['job_bins']
-    
+
     if not job_bins:
         return {'edges': [], 'discretization': disc, 'stats': {'error': 'No valid features'}}
-    
+
     # Step 2: Compute Simpson similarity for all pairs
     edges = []
     n_jobs = len(jobs)
     n_comparisons = 0
     similarity_sum = 0
     n_above_threshold = 0
-    
+
     for i in range(n_jobs):
         for j in range(i + 1, n_jobs):
             sim = simpson_similarity(job_bins[i], job_bins[j])
             n_comparisons += 1
             similarity_sum += sim
-            
+
             if sim >= threshold:
                 n_above_threshold += 1
                 if len(edges) < max_edges:
@@ -1405,11 +1403,11 @@ def build_bipartite_network(jobs: list, features: list = None,
                         "target": j,
                         "similarity": round(sim, 4)
                     })
-    
+
     # Compute network statistics
     avg_similarity = similarity_sum / n_comparisons if n_comparisons > 0 else 0
     edge_density = len(edges) / n_comparisons if n_comparisons > 0 else 0
-    
+
     stats = {
         'n_jobs': n_jobs,
         'n_comparisons': n_comparisons,
@@ -1420,7 +1418,7 @@ def build_bipartite_network(jobs: list, features: list = None,
         'threshold': threshold,
         'truncated': len(edges) >= max_edges
     }
-    
+
     return {
         'edges': edges,
         'discretization': disc,
@@ -1436,52 +1434,52 @@ def normalize_features(jobs: list, features: list = None) -> tuple:
     """
     if not jobs:
         return [], [], {}
-    
+
     # Auto-detect numeric features
     if features is None:
         sample = jobs[0]
-        features = [k for k, v in sample.items() 
+        features = [k for k, v in sample.items()
                    if isinstance(v, (int, float)) and k not in ('job_id', 'success', 'exit_code')]
-    
+
     # Extract raw vectors
     raw_vectors = []
     for job in jobs:
         vec = [job.get(f, 0) or 0 for f in features]
         raw_vectors.append(vec)
-    
+
     # Compute mean and std for each feature
     n_features = len(features)
     n_jobs = len(jobs)
-    
+
     if n_jobs == 0 or n_features == 0:
         return [], features, {}
-    
+
     means = [0.0] * n_features
     for vec in raw_vectors:
         for i, v in enumerate(vec):
             means[i] += v
     means = [m / n_jobs for m in means]
-    
+
     stds = [0.0] * n_features
     for vec in raw_vectors:
         for i, v in enumerate(vec):
             stds[i] += (v - means[i]) ** 2
     stds = [math.sqrt(s / n_jobs) if n_jobs > 0 else 1.0 for s in stds]
     stds = [s if s > 1e-10 else 1.0 for s in stds]  # Avoid division by zero
-    
+
     # Z-score normalization
     normalized = []
     for vec in raw_vectors:
         norm_vec = [(v - means[i]) / stds[i] for i, v in enumerate(vec)]
         normalized.append(norm_vec)
-    
+
     params = {
         'features': features,
         'means': means,
         'stds': stds,
         'normalized': True
     }
-    
+
     return normalized, features, params
 
 
@@ -1498,14 +1496,14 @@ def cosine_similarity(vec1: list, vec2: list) -> float:
     """
     if len(vec1) != len(vec2) or len(vec1) == 0:
         return 0.0
-    
+
     dot_product = sum(a * b for a, b in zip(vec1, vec2))
     mag1 = math.sqrt(sum(x * x for x in vec1))
     mag2 = math.sqrt(sum(x * x for x in vec2))
-    
+
     if mag1 < 1e-10 or mag2 < 1e-10:
         return 0.0
-    
+
     return dot_product / (mag1 * mag2)
 
 
@@ -1537,35 +1535,35 @@ def build_cosine_network(
     """
     if not jobs:
         return {'edges': [], 'normalization': {}, 'stats': {}}
-    
+
     # Normalize features
     if normalize:
         vectors, feature_names, norm_params = normalize_features(jobs, features)
     else:
         if features is None:
             sample = jobs[0]
-            features = [k for k, v in sample.items() 
+            features = [k for k, v in sample.items()
                        if isinstance(v, (int, float)) and k not in ('job_id', 'success', 'exit_code')]
         vectors = [[job.get(f, 0) or 0 for f in features] for job in jobs]
         feature_names = features
         norm_params = {'features': features, 'normalized': False}
-    
+
     if not vectors or not vectors[0]:
         return {'edges': [], 'normalization': norm_params, 'stats': {'error': 'No valid features'}}
-    
+
     # Compute pairwise cosine similarity
     edges = []
     n_jobs = len(jobs)
     n_comparisons = 0
     similarity_sum = 0
     n_above_threshold = 0
-    
+
     for i in range(n_jobs):
         for j in range(i + 1, n_jobs):
             sim = cosine_similarity(vectors[i], vectors[j])
             n_comparisons += 1
             similarity_sum += sim
-            
+
             if sim >= threshold:
                 n_above_threshold += 1
                 if len(edges) < max_edges:
@@ -1574,11 +1572,11 @@ def build_cosine_network(
                         "target": j,
                         "similarity": round(sim, 4)
                     })
-    
+
     # Compute network statistics
     avg_similarity = similarity_sum / n_comparisons if n_comparisons > 0 else 0
     edge_density = len(edges) / n_comparisons if n_comparisons > 0 else 0
-    
+
     stats = {
         'n_jobs': n_jobs,
         'n_features': len(feature_names),
@@ -1591,7 +1589,7 @@ def build_cosine_network(
         'method': 'cosine',
         'truncated': len(edges) >= max_edges
     }
-    
+
     return {
         'edges': edges,
         'normalization': norm_params,
@@ -1626,12 +1624,12 @@ def build_similarity_network(
         if threshold is None:
             threshold = 0.7
         return build_cosine_network(
-            jobs, 
-            features=features, 
+            jobs,
+            features=features,
             threshold=threshold,
             **kwargs
         )
-    
+
     elif method == 'simpson':
         if threshold is None:
             threshold = 0.5
@@ -1641,7 +1639,7 @@ def build_similarity_network(
             threshold=threshold,
             **kwargs
         )
-    
+
     else:
         raise ValueError(f"Unknown method: {method}. Use 'cosine' or 'simpson'.")
 
@@ -1657,14 +1655,14 @@ def compute_bipartite_matrix(jobs: list, features: list = None, n_bins: int = 3)
     Returns dict with matrix data for visualization and analysis.
     """
     disc = discretize_features(jobs, features, n_bins)
-    
+
     if not disc['bin_labels']:
         return {'matrix': [], 'row_labels': [], 'col_labels': []}
-    
+
     # Build incidence matrix
     bin_labels = sorted(disc['bin_labels'])
     bin_to_idx = {b: i for i, b in enumerate(bin_labels)}
-    
+
     matrix = []
     for i, job in enumerate(jobs):
         row = [0] * len(bin_labels)
@@ -1672,10 +1670,10 @@ def compute_bipartite_matrix(jobs: list, features: list = None, n_bins: int = 3)
             if bin_label in bin_to_idx:
                 row[bin_to_idx[bin_label]] = 1
         matrix.append(row)
-    
+
     # Compute column sums (bin occupancy counts)
     col_sums = [sum(matrix[i][j] for i in range(len(jobs))) for j in range(len(bin_labels))]
-    
+
     return {
         'matrix': matrix,
         'row_labels': [f"job_{j['job_id']}" for j in jobs],
@@ -1692,12 +1690,12 @@ def compute_bipartite_matrix(jobs: list, features: list = None, n_bins: int = 3)
 
 class DataManager:
     """Manages data loading from database or demo fallback."""
-    
+
     def __init__(self, config: dict):
         self.config = config
         self.db_path = find_database()
         self.data_source = "demo"
-        
+
         self._clusters = None
         self._nodes = None
         self._jobs = None
@@ -1707,51 +1705,51 @@ class DataManager:
         self._suggested_axes = None
         self._network_stats = None
         self._discretization = None
-        
+
         self._load_data()
-    
+
     def _load_data(self):
         """Load all data from best available source."""
-        
+
         # Try to load from database
         if self.db_path:
             logger.info(f"Found database: {self.db_path}")
-            
+
             # Load clusters
             self._clusters = load_clusters_from_db(self.db_path, self.config)
-            
+
             if self._clusters:
                 self.data_source = f"database ({self.db_path.name})"
                 logger.info(f"Loaded {len(self._clusters)} clusters from database")
-                
+
                 # Load nodes
                 self._nodes = load_node_data_from_db(self.db_path, self._clusters)
                 logger.info(f"Loaded {len(self._nodes)} nodes from database")
-                
+
                 # Load jobs
                 self._jobs = load_jobs_from_db(self.db_path)
                 if self._jobs:
                     logger.info(f"Loaded {len(self._jobs)} jobs from database")
-                    
+
                     # Compute feature statistics
                     self._feature_stats = compute_feature_stats(self._jobs)
-                    
+
                     # Compute correlation matrix
                     self._correlation_data = compute_correlation_matrix(self._jobs)
                     n_high_corr = len(self._correlation_data.get('high_correlations', []))
                     logger.info(f"Computed correlations for {len(self._correlation_data.get('features', []))} features ({n_high_corr} high correlations)")
-                    
+
                     # Suggest decorrelated axes
                     self._suggested_axes = suggest_decorrelated_axes(
-                        self._feature_stats, 
+                        self._feature_stats,
                         self._correlation_data
                     )
                     logger.info(f"Suggested axes: {self._suggested_axes}")
-                    
+
                     # Try to load pre-computed edges
                     job_ids = [j["job_id"] for j in self._jobs]
                     self._edges = load_similarity_edges_from_db(self.db_path, job_ids)
-                    
+
                     if not self._edges:
                         # Build bipartite network using Vilhena & Antonelli method
                         network_result = build_similarity_network(
@@ -1778,9 +1776,9 @@ class DataManager:
                     self._network_stats = network_result['stats']
                     self._discretization = network_result.get('discretization')
                     logger.info("Using demo job data for network view")
-                    
+
                 return
-        
+
         # Fall back to demo data
         logger.info("Using demo data")
         self.data_source = "demo"
@@ -1797,52 +1795,52 @@ class DataManager:
         self._edges = network_result['edges']
         self._network_stats = network_result['stats']
         self._discretization = network_result.get('discretization')
-    
+
     @property
     def clusters(self):
         return self._clusters
-    
+
     @property
     def nodes(self):
         return self._nodes
-    
+
     @property
     def jobs(self):
         return self._jobs
-    
+
     @property
     def edges(self):
         return self._edges
-    
+
     @property
     def feature_stats(self):
         return self._feature_stats
-    
+
     @property
     def correlation_data(self):
         return self._correlation_data
-    
+
     @property
     def suggested_axes(self):
         return self._suggested_axes
-    
+
     @property
     def network_stats(self):
         return self._network_stats
-    
+
     @property
     def discretization(self):
         return self._discretization
-    
+
     def refresh(self):
         """Refresh data from source."""
         self._load_data()
-    
+
     def get_stats(self) -> dict:
         """Get summary statistics."""
         online_nodes = sum(1 for n in self._nodes.values() if n['status'] == 'online')
         success_jobs = sum(1 for j in self._jobs if j['success'])
-        
+
         return {
             "data_source": self.data_source,
             "clusters": len(self._clusters),
@@ -1857,7 +1855,7 @@ class DataManager:
 
     def get_failed_jobs(self, hours: int = 24, limit: int = 10) -> dict:
         """Get recent failed jobs with failure reasons."""
-        
+
         # Failure states mapping
         failure_labels = {
             1: 'TIMEOUT',
@@ -1868,16 +1866,16 @@ class DataManager:
             6: 'NODE_FAIL',
             7: 'DEPENDENCY'
         }
-        
+
         # Filter failed jobs from self.jobs
         failed = [
-            j for j in self._jobs 
+            j for j in self._jobs
             if j.get('failure_reason', 0) != 0  # 0 = SUCCESS
         ]
-        
+
         # Sort by job_id descending (most recent first)
         failed.sort(key=lambda x: x.get('job_id', 0), reverse=True)
-        
+
         # Build response
         failed_jobs = []
         for job in failed[:limit]:
@@ -1894,14 +1892,14 @@ class DataManager:
                 'health_score': job.get('health_score'),
                 'failure_reason': self._get_failure_explanation(job)
             })
-        
+
         # Summary by reason
         by_reason = {}
         for job in failed:
             fr = job.get('failure_reason', 3)
             label = failure_labels.get(fr, 'FAILED')
             by_reason[label] = by_reason.get(label, 0) + 1
-        
+
         return {
             'failed_jobs': failed_jobs,
             'summary': {
@@ -1915,7 +1913,7 @@ class DataManager:
         fr = job.get('failure_reason', 3)
         exit_code = job.get('exit_code')
         exit_signal = job.get('exit_signal')
-        
+
         explanations = {
             1: "Job exceeded time limit",
             2: "Job was cancelled",
@@ -1925,7 +1923,7 @@ class DataManager:
             6: "Node failure during execution",
             7: "Dependency job failed"
         }
-        
+
         return explanations.get(fr, f"Unknown failure (code {fr})")
 
 # ============================================================================
@@ -3727,7 +3725,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             };
             
             const formatFeatureName = (name) => {
-                return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                return name.replace(/_/g, ' ').replace(/\b\\w/g, c => c.toUpperCase());
             };
             
             // Color scale for correlation heatmap
@@ -4421,24 +4419,24 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 
 class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     """Custom handler for the dashboard."""
-    
+
     data_manager: DataManager = None
-    
+
     def do_GET(self):
         parsed = urlparse(self.path)
-        
+
         if parsed.path == '/' or parsed.path == '/index.html':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
             self.wfile.write(DASHBOARD_HTML.encode())
-            
+
         elif parsed.path == '/api/data':
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            
+
             dm = DashboardHandler.data_manager
             data = {
                 "clusters": dm.clusters,
@@ -4453,14 +4451,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 "network_method": dm.network_stats.get("method", "cosine") if dm.network_stats else "cosine"
             }
             self.wfile.write(json.dumps(data).encode())
-            
+
         elif parsed.path == '/api/refresh':
             DashboardHandler.data_manager.refresh()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({"status": "refreshed"}).encode())
-            
+
         elif parsed.path == '/api/stats':
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -4479,7 +4477,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 if report['summary']['total_sessions'] == 0:
                     report = generate_demo_interactive()
                 self.wfile.write(json.dumps(report).encode())
-            except Exception as e:
+            except Exception:
                 # Fallback to demo data on error
                 report = generate_demo_interactive()
                 self.wfile.write(json.dumps(report).encode())
@@ -4488,12 +4486,12 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             query = parse_qs(parsed.query)
             hours = int(query.get('hours', [24])[0])
             limit = int(query.get('limit', [10])[0])
-            
+
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            
+
             dm = DashboardHandler.data_manager
             failed_jobs = dm.get_failed_jobs(hours=hours, limit=limit)
             self.wfile.write(json.dumps(failed_jobs).encode())
@@ -4507,17 +4505,17 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
 def serve_dashboard(host='localhost', port=8050, config_path=None):
     """Start the dashboard server."""
-    
+
     # Load configuration
     config = load_config(config_path)
-    
+
     # Initialize data manager
     data_manager = DataManager(config)
     DashboardHandler.data_manager = data_manager
-    
+
     # Get stats
     stats = data_manager.get_stats()
-    
+
     print("=" * 60)
     print("              NØMAD Dashboard")
     print("=" * 60)
@@ -4538,7 +4536,7 @@ def serve_dashboard(host='localhost', port=8050, config_path=None):
     print(f"  SSH Tunnel: ssh -L {port}:localhost:{port} {username}@{hostname}")
     print("  Then open:  http://localhost:8050")
     print()
-    
+
     try:
         with socketserver.TCPServer((host, port), DashboardHandler) as httpd:
             httpd.serve_forever()

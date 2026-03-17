@@ -14,15 +14,14 @@ Integrates with:
 - collectors/ data for historical metrics
 """
 
-import sqlite3
 import logging
-from datetime import datetime, timedelta
-from typing import Optional
+import sqlite3
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 # Import existing analysis tools
 try:
-    from nomad.analysis.derivatives import DerivativeAnalyzer, analyze_disk_trend, AlertLevel
+    from nomad.analysis.derivatives import AlertLevel, DerivativeAnalyzer, analyze_disk_trend
     HAS_DERIVATIVES = True
 except ImportError:
     HAS_DERIVATIVES = False
@@ -43,8 +42,8 @@ class NodeDiagnostic:
     node_name: str
     cluster: str
     current_state: str
-    drain_reason: Optional[str]
-    last_seen: Optional[datetime]
+    drain_reason: str | None
+    last_seen: datetime | None
     state_history: list
     resource_history: dict
     recent_jobs: list
@@ -54,7 +53,7 @@ class NodeDiagnostic:
     recommendations: list
 
 
-def get_node_state(db_path: str, cluster: str, node_name: str) -> Optional[dict]:
+def get_node_state(db_path: str, cluster: str, node_name: str) -> dict | None:
     """Get current node state from database."""
     try:
         conn = sqlite3.connect(db_path)
@@ -118,21 +117,21 @@ def get_failure_summary(jobs: list) -> dict:
         'exit_codes': {},
         'affected_users': set()
     }
-    
+
     for job in jobs:
         if job.get('state') not in ('COMPLETED',):
             summary['failed_jobs'] += 1
             summary['affected_users'].add(job.get('user_name'))
-            
+
             # Count failure types
             reason = job.get('failure_reason') or job.get('state') or 'UNKNOWN'
             summary['failure_types'][reason] = summary['failure_types'].get(reason, 0) + 1
-            
+
             # Count exit codes
             exit_code = job.get('exit_code', 0)
             if exit_code != 0:
                 summary['exit_codes'][exit_code] = summary['exit_codes'].get(exit_code, 0) + 1
-    
+
     summary['affected_users'] = list(summary['affected_users'])
     summary['failure_rate'] = summary['failed_jobs'] / max(summary['total_jobs'], 1)
     return summary
@@ -141,7 +140,7 @@ def get_failure_summary(jobs: list) -> dict:
 def analyze_potential_causes(state: dict, history: list, jobs: list, failures: dict) -> list:
     """Analyze data to suggest potential causes for node issues."""
     causes = []
-    
+
     if not state:
         causes.append({
             'cause': 'Node not reporting',
@@ -149,7 +148,7 @@ def analyze_potential_causes(state: dict, history: list, jobs: list, failures: d
             'detail': 'No recent data from node - may be powered off or network issue'
         })
         return causes
-    
+
     # Check for drain reason
     reason = state.get('reason', '')
     if reason:
@@ -177,7 +176,7 @@ def analyze_potential_causes(state: dict, history: list, jobs: list, failures: d
                 'confidence': 'medium',
                 'detail': f'Node was drained: {reason}'
             })
-    
+
     # Check memory pressure
     mem_pct = state.get('memory_alloc_percent', 0)
     if mem_pct and mem_pct > 95:
@@ -186,7 +185,7 @@ def analyze_potential_causes(state: dict, history: list, jobs: list, failures: d
             'confidence': 'medium',
             'detail': f'Memory allocation at {mem_pct:.1f}% before issue'
         })
-    
+
     # Check for OOM patterns in jobs
     oom_count = failures.get('exit_codes', {}).get(137, 0)  # SIGKILL often from OOM
     if oom_count > 0:
@@ -195,7 +194,7 @@ def analyze_potential_causes(state: dict, history: list, jobs: list, failures: d
             'confidence': 'medium',
             'detail': f'{oom_count} jobs killed with exit code 137 (likely OOM)'
         })
-    
+
     # Check for high failure rate
     if failures.get('failure_rate', 0) > 0.3:
         causes.append({
@@ -203,7 +202,7 @@ def analyze_potential_causes(state: dict, history: list, jobs: list, failures: d
             'confidence': 'medium',
             'detail': f"{failures['failure_rate']*100:.0f}% of recent jobs failed"
         })
-    
+
     # Check load average
     cpu_load = state.get('cpu_load', 0)
     cpus_total = state.get('cpus_total', 1)
@@ -213,56 +212,56 @@ def analyze_potential_causes(state: dict, history: list, jobs: list, failures: d
             'confidence': 'medium',
             'detail': f'Load average ({cpu_load:.1f}) far exceeds CPU count ({cpus_total})'
         })
-    
+
     if not causes:
         causes.append({
             'cause': 'No obvious issues detected',
             'confidence': 'low',
             'detail': 'Manual investigation recommended'
         })
-    
+
     return causes
 
 
 def generate_recommendations(causes: list, state: dict, failures: dict) -> list:
     """Generate actionable recommendations based on analysis."""
     recommendations = []
-    
+
     for cause in causes:
         if cause['cause'] == 'Out of Memory (OOM)':
             recommendations.append('Check dmesg for OOM killer messages: dmesg | grep -i oom')
             recommendations.append('Review memory limits for jobs on this node')
             recommendations.append('Consider adding memory constraints to partition')
-        
+
         elif cause['cause'] == 'GPU Issue':
             recommendations.append('Check GPU status: nvidia-smi')
             recommendations.append('Check GPU driver: nvidia-smi -q')
             recommendations.append('Review GPU error logs: dmesg | grep -i nvidia')
-        
+
         elif cause['cause'] == 'Health Check Failed':
             recommendations.append('Run manual health check: scontrol show node <node>')
             recommendations.append('Check SLURM health check script output')
-        
+
         elif cause['cause'] == 'Memory Pressure':
             recommendations.append('Review running jobs: squeue -w <node>')
             recommendations.append('Check for memory leaks in long-running jobs')
-        
+
         elif cause['cause'] == 'CPU Overload':
             recommendations.append('Check for runaway processes: top -bn1')
             recommendations.append('Review CPU-bound jobs for inefficiencies')
-        
+
         elif cause['cause'] == 'Node not reporting':
             recommendations.append('Ping node: ping <node>')
             recommendations.append('Check SSH access: ssh <node> hostname')
             recommendations.append('Check SLURM daemon: systemctl status slurmd')
             recommendations.append('Check power/IPMI if available')
-    
+
     # Only add resume if there are actual issues
     if recommendations:
         recommendations.append('Resume node after fixing: scontrol update nodename=<node> state=resume')
     else:
         recommendations.append('Node appears healthy - no action required')
-    
+
     return list(dict.fromkeys(recommendations))  # Remove duplicates
 
 
@@ -271,7 +270,7 @@ def diagnose_node(
     cluster: str,
     node_name: str,
     hours: int = 24,
-) -> Optional[NodeDiagnostic]:
+) -> NodeDiagnostic | None:
     """
     Generate comprehensive diagnostics for an HPC node.
     
@@ -286,25 +285,25 @@ def diagnose_node(
     """
     # Get current state
     state = get_node_state(db_path, cluster, node_name)
-    
+
     # Get history
     history = get_state_history(db_path, cluster, node_name, hours)
-    
+
     # Get recent jobs
     jobs = get_recent_jobs(db_path, cluster, node_name)
-    
+
     # Analyze failures
     failures = get_failure_summary(jobs)
-    
+
     # Determine causes
     causes = analyze_potential_causes(state, history, jobs, failures)
-    
+
     # Generate recommendations
     recommendations = generate_recommendations(causes, state, failures)
-    
+
     # Extract active users from recent jobs
     active_users = list(set(j.get('user_name') for j in jobs[:10] if j.get('user_name')))
-    
+
     # Build resource history summary
     resource_history = {}
     if history:
@@ -314,7 +313,7 @@ def diagnose_node(
             'avg_mem_pct': sum(h.get('memory_alloc_percent', 0) or 0 for h in history) / max(len(history), 1),
             'state_changes': len(set(h.get('state') for h in history))
         }
-    
+
     return NodeDiagnostic(
         node_name=node_name,
         cluster=cluster,
@@ -349,21 +348,21 @@ def format_diagnostic(diag: NodeDiagnostic) -> str:
     """Format diagnostic for terminal output."""
     c = Colors
     lines = []
-    
+
     # Header
     lines.append(f"\n  {c.BOLD}NØMAD Node Diagnostic{c.RESET} — {c.CYAN}{diag.cluster}/{diag.node_name}{c.RESET}")
     lines.append(f"  {'─' * 56}")
-    
+
     # Current State
     state_color = c.GREEN if diag.current_state in ('idle', 'allocated', 'mixed') else c.RED
     lines.append(f"\n  {c.BOLD}Current State:{c.RESET} {state_color}{diag.current_state}{c.RESET}")
-    
+
     if diag.drain_reason:
         lines.append(f"  {c.BOLD}Drain Reason:{c.RESET} {c.YELLOW}{diag.drain_reason}{c.RESET}")
-    
+
     if diag.last_seen:
         lines.append(f"  {c.BOLD}Last Seen:{c.RESET} {diag.last_seen}")
-    
+
     # Resource Summary
     if diag.resource_history:
         rh = diag.resource_history
@@ -372,7 +371,7 @@ def format_diagnostic(diag: NodeDiagnostic) -> str:
         lines.append(f"    Avg CPU Load:    {rh.get('avg_cpu_load', 0):.1f}")
         lines.append(f"    Avg Memory:      {rh.get('avg_mem_pct', 0):.1f}%")
         lines.append(f"    State Changes:   {rh.get('state_changes', 0)}")
-    
+
     # Failure Summary
     fs = diag.failure_summary
     if fs.get('total_jobs', 0) > 0:
@@ -380,21 +379,21 @@ def format_diagnostic(diag: NodeDiagnostic) -> str:
         lines.append(f"  {'─' * 56}")
         fail_color = c.RED if fs['failure_rate'] > 0.2 else c.YELLOW if fs['failure_rate'] > 0.1 else c.GREEN
         lines.append(f"    Failed:          {fs['failed_jobs']} ({fail_color}{fs['failure_rate']*100:.0f}%{c.RESET})")
-        
+
         if fs.get('failure_types'):
-            lines.append(f"    Failure Types:")
+            lines.append("    Failure Types:")
             for ftype, count in sorted(fs['failure_types'].items(), key=lambda x: -x[1])[:5]:
                 lines.append(f"      {c.GRAY}•{c.RESET} {ftype}: {count}")
-        
+
         if fs.get('affected_users'):
             lines.append(f"    Affected Users:  {', '.join(fs['affected_users'][:5])}")
-    
+
     # Active Users
     if diag.active_users:
         lines.append(f"\n  {c.BOLD}Recent Users{c.RESET}")
         lines.append(f"  {'─' * 56}")
         lines.append(f"    {', '.join(diag.active_users[:8])}")
-    
+
     # Potential Causes
     lines.append(f"\n  {c.BOLD}Potential Causes{c.RESET}")
     lines.append(f"  {'─' * 56}")
@@ -402,12 +401,12 @@ def format_diagnostic(diag: NodeDiagnostic) -> str:
         conf_color = c.RED if cause['confidence'] == 'high' else c.YELLOW if cause['confidence'] == 'medium' else c.GRAY
         lines.append(f"    {conf_color}[{cause['confidence'].upper()}]{c.RESET} {cause['cause']}")
         lines.append(f"           {c.GRAY}{cause['detail']}{c.RESET}")
-    
+
     # Recommendations
     lines.append(f"\n  {c.BOLD}Recommendations{c.RESET}")
     lines.append(f"  {'─' * 56}")
     for rec in diag.recommendations[:6]:
         lines.append(f"    {c.CYAN}→{c.RESET} {rec}")
-    
+
     lines.append("")
     return '\n'.join(lines)
