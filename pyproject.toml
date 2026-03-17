@@ -9,10 +9,10 @@ description = "A lightweight HPC monitoring and predictive analytics tool"
 readme = "README.md"
 license = {text = "AGPL-3.0-or-later"}
 authors = [
-    {name = "Joao Tonini", email = "jtonini@richmond.edu"}
+    {name = "João Tonini", email = "jtonini@richmond.edu"}
 ]
 maintainers = [
-    {name = "Joao Tonini", email = "jtonini@richmond.edu"}
+    {name = "João Tonini", email = "jtonini@richmond.edu"}
 ]
 keywords = [
     "hpc",
@@ -31,7 +31,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -39,7 +38,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
     "Topic :: Scientific/Engineering",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 # Core dependencies (monitoring only)
 dependencies = [
@@ -124,7 +123,7 @@ line-length = 100
 target-version = ["py39", "py310", "py311", "py312"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
