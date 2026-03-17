@@ -256,7 +256,7 @@ class DerivativeAnalyzer:
                 time_span_hours=0,
             )
 
-        current = self.smoothed_history[-1]['v']
+        current = self.history[-1]['v'] if self.history else self.smoothed_history[-1]['v']
         d1 = self.first_derivative()
         d2 = self.second_derivative()
 
