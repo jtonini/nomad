@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NØMAD Similarity Analysis
 
@@ -14,11 +15,10 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import numpy as np
-from scipy.spatial.distance import cosine, pdist, squareform
-from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import squareform
 
 logger = logging.getLogger(__name__)
 
@@ -27,39 +27,39 @@ logger = logging.getLogger(__name__)
 class JobFeatures:
     """Enriched feature vector for a job."""
     job_id: str
-    
+
     # From job_summary (sacct)
     health_score: float
     cpu_efficiency: float
     memory_efficiency: float
     used_gpu: bool
     had_swap: bool
-    
+
     # From job_io_samples (monitor)
     total_write_gb: float
     write_rate_mbps: float  # Peak write rate
     nfs_ratio: float
     sample_count: int
     runtime_minutes: float
-    
+
     # From iostat (system-level during job)
     avg_iowait_percent: float
     peak_iowait_percent: float
     avg_device_util: float
-    
+
     # From mpstat (core-level during job)
     avg_core_busy: float
     core_imbalance_ratio: float  # std/avg - higher = more imbalance
     max_core_busy: float
-    
+
     # From vmstat (memory pressure during job)
     avg_memory_pressure: float
     peak_swap_activity: float  # swap_in + swap_out
     avg_procs_blocked: float
-    
+
     # Derived
     write_intensity: float  # GB per minute
-    
+
     def to_vector(self) -> np.ndarray:
         """Convert to normalized feature vector for similarity."""
         return np.array([
@@ -83,12 +83,12 @@ class JobFeatures:
             min(self.peak_swap_activity / 1000, 1.0),  # Normalize to 1000 KB/s
             min(self.avg_procs_blocked / 10, 1.0),  # Normalize to 10 blocked procs
         ])
-    
+
     @property
     def feature_names(self) -> list[str]:
         return [
             'health_score',
-            'cpu_efficiency', 
+            'cpu_efficiency',
             'memory_efficiency',
             'used_gpu',
             'had_swap',
@@ -117,17 +117,17 @@ class SimilarityAnalyzer:
     - job_summary: sacct metrics, health scores
     - job_io_samples: real-time I/O monitoring
     """
-    
+
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
         self._conn = None
-    
+
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
             self._conn = sqlite3.connect(self.db_path)
             self._conn.row_factory = sqlite3.Row
         return self._conn
-    
+
     def get_enriched_features(self, min_samples: int = 3) -> list[JobFeatures]:
         """
         Get enriched feature vectors for jobs with I/O data.
@@ -139,7 +139,7 @@ class SimilarityAnalyzer:
             List of JobFeatures with combined metrics
         """
         conn = self._get_conn()
-        
+
         query = """
         SELECT 
             js.job_id,
@@ -165,19 +165,19 @@ class SimilarityAnalyzer:
         HAVING sample_count >= ?
         ORDER BY js.job_id
         """
-        
+
         rows = conn.execute(query, (min_samples,)).fetchall()
-        
+
         features = []
         for row in rows:
             runtime = max(row['runtime_minutes'] or 1, 1)  # Avoid division by zero
             total_write = row['total_write_gb'] or 0
-            
+
             # Get iostat data during job runtime
             avg_iowait = 0.0
             peak_iowait = 0.0
             avg_device_util = 0.0
-            
+
             if row['start_time'] and row['end_time']:
                 iostat_query = """
                 SELECT 
@@ -186,12 +186,12 @@ class SimilarityAnalyzer:
                 FROM iostat_cpu
                 WHERE timestamp BETWEEN ? AND ?
                 """
-                iostat_row = conn.execute(iostat_query, 
+                iostat_row = conn.execute(iostat_query,
                     (row['start_time'], row['end_time'])).fetchone()
                 if iostat_row:
                     avg_iowait = iostat_row['avg_iowait'] or 0.0
                     peak_iowait = iostat_row['peak_iowait'] or 0.0
-                
+
                 # Device utilization
                 device_query = """
                 SELECT AVG(util_percent) as avg_util
@@ -203,7 +203,7 @@ class SimilarityAnalyzer:
                     (row['start_time'], row['end_time'])).fetchone()
                 if device_row:
                     avg_device_util = device_row['avg_util'] or 0.0
-                
+
                 # Core utilization from mpstat
                 mpstat_query = """
                 SELECT 
@@ -223,7 +223,7 @@ class SimilarityAnalyzer:
                     avg_core_busy = 0.0
                     core_imbalance = 0.0
                     max_core_busy = 0.0
-                
+
                 # Memory pressure from vmstat
                 vmstat_query = """
                 SELECT 
@@ -250,7 +250,7 @@ class SimilarityAnalyzer:
                 avg_memory_pressure = 0.0
                 peak_swap_activity = 0.0
                 avg_procs_blocked = 0.0
-            
+
             features.append(JobFeatures(
                 job_id=row['job_id'],
                 health_score=row['health_score'] or 0.5,
@@ -274,10 +274,10 @@ class SimilarityAnalyzer:
                 avg_procs_blocked=avg_procs_blocked,
                 write_intensity=total_write / runtime if runtime > 0 else 0,
             ))
-        
+
         logger.info(f"Loaded {len(features)} jobs with enriched features")
         return features
-    
+
     def compute_similarity_matrix(self, features: list[JobFeatures]) -> tuple[np.ndarray, list[str]]:
         """
         Compute pairwise cosine similarity matrix.
@@ -287,27 +287,27 @@ class SimilarityAnalyzer:
         """
         if not features:
             return np.array([]), []
-        
+
         # Build feature matrix
         job_ids = [f.job_id for f in features]
         vectors = np.array([f.to_vector() for f in features])
-        
+
         # Handle zero vectors
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
         norms[norms == 0] = 1  # Avoid division by zero
         normalized = vectors / norms
-        
+
         # Cosine similarity = 1 - cosine distance
         # For normalized vectors: similarity = dot product
         similarity = np.dot(normalized, normalized.T)
-        
+
         # Ensure diagonal is 1.0
         np.fill_diagonal(similarity, 1.0)
-        
+
         logger.info(f"Computed {len(job_ids)}x{len(job_ids)} similarity matrix")
         return similarity, job_ids
-    
-    def cluster_jobs(self, similarity: np.ndarray, job_ids: list[str], 
+
+    def cluster_jobs(self, similarity: np.ndarray, job_ids: list[str],
                      n_clusters: int = None, threshold: float = 0.5) -> dict[str, int]:
         """
         Cluster jobs based on similarity.
@@ -323,29 +323,29 @@ class SimilarityAnalyzer:
         """
         if len(job_ids) < 2:
             return {job_ids[0]: 0} if job_ids else {}
-        
+
         # Convert similarity to distance
         distance = 1 - similarity
-        
+
         # Condensed distance matrix for scipy
         condensed = squareform(distance, checks=False)
-        
+
         # Hierarchical clustering
         linkage_matrix = linkage(condensed, method='average')
-        
+
         if n_clusters:
             clusters = fcluster(linkage_matrix, n_clusters, criterion='maxclust')
         else:
             clusters = fcluster(linkage_matrix, threshold, criterion='distance')
-        
+
         result = {job_id: int(cluster) for job_id, cluster in zip(job_ids, clusters)}
-        
+
         n_clusters_found = len(set(clusters))
         logger.info(f"Found {n_clusters_found} clusters")
-        
+
         return result
-    
-    def find_anomalies(self, features: list[JobFeatures], 
+
+    def find_anomalies(self, features: list[JobFeatures],
                        similarity: np.ndarray,
                        threshold: float = 0.3) -> list[tuple[str, float]]:
         """
@@ -356,29 +356,29 @@ class SimilarityAnalyzer:
         """
         if len(features) < 2:
             return []
-        
+
         job_ids = [f.job_id for f in features]
-        
+
         # Average similarity to other jobs (excluding self)
         n = len(similarity)
         avg_similarity = (similarity.sum(axis=1) - 1) / (n - 1)
-        
+
         # Anomaly score = 1 - avg_similarity
         anomaly_scores = 1 - avg_similarity
-        
+
         # Filter and sort
         anomalies = [
             (job_ids[i], float(anomaly_scores[i]))
             for i in range(n)
             if anomaly_scores[i] > threshold
         ]
-        
+
         anomalies.sort(key=lambda x: x[1], reverse=True)
-        
+
         logger.info(f"Found {len(anomalies)} anomalies (threshold={threshold})")
         return anomalies
-    
-    def get_cluster_profiles(self, features: list[JobFeatures], 
+
+    def get_cluster_profiles(self, features: list[JobFeatures],
                             clusters: dict[str, int]) -> dict[int, dict]:
         """
         Compute average profile for each cluster.
@@ -393,16 +393,16 @@ class SimilarityAnalyzer:
             if cluster_id not in cluster_features:
                 cluster_features[cluster_id] = []
             cluster_features[cluster_id].append(f)
-        
+
         profiles = {}
         for cluster_id, feats in cluster_features.items():
             vectors = np.array([f.to_vector() for f in feats])
             avg_vector = vectors.mean(axis=0)
-            
+
             # Health distribution
             health_scores = [f.health_score for f in feats]
             failure_rate = sum(1 for h in health_scores if h < 0.5) / len(health_scores)
-            
+
             profiles[cluster_id] = {
                 'count': len(feats),
                 'failure_rate': failure_rate,
@@ -412,9 +412,9 @@ class SimilarityAnalyzer:
                 'avg_nfs_ratio': np.mean([f.nfs_ratio for f in feats]),
                 'feature_vector': avg_vector.tolist(),
             }
-        
+
         return profiles
-    
+
     def find_similar_jobs(self, job_id: str, features: list[JobFeatures],
                          similarity: np.ndarray, top_k: int = 5) -> list[tuple[str, float]]:
         """
@@ -424,28 +424,28 @@ class SimilarityAnalyzer:
             List of (job_id, similarity_score) sorted by similarity descending
         """
         job_ids = [f.job_id for f in features]
-        
+
         try:
             idx = job_ids.index(job_id)
         except ValueError:
             logger.warning(f"Job {job_id} not found in features")
             return []
-        
+
         # Get similarities for this job
         similarities = similarity[idx]
-        
+
         # Sort by similarity (excluding self)
         sorted_indices = np.argsort(similarities)[::-1]
-        
+
         results = []
         for i in sorted_indices:
             if job_ids[i] != job_id:
                 results.append((job_ids[i], float(similarities[i])))
                 if len(results) >= top_k:
                     break
-        
+
         return results
-    
+
     def export_for_visualization(self, features: list[JobFeatures],
                                  similarity: np.ndarray,
                                  clusters: dict[str, int]) -> dict:
@@ -456,7 +456,7 @@ class SimilarityAnalyzer:
             Dict with nodes and edges for network visualization
         """
         job_ids = [f.job_id for f in features]
-        
+
         nodes = []
         for f in features:
             nodes.append({
@@ -469,7 +469,7 @@ class SimilarityAnalyzer:
                 'write_intensity': f.write_intensity,
                 'features': f.to_vector().tolist(),
             })
-        
+
         # Create edges for similar jobs (threshold > 0.7)
         edges = []
         n = len(similarity)
@@ -481,7 +481,7 @@ class SimilarityAnalyzer:
                         'target': job_ids[j],
                         'weight': float(similarity[i, j]),
                     })
-        
+
         return {
             'nodes': nodes,
             'edges': edges,
@@ -492,19 +492,19 @@ class SimilarityAnalyzer:
                 'timestamp': datetime.now().isoformat(),
             }
         }
-    
+
     def summary_report(self) -> str:
         """Generate a text summary of job patterns."""
         features = self.get_enriched_features(min_samples=3)
-        
+
         if not features:
             return "No jobs with sufficient I/O data found."
-        
+
         similarity, job_ids = self.compute_similarity_matrix(features)
         clusters = self.cluster_jobs(similarity, job_ids)
         anomalies = self.find_anomalies(features, similarity)
         profiles = self.get_cluster_profiles(features, clusters)
-        
+
         lines = [
             "═══ NØMAD Similarity Analysis ═══",
             "",
@@ -514,7 +514,7 @@ class SimilarityAnalyzer:
             "",
             "─── Cluster Profiles ───",
         ]
-        
+
         for cluster_id, profile in sorted(profiles.items()):
             status = "⚠ HIGH RISK" if profile['failure_rate'] > 0.3 else "✓ Healthy"
             lines.append(f"\nCluster {cluster_id} ({profile['count']} jobs) {status}")
@@ -522,31 +522,31 @@ class SimilarityAnalyzer:
             lines.append(f"  Avg write: {profile['avg_write_gb']:.1f} GB")
             lines.append(f"  Avg runtime: {profile['avg_runtime_min']:.1f} min")
             lines.append(f"  Write intensity: {profile['avg_write_intensity']:.2f} GB/min")
-        
+
         if anomalies:
             lines.append("\n─── Anomalous Jobs ───")
             for job_id, score in anomalies[:5]:
                 lines.append(f"  {job_id}: anomaly_score={score:.2f}")
-        
+
         return "\n".join(lines)
 
 
 def main():
     """CLI for similarity analysis."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='NØMAD Similarity Analysis')
     parser.add_argument('--db', default='/var/lib/nomad/nomad.db', help='Database path')
     parser.add_argument('--min-samples', type=int, default=3, help='Min I/O samples per job')
     parser.add_argument('--export', type=str, help='Export JSON for visualization')
     parser.add_argument('--find-similar', type=str, help='Find jobs similar to this job ID')
-    
+
     args = parser.parse_args()
-    
+
     logging.basicConfig(level=logging.INFO)
-    
+
     analyzer = SimilarityAnalyzer(args.db)
-    
+
     if args.find_similar:
         features = analyzer.get_enriched_features(args.min_samples)
         similarity, job_ids = analyzer.compute_similarity_matrix(features)
@@ -559,7 +559,7 @@ def main():
         similarity, job_ids = analyzer.compute_similarity_matrix(features)
         clusters = analyzer.cluster_jobs(similarity, job_ids)
         data = analyzer.export_for_visualization(features, similarity, clusters)
-        
+
         with open(args.export, 'w') as f:
             json.dump(data, f, indent=2)
         print(f"Exported to {args.export}")

@@ -76,7 +76,7 @@ def parse_time(time_str: str) -> int:
     """Parse SLURM time string to seconds."""
     if not time_str:
         return 3600
-    
+
     # Handle days-hours:minutes:seconds format
     if '-' in time_str:
         days, rest = time_str.split('-')
@@ -84,7 +84,7 @@ def parse_time(time_str: str) -> int:
     else:
         days = 0
         rest = time_str
-    
+
     parts = rest.split(':')
     if len(parts) == 3:
         hours, minutes, seconds = map(int, parts)
@@ -94,7 +94,7 @@ def parse_time(time_str: str) -> int:
     else:
         hours = int(parts[0])
         minutes = seconds = 0
-    
+
     return days * 86400 + hours * 3600 + minutes * 60 + seconds
 
 
@@ -113,20 +113,20 @@ def score_job(features: dict, db_path: Path, logger) -> dict:
         'similar_total': 0,
         'recommendation': None
     }
-    
+
     if not db_path.exists():
         logger.warning(f"Database not found: {db_path}")
         return result
-    
+
     try:
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
-        
+
         # Get historical failure rate for similar jobs
         cpus = features['cpus_per_task'] * features['num_nodes']
         mem = features['mem_per_node']
         time_sec = features['time_limit']
-        
+
         # Find similar jobs (±20% tolerance)
         similar_query = """
             SELECT 
@@ -139,25 +139,25 @@ def score_job(features: dict, db_path: Path, logger) -> dict:
               AND req_mem_mb BETWEEN ? AND ?
               AND req_time_seconds BETWEEN ? AND ?
         """
-        
+
         cursor = conn.execute(similar_query, (
             max(1, cpus * 0.8), cpus * 1.2,
             max(1, mem * 0.8), mem * 1.2,
             max(1, time_sec * 0.8), time_sec * 1.2
         ))
         row = cursor.fetchone()
-        
+
         if row and row['total'] > 0:
             result['similar_total'] = row['total']
             result['similar_failures'] = row['failures']
             result['risk_score'] = row['failures'] / row['total']
-            
+
             # Generate specific recommendations
             if row['timeouts'] > row['failures'] * 0.5:
                 result['recommendation'] = "Similar jobs often timeout - consider increasing time limit"
             elif row['ooms'] > row['failures'] * 0.3:
                 result['recommendation'] = "Similar jobs often run out of memory - consider increasing memory"
-        
+
         # Check user-specific patterns
         user_query = """
             SELECT 
@@ -170,24 +170,24 @@ def score_job(features: dict, db_path: Path, logger) -> dict:
         """
         cursor = conn.execute(user_query, (features['user'],))
         user_row = cursor.fetchone()
-        
+
         if user_row and user_row['total'] > 10:
             user_failure_rate = user_row['failures'] / user_row['total']
             # Blend: 70% similar jobs, 30% user history
             result['risk_score'] = 0.7 * result['risk_score'] + 0.3 * user_failure_rate
-        
+
         conn.close()
-        
+
     except Exception as e:
         logger.error(f"Scoring error: {e}")
-    
+
     return result
 
 
 def log_high_risk(features: dict, score: dict):
     """Log high-risk job for admin review."""
     ALERT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(ALERT_FILE, 'a') as f:
         entry = {
             'timestamp': datetime.now().isoformat(),
@@ -205,28 +205,28 @@ def log_high_risk(features: dict, score: dict):
 def main():
     """Main entry point for prolog script."""
     logger = setup_logging()
-    
+
     try:
         features = get_job_features()
         logger.info(f"Scoring job {features['job_id']} for user {features['user']}")
-        
+
         score = score_job(features, DB_PATH, logger)
-        
+
         logger.info(
             f"Job {features['job_id']}: risk={score['risk_score']:.2f}, "
             f"similar={score['similar_failures']}/{score['similar_total']}"
         )
-        
+
         if score['risk_score'] > RISK_THRESHOLD:
             logger.warning(
                 f"HIGH RISK: Job {features['job_id']} (user={features['user']}, "
                 f"score={score['risk_score']:.2f})"
             )
             log_high_risk(features, score)
-        
+
         # Always exit 0 - don't block jobs, just log
         sys.exit(0)
-        
+
     except Exception as e:
         logger.error(f"Prolog error: {e}")
         sys.exit(0)  # Don't block jobs on error

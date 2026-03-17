@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NØMAD IOStat Collector
 
@@ -9,7 +10,6 @@ Captures device utilization, wait times, and throughput.
 """
 
 import logging
-import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,7 +27,7 @@ class CPUStats:
     system_percent: float
     iowait_percent: float
     idle_percent: float
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'user_percent': self.user_percent,
@@ -41,21 +41,21 @@ class CPUStats:
 class DeviceStats:
     """Per-device I/O statistics."""
     device: str
-    
+
     # Read metrics
     reads_per_sec: float
     read_kb_per_sec: float
     read_await_ms: float
-    
-    # Write metrics  
+
+    # Write metrics
     writes_per_sec: float
     write_kb_per_sec: float
     write_await_ms: float
-    
+
     # Utilization
     util_percent: float
     queue_length: float
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'device': self.device,
@@ -85,23 +85,23 @@ class IOStatCollector(BaseCollector):
         - Per-device latency (await)
         - Device utilization percentage
     """
-    
+
     name = "iostat"
     description = "System-level I/O statistics"
     default_interval = 60
-    
+
     def __init__(self, config: dict[str, Any], db_path: str):
         super().__init__(config, db_path)
-        
+
         self.devices = config.get('devices', None)  # None = auto-detect
         self.include_cpu = config.get('include_cpu', True)
         self.exclude_loops = config.get('exclude_loops', True)
-        
+
         logger.info(f"IOStatCollector: devices={self.devices or 'auto'}")
-    
+
     def collect(self) -> list[dict[str, Any]]:
         """Collect I/O statistics from iostat."""
-        
+
         try:
             # Run iostat with extended stats, single snapshot
             # -x: extended stats, -y: skip first report (since boot), 1 1: 1 sec interval, 1 report
@@ -111,51 +111,51 @@ class IOStatCollector(BaseCollector):
                 text=True,
                 timeout=10,
             )
-            
+
             if result.returncode != 0:
                 raise CollectionError(f"iostat failed: {result.stderr}")
-            
+
             return self._parse_iostat_output(result.stdout)
-            
+
         except FileNotFoundError:
             raise CollectionError("iostat not found - install sysstat package")
         except subprocess.TimeoutExpired:
             raise CollectionError("iostat timed out")
-    
+
     def _parse_iostat_output(self, output: str) -> list[dict[str, Any]]:
         """Parse iostat output into structured data."""
         records = []
         timestamp = datetime.now()
-        
+
         lines = output.strip().split('\n')
-        
+
         cpu_stats = None
         device_stats = []
-        
+
         parsing_cpu = False
         parsing_devices = False
-        
+
         for line in lines:
             line = line.strip()
-            
+
             # Detect CPU section
             if line.startswith('avg-cpu:'):
                 parsing_cpu = True
                 parsing_devices = False
                 continue
-            
+
             # Detect Device section
             if line.startswith('Device'):
                 parsing_cpu = False
                 parsing_devices = True
                 continue
-            
+
             # Parse CPU line
             if parsing_cpu and line:
                 cpu_stats = self._parse_cpu_line(line)
                 parsing_cpu = False
                 continue
-            
+
             # Parse device lines
             if parsing_devices and line:
                 device = self._parse_device_line(line)
@@ -166,7 +166,7 @@ class IOStatCollector(BaseCollector):
                     if self.devices and device.device not in self.devices:
                         continue
                     device_stats.append(device)
-        
+
         # Create records
         if cpu_stats and self.include_cpu:
             records.append({
@@ -174,16 +174,16 @@ class IOStatCollector(BaseCollector):
                 'timestamp': timestamp.isoformat(),
                 **cpu_stats.to_dict()
             })
-        
+
         for device in device_stats:
             records.append({
                 'type': 'iostat_device',
                 'timestamp': timestamp.isoformat(),
                 **device.to_dict()
             })
-        
+
         return records
-    
+
     def _parse_cpu_line(self, line: str) -> CPUStats | None:
         """Parse CPU statistics line."""
         try:
@@ -199,7 +199,7 @@ class IOStatCollector(BaseCollector):
         except (ValueError, IndexError) as e:
             logger.debug(f"Failed to parse CPU line: {e}")
         return None
-    
+
     def _parse_device_line(self, line: str) -> DeviceStats | None:
         """Parse device statistics line."""
         try:
@@ -234,10 +234,10 @@ class IOStatCollector(BaseCollector):
         except (ValueError, IndexError) as e:
             logger.debug(f"Failed to parse device line '{line}': {e}")
         return None
-    
+
     def store(self, data: list[dict[str, Any]]) -> None:
         """Store I/O statistics in database."""
-        
+
         with self.get_db_connection() as conn:
             # Ensure tables exist
             conn.execute("""
@@ -254,7 +254,7 @@ class IOStatCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_iostat_cpu_ts 
                 ON iostat_cpu(timestamp)
             """)
-            
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS iostat_device (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -274,7 +274,7 @@ class IOStatCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_iostat_device_ts 
                 ON iostat_device(timestamp, device)
             """)
-            
+
             for record in data:
                 if record.get('type') == 'iostat_cpu':
                     conn.execute(
@@ -312,10 +312,10 @@ class IOStatCollector(BaseCollector):
                             record['queue_length'],
                         )
                     )
-            
+
             conn.commit()
             logger.debug(f"Stored {len(data)} iostat records")
-    
+
     def get_recent_iowait(self, minutes: int = 60) -> list[tuple[datetime, float]]:
         """Get recent iowait percentages."""
         with self.get_db_connection() as conn:
@@ -328,9 +328,9 @@ class IOStatCollector(BaseCollector):
                 """,
                 (f'-{minutes} minutes',)
             ).fetchall()
-            
+
             return [(datetime.fromisoformat(row[0]), row[1]) for row in rows]
-    
+
     def get_device_stats(self, device: str, minutes: int = 60) -> list[dict]:
         """Get recent stats for a specific device."""
         with self.get_db_connection() as conn:
@@ -343,5 +343,5 @@ class IOStatCollector(BaseCollector):
                 """,
                 (device, f'-{minutes} minutes')
             ).fetchall()
-            
+
             return [dict(row) for row in rows]

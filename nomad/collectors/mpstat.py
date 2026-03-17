@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NØMAD MPStat Collector
 
@@ -33,12 +34,12 @@ class CoreStats:
     soft_percent: float
     steal_percent: float
     idle_percent: float
-    
+
     @property
     def busy_percent(self) -> float:
         """Total busy percentage (100 - idle)."""
         return 100.0 - self.idle_percent
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'core_id': self.core_id,
@@ -59,23 +60,23 @@ class CPUSummary:
     """Summary statistics across all cores."""
     timestamp: datetime
     num_cores: int
-    
+
     # Aggregate metrics
     avg_busy_percent: float
     max_busy_percent: float
     min_busy_percent: float
     std_busy_percent: float  # Standard deviation - indicates imbalance
-    
+
     # Iowait aggregates
     avg_iowait_percent: float
     max_iowait_percent: float
-    
+
     # Imbalance indicators
     busy_spread: float  # max - min busy
     imbalance_ratio: float  # std / avg (coefficient of variation)
     cores_idle: int  # cores with < 5% busy
     cores_saturated: int  # cores with > 95% busy
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'num_cores': self.num_cores,
@@ -106,22 +107,22 @@ class MPStatCollector(BaseCollector):
         - Summary statistics (avg, std, spread)
         - Imbalance indicators
     """
-    
+
     name = "mpstat"
     description = "Per-core CPU statistics"
     default_interval = 60
-    
+
     def __init__(self, config: dict[str, Any], db_path: str):
         super().__init__(config, db_path)
-        
+
         self.store_per_core = config.get('store_per_core', True)
         self.store_summary = config.get('store_summary', True)
-        
+
         logger.info(f"MPStatCollector: per_core={self.store_per_core}, summary={self.store_summary}")
-    
+
     def collect(self) -> list[dict[str, Any]]:
         """Collect CPU statistics from mpstat."""
-        
+
         try:
             # Run mpstat with per-CPU stats, single snapshot
             # -P ALL: all processors, 1 1: 1 second interval, 1 report
@@ -131,48 +132,48 @@ class MPStatCollector(BaseCollector):
                 text=True,
                 timeout=10,
             )
-            
+
             if result.returncode != 0:
                 raise CollectionError(f"mpstat failed: {result.stderr}")
-            
+
             return self._parse_mpstat_output(result.stdout)
-            
+
         except FileNotFoundError:
             raise CollectionError("mpstat not found - install sysstat package")
         except subprocess.TimeoutExpired:
             raise CollectionError("mpstat timed out")
-    
+
     def _parse_mpstat_output(self, output: str) -> list[dict[str, Any]]:
         """Parse mpstat output into structured data."""
         records = []
         timestamp = datetime.now()
-        
+
         lines = output.strip().split('\n')
         core_stats = []
-        
+
         for line in lines:
             line = line.strip()
-            
+
             # Skip header lines
             if not line or 'Linux' in line or 'CPU' in line and '%usr' in line:
                 continue
-            
+
             # Skip 'all' aggregate line (we compute our own)
             if line.startswith('all') or ' all ' in line:
                 continue
-            
+
             # Parse per-core line
             core = self._parse_core_line(line)
             if core is not None:
                 core_stats.append(core)
-                
+
                 if self.store_per_core:
                     records.append({
                         'type': 'mpstat_core',
                         'timestamp': timestamp.isoformat(),
                         **core.to_dict()
                     })
-        
+
         # Compute and store summary
         if core_stats and self.store_summary:
             summary = self._compute_summary(timestamp, core_stats)
@@ -181,14 +182,14 @@ class MPStatCollector(BaseCollector):
                 'timestamp': timestamp.isoformat(),
                 **summary.to_dict()
             })
-        
+
         return records
-    
+
     def _parse_core_line(self, line: str) -> CoreStats | None:
         """Parse a single core statistics line."""
         try:
             parts = line.split()
-            
+
             # Find the core ID (could be at different positions)
             # Format varies: "HH:MM:SS  0  1.00 ..." or "0  1.00 ..."
             core_idx = None
@@ -196,17 +197,17 @@ class MPStatCollector(BaseCollector):
                 if part.isdigit() and i < 3:
                     core_idx = i
                     break
-            
+
             if core_idx is None:
                 return None
-            
+
             core_id = int(parts[core_idx])
-            
+
             # Values follow core ID
             # Order: %usr %nice %sys %iowait %irq %soft %steal %guest %gnice %idle
             # But may vary, typically: usr nice sys iowait irq soft steal idle
             values = [float(v) for v in parts[core_idx + 1:] if self._is_float(v)]
-            
+
             if len(values) >= 8:
                 return CoreStats(
                     core_id=core_id,
@@ -232,11 +233,11 @@ class MPStatCollector(BaseCollector):
                     steal_percent=0,
                     idle_percent=values[-1],
                 )
-                
+
         except (ValueError, IndexError) as e:
             logger.debug(f"Failed to parse core line '{line}': {e}")
         return None
-    
+
     def _is_float(self, value: str) -> bool:
         """Check if string is a valid float."""
         try:
@@ -244,15 +245,15 @@ class MPStatCollector(BaseCollector):
             return True
         except ValueError:
             return False
-    
+
     def _compute_summary(self, timestamp: datetime, cores: list[CoreStats]) -> CPUSummary:
         """Compute summary statistics across all cores."""
         busy_values = np.array([c.busy_percent for c in cores])
         iowait_values = np.array([c.iowait_percent for c in cores])
-        
+
         avg_busy = float(np.mean(busy_values))
         std_busy = float(np.std(busy_values))
-        
+
         return CPUSummary(
             timestamp=timestamp,
             num_cores=len(cores),
@@ -267,10 +268,10 @@ class MPStatCollector(BaseCollector):
             cores_idle=int(np.sum(busy_values < 5)),
             cores_saturated=int(np.sum(busy_values > 95)),
         )
-    
+
     def store(self, data: list[dict[str, Any]]) -> None:
         """Store CPU statistics in database."""
-        
+
         with self.get_db_connection() as conn:
             # Ensure tables exist
             conn.execute("""
@@ -297,7 +298,7 @@ class MPStatCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_mpstat_core_id 
                 ON mpstat_core(timestamp, core_id)
             """)
-            
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS mpstat_summary (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -319,7 +320,7 @@ class MPStatCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_mpstat_summary_ts 
                 ON mpstat_summary(timestamp)
             """)
-            
+
             for record in data:
                 if record.get('type') == 'mpstat_core':
                     conn.execute(
@@ -369,10 +370,10 @@ class MPStatCollector(BaseCollector):
                             record['cores_saturated'],
                         )
                     )
-            
+
             conn.commit()
             logger.debug(f"Stored {len(data)} mpstat records")
-    
+
     def get_recent_summary(self, minutes: int = 60) -> list[dict]:
         """Get recent summary statistics."""
         with self.get_db_connection() as conn:
@@ -387,7 +388,7 @@ class MPStatCollector(BaseCollector):
                 (f'-{minutes} minutes',)
             ).fetchall()
             return rows
-    
+
     def get_core_history(self, core_id: int, minutes: int = 60) -> list[dict]:
         """Get history for a specific core."""
         with self.get_db_connection() as conn:
@@ -402,7 +403,7 @@ class MPStatCollector(BaseCollector):
                 (core_id, f'-{minutes} minutes')
             ).fetchall()
             return rows
-    
+
     def get_imbalanced_periods(self, threshold: float = 0.5, minutes: int = 60) -> list[dict]:
         """Find periods of high core imbalance."""
         with self.get_db_connection() as conn:

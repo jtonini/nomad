@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NØMAD VMStat Collector
 
@@ -25,32 +26,32 @@ class VMStats:
     # Processes
     procs_runnable: int      # r: processes waiting for run time
     procs_blocked: int       # b: processes in uninterruptible sleep (I/O)
-    
+
     # Memory (KB)
     swap_used_kb: int        # swpd: virtual memory used
     free_kb: int             # free: idle memory
     buffer_kb: int           # buff: memory used as buffers
     cache_kb: int            # cache: memory used as cache
-    
+
     # Swap activity (KB/s)
     swap_in_kb: int          # si: memory swapped in from disk
     swap_out_kb: int         # so: memory swapped out to disk
-    
+
     # I/O (blocks/s)
     blocks_in: int           # bi: blocks received from device
     blocks_out: int          # bo: blocks sent to device
-    
+
     # System
     interrupts: int          # in: interrupts per second
     context_switches: int    # cs: context switches per second
-    
+
     # CPU percentages
     cpu_user: int            # us: user time
     cpu_system: int          # sy: system time
     cpu_idle: int            # id: idle time
     cpu_iowait: int          # wa: waiting for I/O
     cpu_steal: int           # st: stolen from VM
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'procs_runnable': self.procs_runnable,
@@ -71,7 +72,7 @@ class VMStats:
             'cpu_iowait': self.cpu_iowait,
             'cpu_steal': self.cpu_steal,
         }
-    
+
     @property
     def memory_pressure(self) -> float:
         """
@@ -81,12 +82,12 @@ class VMStats:
         total_mem = self.free_kb + self.buffer_kb + self.cache_kb + self.swap_used_kb
         if total_mem == 0:
             return 0.0
-        
+
         # Factors contributing to memory pressure
         swap_ratio = min(self.swap_used_kb / max(total_mem, 1), 1.0)
         swap_activity = min((self.swap_in_kb + self.swap_out_kb) / 1000, 1.0)
         blocked_ratio = min(self.procs_blocked / 10, 1.0)
-        
+
         # Weighted combination
         pressure = (0.4 * swap_ratio + 0.4 * swap_activity + 0.2 * blocked_ratio)
         return min(pressure, 1.0)
@@ -104,18 +105,18 @@ class VMStatCollector(BaseCollector):
         - Context switches and interrupts
         - CPU breakdown
     """
-    
+
     name = "vmstat"
     description = "Memory pressure and swap statistics"
     default_interval = 60
-    
+
     def __init__(self, config: dict[str, Any], db_path: str):
         super().__init__(config, db_path)
         logger.info("VMStatCollector initialized")
-    
+
     def collect(self) -> list[dict[str, Any]]:
         """Collect statistics from vmstat."""
-        
+
         try:
             # Run vmstat with 1 second interval, 2 reports (skip first which is since boot)
             result = subprocess.run(
@@ -124,24 +125,24 @@ class VMStatCollector(BaseCollector):
                 text=True,
                 timeout=10,
             )
-            
+
             if result.returncode != 0:
                 raise CollectionError(f"vmstat failed: {result.stderr}")
-            
+
             return self._parse_vmstat_output(result.stdout)
-            
+
         except FileNotFoundError:
             raise CollectionError("vmstat not found")
         except subprocess.TimeoutExpired:
             raise CollectionError("vmstat timed out")
-    
+
     def _parse_vmstat_output(self, output: str) -> list[dict[str, Any]]:
         """Parse vmstat output."""
         records = []
         timestamp = datetime.now()
-        
+
         lines = output.strip().split('\n')
-        
+
         # Find the last data line (skip header and first report)
         data_line = None
         for line in reversed(lines):
@@ -149,10 +150,10 @@ class VMStatCollector(BaseCollector):
             if len(parts) >= 17 and parts[0].isdigit():
                 data_line = parts
                 break
-        
+
         if not data_line:
             return records
-        
+
         try:
             # Parse vmstat columns
             # procs: r b | memory: swpd free buff cache | swap: si so | io: bi bo | system: in cs | cpu: us sy id wa st
@@ -175,22 +176,22 @@ class VMStatCollector(BaseCollector):
                 cpu_iowait=int(data_line[15]),
                 cpu_steal=int(data_line[16]) if len(data_line) > 16 else 0,
             )
-            
+
             records.append({
                 'type': 'vmstat',
                 'timestamp': timestamp.isoformat(),
                 'memory_pressure': stats.memory_pressure,
                 **stats.to_dict()
             })
-            
+
         except (ValueError, IndexError) as e:
             logger.warning(f"Failed to parse vmstat output: {e}")
-        
+
         return records
-    
+
     def store(self, data: list[dict[str, Any]]) -> None:
         """Store vmstat data in database."""
-        
+
         with self.get_db_connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS vmstat (
@@ -220,7 +221,7 @@ class VMStatCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_vmstat_ts 
                 ON vmstat(timestamp)
             """)
-            
+
             for record in data:
                 if record.get('type') == 'vmstat':
                     conn.execute(
@@ -255,6 +256,6 @@ class VMStatCollector(BaseCollector):
                             record['memory_pressure'],
                         )
                     )
-            
+
             conn.commit()
             logger.debug(f"Stored {len(data)} vmstat records")

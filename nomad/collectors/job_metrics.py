@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NØMAD Job Metrics Collector
 
@@ -32,7 +33,7 @@ HEALTH_WEIGHTS = {
 @dataclass
 class JobMetrics:
     """Comprehensive job metrics from sacct."""
-    
+
     job_id: str
     job_name: str
     user_name: str
@@ -40,42 +41,42 @@ class JobMetrics:
     partition: str
     state: str
     exit_code: int
-    
+
     # Time metrics
     submit_time: datetime | None
     start_time: datetime | None
     end_time: datetime | None
     elapsed_seconds: int
     timelimit_seconds: int | None
-    
+
     # Resource requests
     req_cpus: int
     req_mem_mb: int
     req_gpus: int
-    
+
     # Actual usage
     avg_cpu_percent: float | None
     max_rss_mb: float | None
     avg_rss_mb: float | None
     max_vmsize_mb: float | None
-    
+
     # I/O metrics
     max_disk_read_mb: float | None
     max_disk_write_mb: float | None
     avg_disk_read_mb: float | None
     avg_disk_write_mb: float | None
-    
+
     # Derived metrics (computed)
     cpu_efficiency: float | None = None
     memory_efficiency: float | None = None
     nfs_ratio: float | None = None
     used_gpu: bool = False
     had_swap: bool = False
-    
+
     # Health and clustering
     health_score: float | None = None
     feature_vector: list[float] = field(default_factory=list)
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'job_id': self.job_id,
@@ -128,11 +129,11 @@ class JobMetricsCollector(BaseCollector):
         - Feature vectors for similarity analysis
         - Health scores
     """
-    
+
     name = "job_metrics"
     description = "Detailed job metrics from sacct"
     default_interval = 300  # 5 minutes
-    
+
     # sacct format string
     SACCT_FORMAT = (
         "JobID,JobName,User,Group,Partition,State,ExitCode,"
@@ -141,20 +142,20 @@ class JobMetricsCollector(BaseCollector):
         "AveCPU,MaxRSS,AveRSS,MaxVMSize,"
         "MaxDiskRead,MaxDiskWrite,AveDiskRead,AveDiskWrite"
     )
-    
+
     def __init__(self, config: dict[str, Any], db_path: str):
         super().__init__(config, db_path)
-        
+
         self.lookback_hours = config.get('lookback_hours', 24)
         self.min_runtime = config.get('min_runtime_seconds', 10)
         self.partitions = config.get('partitions', None)
-        
+
         # Track processed jobs to avoid duplicates
         self._processed_jobs: set[str] = set()
         self._load_processed_jobs()
-        
+
         logger.info(f"JobMetricsCollector: lookback={self.lookback_hours}h, min_runtime={self.min_runtime}s")
-    
+
     def _load_processed_jobs(self) -> None:
         """Load already processed job IDs from database."""
         try:
@@ -166,14 +167,14 @@ class JobMetricsCollector(BaseCollector):
                 logger.debug(f"Loaded {len(self._processed_jobs)} processed jobs")
         except Exception as e:
             logger.debug(f"Could not load processed jobs: {e}")
-    
+
     def collect(self) -> list[dict[str, Any]]:
         """Collect job metrics from sacct."""
-        
+
         # Calculate time range
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=self.lookback_hours)
-        
+
         try:
             # Build sacct command
             cmd = [
@@ -184,55 +185,55 @@ class JobMetricsCollector(BaseCollector):
                 '--endtime', end_time.strftime('%Y-%m-%dT%H:%M:%S'),
                 '--state', 'COMPLETED,FAILED,TIMEOUT,CANCELLED',
             ]
-            
+
             if self.partitions:
                 cmd.extend(['--partition', ','.join(self.partitions)])
-            
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=60,
             )
-            
+
             if result.returncode != 0:
                 raise CollectionError(f"sacct failed: {result.stderr}")
-            
+
             # Parse jobs
             jobs = []
             for line in result.stdout.strip().split('\n'):
                 if not line.strip():
                     continue
-                
+
                 job = self._parse_sacct_line(line)
                 if job and self._should_include(job):
                     # Compute derived metrics
                     self._compute_derived_metrics(job)
                     self._compute_feature_vector(job)
                     self._compute_health_score(job)
-                    
+
                     jobs.append({
                         'type': 'job_metrics',
                         **job.to_dict()
                     })
-                    
+
                     self._processed_jobs.add(job.job_id)
-            
+
             logger.info(f"Collected metrics for {len(jobs)} jobs")
             return jobs
-            
+
         except subprocess.TimeoutExpired:
             raise CollectionError("sacct command timed out")
-    
+
     def _parse_sacct_line(self, line: str) -> JobMetrics | None:
         """Parse a sacct output line."""
         try:
             parts = line.split('|')
             if len(parts) < 23:
                 return None
-            
+
             job_id = parts[0].split('.')[0]  # Remove step suffix
-            
+
             return JobMetrics(
                 job_id=job_id,
                 job_name=parts[1] or 'unknown',
@@ -261,46 +262,46 @@ class JobMetricsCollector(BaseCollector):
         except Exception as e:
             logger.debug(f"Failed to parse sacct line: {e}")
             return None
-    
+
     def _should_include(self, job: JobMetrics) -> bool:
         """Check if job should be included in collection."""
         # Skip already processed
         if job.job_id in self._processed_jobs:
             return False
-        
+
         # Skip very short jobs
         if job.elapsed_seconds < self.min_runtime:
             return False
-        
+
         return True
-    
+
     def _compute_derived_metrics(self, job: JobMetrics) -> None:
         """Compute derived metrics from raw data."""
-        
+
         # CPU efficiency: actual CPU time / (elapsed * cores)
         if job.avg_cpu_percent and job.elapsed_seconds > 0 and job.req_cpus > 0:
             # avg_cpu_percent is already percentage
             job.cpu_efficiency = job.avg_cpu_percent / 100.0
-        
+
         # Memory efficiency: max_rss / requested
         if job.max_rss_mb and job.req_mem_mb > 0:
             job.memory_efficiency = job.max_rss_mb / job.req_mem_mb
-        
+
         # GPU usage detection
         job.used_gpu = job.req_gpus > 0
-        
+
         # Swap detection (VMSize >> RSS suggests swap)
         if job.max_vmsize_mb and job.max_rss_mb:
             job.had_swap = job.max_vmsize_mb > job.max_rss_mb * 2
-        
+
         # NFS ratio (placeholder - would need actual NFS vs local breakdown)
         # For now, estimate from total I/O patterns
         # In production, this would come from /proc or cgroups
         job.nfs_ratio = 0.0  # Default to local
-    
+
     def _compute_feature_vector(self, job: JobMetrics) -> None:
         """Compute normalized feature vector for similarity analysis."""
-        
+
         # Features (all normalized 0-1):
         features = [
             min(job.cpu_efficiency or 0, 1.0),
@@ -311,49 +312,49 @@ class JobMetricsCollector(BaseCollector):
             min((job.max_disk_write_mb or 0) / 10000, 1.0),  # Normalize to 10GB
             1.0 if job.state == 'COMPLETED' and job.exit_code == 0 else 0.0,
         ]
-        
+
         job.feature_vector = features
-    
+
     def _compute_health_score(self, job: JobMetrics) -> None:
         """Compute health score (0-1, higher is better)."""
-        
+
         score = 0.5  # Start neutral
-        
+
         # Success bonus
         if job.state == 'COMPLETED' and job.exit_code == 0:
             score += 0.3
         elif job.state in ('FAILED', 'TIMEOUT'):
             score -= 0.3
-        
+
         # Efficiency bonuses
         if job.cpu_efficiency:
             if job.cpu_efficiency > 0.8:
                 score += 0.1
             elif job.cpu_efficiency < 0.2:
                 score -= 0.1
-        
+
         if job.memory_efficiency:
             if 0.5 <= job.memory_efficiency <= 0.9:
                 score += 0.1  # Good memory usage
             elif job.memory_efficiency > 1.0:
                 score -= 0.1  # Over-used memory
-        
+
         # Penalties
         if job.had_swap:
             score -= 0.2
-        
+
         if job.nfs_ratio and job.nfs_ratio > 0.5:
             score -= 0.1
-        
+
         # Clamp to [0, 1]
         job.health_score = max(0.0, min(1.0, score))
-    
+
     def _parse_int(self, value: str) -> int:
         try:
             return int(value.strip()) if value.strip() else 0
         except ValueError:
             return 0
-    
+
     def _parse_exit_code(self, value: str) -> int:
         """Parse exit code from format like '0:0'."""
         try:
@@ -362,33 +363,33 @@ class JobMetricsCollector(BaseCollector):
             return int(value) if value.strip() else 0
         except ValueError:
             return 0
-    
+
     def _parse_memory(self, value: str) -> float | None:
         """Parse memory string to MB."""
         try:
             value = value.strip().upper()
             if not value or value in ('', 'N/A', '0'):
                 return None
-            
+
             # Handle units
             multipliers = {'K': 1/1024, 'M': 1, 'G': 1024, 'T': 1024*1024}
-            
+
             for suffix, mult in multipliers.items():
                 if value.endswith(suffix):
                     return float(value[:-1]) * mult
-            
+
             # Try as bytes, convert to MB
             return float(value) / (1024 * 1024)
         except ValueError:
             return None
-    
+
     def _parse_elapsed(self, value: str) -> int:
         """Parse elapsed time to seconds."""
         try:
             value = value.strip()
             if not value or value in ('', 'UNLIMITED', 'INVALID'):
                 return 0
-            
+
             # Format: [D-]HH:MM:SS or MM:SS
             days = 0
             if '-' in value:
@@ -396,7 +397,7 @@ class JobMetricsCollector(BaseCollector):
                 days = int(day_part)
             else:
                 time_part = value
-            
+
             parts = time_part.split(':')
             if len(parts) == 3:
                 h, m, s = map(int, parts)
@@ -405,18 +406,18 @@ class JobMetricsCollector(BaseCollector):
                 m, s = map(int, parts)
             else:
                 return int(parts[0])
-            
+
             return days * 86400 + h * 3600 + m * 60 + s
         except ValueError:
             return 0
-    
+
     def _parse_datetime(self, value: str) -> datetime | None:
         """Parse datetime string."""
         try:
             value = value.strip()
             if not value or value in ('Unknown', 'N/A', 'None'):
                 return None
-            
+
             for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S']:
                 try:
                     return datetime.strptime(value, fmt)
@@ -425,30 +426,30 @@ class JobMetricsCollector(BaseCollector):
             return None
         except Exception:
             return None
-    
+
     def _parse_cpu_time(self, value: str) -> float | None:
         """Parse CPU time/percentage."""
         try:
             value = value.strip()
             if not value or value in ('', 'N/A'):
                 return None
-            
+
             # If it's a time format (HH:MM:SS), convert to percentage
             if ':' in value:
                 seconds = self._parse_elapsed(value)
                 return float(seconds) if seconds > 0 else None
-            
+
             return float(value)
         except ValueError:
             return None
-    
+
     def _parse_gpus(self, value: str) -> int:
         """Parse GPU request from ReqTRES format (e.g., 'gres/gpu=2' or 'gres/gpu:a100=2')."""
         try:
             value = value.strip()
             if not value or value in ('', 'N/A'):
                 return 0
-            
+
             # ReqTRES format: cpu=4,mem=8G,gres/gpu=2 or gres/gpu:type=N
             if 'gpu' in value.lower():
                 # Find gpu part
@@ -461,15 +462,15 @@ class JobMetricsCollector(BaseCollector):
             return 0
         except ValueError:
             return 0
-    
+
     def store(self, data: list[dict[str, Any]]) -> None:
         """Store job metrics in database."""
-        
+
         with self.get_db_connection() as conn:
             for record in data:
                 if record.get('type') != 'job_metrics':
                     continue
-                
+
                 # Update jobs table
                 conn.execute(
                     """
@@ -502,7 +503,7 @@ class JobMetricsCollector(BaseCollector):
                         record['elapsed_seconds'],
                     )
                 )
-                
+
                 # Update job_summary table
                 conn.execute(
                     """
@@ -531,10 +532,10 @@ class JobMetricsCollector(BaseCollector):
                         record['feature_vector'],
                     )
                 )
-            
+
             conn.commit()
             logger.debug(f"Stored {len(data)} job metrics records")
-    
+
     def get_job_features(self, job_id: str) -> list[float] | None:
         """Get feature vector for a specific job."""
         with self.get_db_connection() as conn:
@@ -542,11 +543,11 @@ class JobMetricsCollector(BaseCollector):
                 "SELECT feature_vector FROM job_summary WHERE job_id = ?",
                 (job_id,)
             ).fetchone()
-            
+
             if row and row[0]:
                 return json.loads(row[0])
         return None
-    
+
     def get_recent_features(self, limit: int = 100) -> list[tuple[str, list[float]]]:
         """Get recent job IDs and their feature vectors."""
         with self.get_db_connection() as conn:
@@ -561,5 +562,5 @@ class JobMetricsCollector(BaseCollector):
                 """,
                 (limit,)
             ).fetchall()
-            
+
             return [(row[0], json.loads(row[1])) for row in rows if row[1]]

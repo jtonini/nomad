@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NØMAD NFS I/O Collector
 
@@ -15,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from .base import BaseCollector, CollectionError, registry
+from .base import BaseCollector, registry
 
 logger = logging.getLogger(__name__)
 
@@ -25,23 +26,23 @@ class NFSStats:
     """NFS mount statistics."""
     mount_point: str
     server: str
-    
+
     # Operations per second
     ops_per_sec: float
     read_ops_per_sec: float
     write_ops_per_sec: float
-    
+
     # Throughput (KB/s)
     read_kb_per_sec: float
     write_kb_per_sec: float
-    
+
     # Latency (ms)
     avg_rtt_ms: float       # Round-trip time
     avg_exe_ms: float       # Execution time (includes queue)
-    
+
     # Retransmissions
     retrans_percent: float
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'mount_point': self.mount_point,
@@ -72,22 +73,22 @@ class NFSCollector(BaseCollector):
         - Latency (RTT, execution time)
         - Retransmissions
     """
-    
+
     name = "nfs"
     description = "NFS I/O statistics"
     default_interval = 60
-    
+
     def __init__(self, config: dict[str, Any], db_path: str):
         super().__init__(config, db_path)
-        
+
         self._nfs_available = None  # Lazy check
         logger.info("NFSCollector initialized")
-    
+
     def _check_nfs_available(self) -> bool:
         """Check if nfsiostat is available and NFS mounts exist."""
         if self._nfs_available is not None:
             return self._nfs_available
-        
+
         # Check for nfsiostat command
         try:
             result = subprocess.run(
@@ -102,10 +103,10 @@ class NFSCollector(BaseCollector):
         except (FileNotFoundError, subprocess.TimeoutExpired):
             self._nfs_available = False
             return False
-        
+
         # Check for NFS mounts
         try:
-            with open('/proc/mounts', 'r') as f:
+            with open('/proc/mounts') as f:
                 mounts = f.read()
                 has_nfs = any(t in mounts for t in ['nfs ', 'nfs4 '])
                 if not has_nfs:
@@ -114,16 +115,16 @@ class NFSCollector(BaseCollector):
                     return False
         except Exception:
             pass
-        
+
         self._nfs_available = True
         return True
-    
+
     def collect(self) -> list[dict[str, Any]]:
         """Collect NFS statistics from nfsiostat."""
-        
+
         if not self._check_nfs_available():
             return []  # Gracefully return empty
-        
+
         try:
             # Run nfsiostat with 1 second interval, single report
             result = subprocess.run(
@@ -132,33 +133,33 @@ class NFSCollector(BaseCollector):
                 text=True,
                 timeout=10,
             )
-            
+
             if result.returncode != 0:
                 logger.debug(f"nfsiostat failed: {result.stderr}")
                 return []
-            
+
             return self._parse_nfsiostat_output(result.stdout)
-            
+
         except subprocess.TimeoutExpired:
             logger.warning("nfsiostat timed out")
             return []
         except Exception as e:
             logger.debug(f"NFS collection failed: {e}")
             return []
-    
+
     def _parse_nfsiostat_output(self, output: str) -> list[dict[str, Any]]:
         """Parse nfsiostat output."""
         records = []
         timestamp = datetime.now()
-        
+
         lines = output.strip().split('\n')
-        
+
         current_mount = None
         current_server = None
-        
+
         for i, line in enumerate(lines):
             line = line.strip()
-            
+
             # Detect mount line: "server:/export mounted on /mount/point"
             if ' mounted on ' in line:
                 parts = line.split(' mounted on ')
@@ -166,11 +167,11 @@ class NFSCollector(BaseCollector):
                     current_server = parts[0].strip()
                     current_mount = parts[1].strip().rstrip(':')
                 continue
-            
+
             # Skip headers and empty lines
             if not line or line.startswith('op/s') or 'nfsiostat' in line.lower():
                 continue
-            
+
             # Parse data line for current mount
             if current_mount and line[0].isdigit():
                 stats = self._parse_data_line(line, current_mount, current_server)
@@ -182,20 +183,20 @@ class NFSCollector(BaseCollector):
                     })
                     current_mount = None
                     current_server = None
-        
+
         return records
-    
+
     def _parse_data_line(self, line: str, mount: str, server: str) -> NFSStats | None:
         """Parse a nfsiostat data line."""
         try:
             parts = line.split()
             if len(parts) < 8:
                 return None
-            
+
             # Format varies but typically:
             # op/s rpc_bklog read_ops/s read_kB/s write_ops/s write_kB/s ...
             # Later columns may include RTT, exe time, etc.
-            
+
             return NFSStats(
                 mount_point=mount,
                 server=server or 'unknown',
@@ -211,13 +212,13 @@ class NFSCollector(BaseCollector):
         except (ValueError, IndexError) as e:
             logger.debug(f"Failed to parse NFS data line: {e}")
             return None
-    
+
     def store(self, data: list[dict[str, Any]]) -> None:
         """Store NFS statistics in database."""
-        
+
         if not data:
             return
-        
+
         with self.get_db_connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS nfs_stats (
@@ -243,7 +244,7 @@ class NFSCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_nfs_stats_mount 
                 ON nfs_stats(mount_point, timestamp)
             """)
-            
+
             for record in data:
                 if record.get('type') == 'nfs':
                     conn.execute(
@@ -269,6 +270,6 @@ class NFSCollector(BaseCollector):
                             record['retrans_percent'],
                         )
                     )
-            
+
             conn.commit()
             logger.debug(f"Stored {len(data)} NFS records")

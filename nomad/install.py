@@ -19,7 +19,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def get_nomad_bin_path() -> str:
@@ -28,7 +27,7 @@ def get_nomad_bin_path() -> str:
     result = subprocess.run(['which', 'nomad'], capture_output=True, text=True)
     if result.returncode == 0:
         return result.stdout.strip()
-    
+
     # Check common locations
     candidates = [
         Path('/usr/local/bin/nomad'),
@@ -36,11 +35,11 @@ def get_nomad_bin_path() -> str:
         Path.home() / '.local' / 'bin' / 'nomad',
         Path(sys.prefix) / 'bin' / 'nomad',
     ]
-    
+
     for candidate in candidates:
         if candidate.exists():
             return str(candidate)
-    
+
     # Fallback to python -m
     return f"{sys.executable} -m nomad.cli"
 
@@ -59,10 +58,10 @@ NOMAD_GROUP = "nomad"
 
 
 
-def create_bin_symlink(force: bool = False) -> Optional[Path]:
+def create_bin_symlink(force: bool = False) -> Path | None:
     """Create /usr/local/bin/nomad symlink to actual binary."""
     target = Path('/usr/local/bin/nomad')
-    
+
     # Find actual nomad location
     actual = None
     candidates = [
@@ -70,25 +69,25 @@ def create_bin_symlink(force: bool = False) -> Optional[Path]:
         Path('/opt/conda/bin/nomad'),
         Path('/usr/local/anaconda/bin/nomad'),
     ]
-    
+
     # Also check sys.prefix (where pip installed)
     import sys
     candidates.insert(0, Path(sys.prefix) / 'bin' / 'nomad')
-    
+
     for c in candidates:
         if c.exists():
             actual = c
             break
-    
+
     if not actual:
         return None
-    
+
     if target.exists() or target.is_symlink():
         if force:
             target.unlink()
         else:
             return None
-    
+
     target.symlink_to(actual)
     return target
 
@@ -233,12 +232,12 @@ def group_exists(groupname: str) -> bool:
 def create_user_group(user: str = NOMAD_USER, group: str = NOMAD_GROUP) -> dict:
     """Create nomad user and group."""
     results = {'group_created': False, 'user_created': False}
-    
+
     # Create group
     if not group_exists(group):
         subprocess.run(['groupadd', '--system', group], check=True)
         results['group_created'] = True
-    
+
     # Create user
     if not user_exists(user):
         subprocess.run([
@@ -250,38 +249,38 @@ def create_user_group(user: str = NOMAD_USER, group: str = NOMAD_GROUP) -> dict:
             user
         ], check=True)
         results['user_created'] = True
-    
+
     return results
 
 
 def create_directories(user: str = NOMAD_USER, group: str = NOMAD_GROUP) -> list:
     """Create system directories with proper permissions."""
     created = []
-    
+
     dirs = [
         (SYSTEM_CONFIG_DIR, 0o755),
         (SYSTEM_DATA_DIR, 0o750),
         (SYSTEM_DATA_DIR / 'models', 0o750),
         (SYSTEM_LOG_DIR, 0o750),
     ]
-    
+
     for dir_path, mode in dirs:
         dir_path.mkdir(parents=True, exist_ok=True)
         dir_path.chmod(mode)
         if user_exists(user) and group_exists(group):
             shutil.chown(dir_path, user=user, group=group)
         created.append(str(dir_path))
-    
+
     return created
 
 
-def install_config(source_config: Optional[Path] = None, force: bool = False) -> Path:
+def install_config(source_config: Path | None = None, force: bool = False) -> Path:
     """Install configuration file."""
     config_file = SYSTEM_CONFIG_DIR / 'nomad.toml'
-    
+
     if config_file.exists() and not force:
         return config_file
-    
+
     # Find source config
     if source_config and source_config.exists():
         shutil.copy(source_config, config_file)
@@ -294,7 +293,7 @@ def install_config(source_config: Optional[Path] = None, force: bool = False) ->
                 shutil.copy(default, config_file)
         except ImportError:
             pass
-    
+
     # Update paths in config
     if config_file.exists():
         content = config_file.read_text()
@@ -304,18 +303,18 @@ def install_config(source_config: Optional[Path] = None, force: bool = False) ->
         )
         config_file.write_text(content)
         config_file.chmod(0o644)
-    
+
     return config_file
 
 
-def install_prolog_hook(force: bool = False) -> Optional[Path]:
+def install_prolog_hook(force: bool = False) -> Path | None:
     """Install SLURM prolog hook."""
     # Check if SLURM is available
     if not SLURM_PROLOG_DIR.parent.exists():
         return None
-    
+
     SLURM_PROLOG_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     # Copy prolog.py
     prolog_dest = SYSTEM_CONFIG_DIR / 'prolog.py'
     try:
@@ -326,33 +325,33 @@ def install_prolog_hook(force: bool = False) -> Optional[Path]:
             prolog_dest.chmod(0o755)
     except ImportError:
         pass
-    
+
     # Create wrapper script
     wrapper = SLURM_PROLOG_DIR / 'nomad_score.sh'
     if not wrapper.exists() or force:
         wrapper.write_text(SLURM_PROLOG_WRAPPER)
         wrapper.chmod(0o755)
         return wrapper
-    
+
     return None
 
 
 def install_systemd_services(
-    user: str = NOMAD_USER, 
+    user: str = NOMAD_USER,
     group: str = NOMAD_GROUP,
     force: bool = False
 ) -> list:
     """Install systemd service files."""
     installed = []
     nomad_bin = get_nomad_bin_path()
-    
+
     services = [
         ('nomad.service', SYSTEMD_SERVICE),
         ('nomad-learn.service', SYSTEMD_LEARNING_SERVICE),
         ('nomad-train.service', SYSTEMD_TRAIN_SERVICE),
         ('nomad-train.timer', SYSTEMD_TIMER),
     ]
-    
+
     for name, template in services:
         service_file = SYSTEMD_DIR / name
         if not service_file.exists() or force:
@@ -366,24 +365,24 @@ def install_systemd_services(
             service_file.write_text(content)
             service_file.chmod(0o644)
             installed.append(name)
-    
+
     # Reload systemd
     if installed:
         subprocess.run(['systemctl', 'daemon-reload'], check=False)
-    
+
     return installed
 
 
-def install_logrotate(user: str = NOMAD_USER, group: str = NOMAD_GROUP) -> Optional[Path]:
+def install_logrotate(user: str = NOMAD_USER, group: str = NOMAD_GROUP) -> Path | None:
     """Install logrotate configuration."""
     if not LOGROTATE_DIR.exists():
         return None
-    
+
     logrotate_file = LOGROTATE_DIR / 'nomad'
     content = LOGROTATE_CONFIG.format(user=user, group=group)
     logrotate_file.write_text(content)
     logrotate_file.chmod(0o644)
-    
+
     return logrotate_file
 
 
@@ -415,11 +414,11 @@ def full_system_install(force: bool = False, verbose: bool = True) -> dict:
         'logrotate': None,
         'errors': []
     }
-    
+
     if not check_root():
         results['errors'].append("Must run as root (use sudo)")
         return results
-    
+
     try:
         # 1. Create user/group
         if verbose:
@@ -427,51 +426,51 @@ def full_system_install(force: bool = False, verbose: bool = True) -> dict:
         ug = create_user_group()
         results['user_created'] = ug['user_created']
         results['group_created'] = ug['group_created']
-        
+
         # 2. Create directories
         if verbose:
             print("Creating directories...")
         results['directories'] = create_directories()
-        
+
         # 3. Install config
         if verbose:
             print("Installing configuration...")
         results['config'] = str(install_config(force=force))
-        
+
         # 4. Install prolog hook
         if verbose:
             print("Installing SLURM prolog hook...")
         prolog = install_prolog_hook(force=force)
         results['prolog'] = str(prolog) if prolog else None
-        
+
         # 5. Install systemd services
         if verbose:
             print("Installing systemd services...")
         results['services'] = install_systemd_services(force=force)
-        
+
         # 6. Install logrotate
         if verbose:
             print("Installing logrotate config...")
         logrotate = install_logrotate()
         results['logrotate'] = str(logrotate) if logrotate else None
-        
+
         # 7. Add to slurm group
         if verbose:
             print("Adding nomad user to slurm group...")
         add_slurm_group()
-        
+
         # 8. Create /usr/local/bin symlink if needed
         if verbose:
             print("Creating /usr/local/bin symlink...")
         symlink = create_bin_symlink(force=force)
         if symlink:
             results['symlink'] = str(symlink)
-        
+
         results['success'] = True
-        
+
     except Exception as e:
         results['errors'].append(str(e))
-    
+
     return results
 
 

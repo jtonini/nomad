@@ -8,9 +8,9 @@ No root or API tokens required.
 Works standalone on Python 3.6+ or integrates with NOMADE framework.
 """
 
-import subprocess
-import os
 import logging
+import os
+import subprocess
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ except (ImportError, SyntaxError):
 def get_process_memory(pid):
     """Get memory info from /proc/[pid]/status."""
     try:
-        with open('/proc/{}/status'.format(pid), 'r') as f:
+        with open(f'/proc/{pid}/status') as f:
             content = f.read()
         rss = vms = 0
         for line in content.split('\n'):
@@ -49,12 +49,12 @@ def get_process_memory(pid):
 def get_process_start_time(pid):
     """Get process start time from /proc/[pid]/stat."""
     try:
-        with open('/proc/stat', 'r') as f:
+        with open('/proc/stat') as f:
             for line in f:
                 if line.startswith('btime'):
                     boot_time = int(line.split()[1])
                     break
-        with open('/proc/{}/stat'.format(pid), 'r') as f:
+        with open(f'/proc/{pid}/stat') as f:
             stat = f.read().split()
             starttime_ticks = int(stat[21])
         clk_tck = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
@@ -123,7 +123,7 @@ def collect_sessions(server_id='local'):
                 'is_idle': is_idle
             })
     except Exception as e:
-        logger.warning("Failed to collect sessions: {}".format(e))
+        logger.warning(f"Failed to collect sessions: {e}")
     return sessions
 
 
@@ -184,7 +184,7 @@ def get_report(server_id='local', idle_hours=24, memory_hog_mb=4096, max_idle=5)
             users[user]['idle'] += 1
 
     user_list = [{'user': u, **v} for u, v in sorted(users.items(), key=lambda x: -x[1]['memory_mb'])]
-    
+
     stale_sessions = [s for s in sessions if s['is_idle'] and s.get('age_hours', 0) and s['age_hours'] >= idle_hours]
     memory_hogs = [s for s in sessions if s['mem_mb'] >= memory_hog_mb]
     idle_session_hogs = [u for u in user_list if u['idle'] > max_idle]

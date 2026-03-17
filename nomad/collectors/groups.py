@@ -21,16 +21,14 @@ Configuration (nomad.toml):
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 import subprocess
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from .base import BaseCollector, CollectionError
+from .base import BaseCollector
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +73,7 @@ class GroupCollector(BaseCollector):
         host: str = None,
         ssh_user: str = None,
         ssh_key: str = None,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Run a command locally or via SSH. Returns stdout or None."""
         if host:
             ssh_cmd = [

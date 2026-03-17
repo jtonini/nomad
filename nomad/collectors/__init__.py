@@ -14,17 +14,17 @@ from .base import (
     registry,
 )
 from .disk import DiskCollector
-from .slurm import SlurmCollector
-from .job_metrics import JobMetricsCollector
-from .iostat import IOStatCollector
-from .mpstat import MPStatCollector
-from .vmstat import VMStatCollector
-from .node_state import NodeStateCollector
 from .gpu import GPUCollector
-from .nfs import NFSCollector
 from .groups import GroupCollector
-from .workstation import WorkstationCollector
+from .iostat import IOStatCollector
+from .job_metrics import JobMetricsCollector
+from .mpstat import MPStatCollector
+from .nfs import NFSCollector
+from .node_state import NodeStateCollector
+from .slurm import SlurmCollector
 from .storage import StorageCollector
+from .vmstat import VMStatCollector
+from .workstation import WorkstationCollector
 
 __all__ = [
     'BaseCollector',

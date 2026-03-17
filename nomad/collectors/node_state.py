@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NØMAD Node State Collector
 
@@ -25,25 +26,25 @@ class NodeState:
     """SLURM node state and allocation."""
     node_name: str
     state: str              # IDLE, MIXED, ALLOCATED, DRAIN, DOWN, etc.
-    
+
     # CPU
     cpus_total: int
     cpus_alloc: int
     cpu_load: float
-    
+
     # Memory (MB)
     memory_total_mb: int
     memory_alloc_mb: int
     memory_free_mb: int
-    
+
     # State info
     partitions: str
     reason: str | None      # Drain/down reason
-    
+
     # Features
     features: str | None
     gres: str | None        # GPU/other resources
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'node_name': self.node_name,
@@ -59,19 +60,19 @@ class NodeState:
             'features': self.features,
             'gres': self.gres,
         }
-    
+
     @property
     def cpu_alloc_percent(self) -> float:
         if self.cpus_total == 0:
             return 0.0
         return (self.cpus_alloc / self.cpus_total) * 100
-    
+
     @property
     def memory_alloc_percent(self) -> float:
         if self.memory_total_mb == 0:
             return 0.0
         return (self.memory_alloc_mb / self.memory_total_mb) * 100
-    
+
     @property
     def is_healthy(self) -> bool:
         """Node is healthy if not drained, down, or in error state."""
@@ -91,55 +92,55 @@ class NodeStateCollector(BaseCollector):
         - Drain/down reasons
         - GRES (GPUs, etc.)
     """
-    
+
     name = "node_state"
     description = "SLURM node state and allocation"
     default_interval = 60
-    
+
     def __init__(self, config: dict[str, Any], db_path: str):
         super().__init__(config, db_path)
-        
+
         self.nodes = config.get('nodes', None)  # None = all nodes
         self.cluster_name = config.get('cluster_name', 'default')
         logger.info(f"NodeStateCollector: nodes={self.nodes or 'all'}")
-    
+
     def collect(self) -> list[dict[str, Any]]:
         """Collect node state from scontrol."""
-        
+
         try:
             cmd = ['scontrol', 'show', 'node']
             if self.nodes:
                 cmd.append(','.join(self.nodes))
-            
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
-            
+
             if result.returncode != 0:
                 raise CollectionError(f"scontrol failed: {result.stderr}")
-            
+
             return self._parse_scontrol_output(result.stdout)
-            
+
         except FileNotFoundError:
             raise CollectionError("scontrol not found - SLURM not installed?")
         except subprocess.TimeoutExpired:
             raise CollectionError("scontrol timed out")
-    
+
     def _parse_scontrol_output(self, output: str) -> list[dict[str, Any]]:
         """Parse scontrol show node output."""
         records = []
         timestamp = datetime.now()
-        
+
         # Split by node blocks (each starts with NodeName=)
         node_blocks = re.split(r'\n(?=NodeName=)', output.strip())
-        
+
         for block in node_blocks:
             if not block.strip():
                 continue
-            
+
             node = self._parse_node_block(block)
             if node:
                 records.append({
@@ -151,16 +152,16 @@ class NodeStateCollector(BaseCollector):
                     'is_healthy': node.is_healthy,
                     **node.to_dict()
                 })
-        
+
         return records
-    
+
     def _parse_node_block(self, block: str) -> NodeState | None:
         """Parse a single node's scontrol output."""
-        
+
         def extract(pattern: str, default: str = '') -> str:
             match = re.search(pattern, block)
             return match.group(1) if match else default
-        
+
         def extract_int(pattern: str, default: int = 0) -> int:
             match = re.search(pattern, block)
             if match:
@@ -171,7 +172,7 @@ class NodeStateCollector(BaseCollector):
                 except ValueError:
                     return default
             return default
-        
+
         def extract_float(pattern: str, default: float = 0.0) -> float:
             match = re.search(pattern, block)
             if match:
@@ -180,39 +181,39 @@ class NodeStateCollector(BaseCollector):
                 except ValueError:
                     return default
             return default
-        
+
         try:
             node_name = extract(r'NodeName=(\S+)')
             if not node_name:
                 return None
-            
+
             # Parse State (can have modifiers like MIXED+DRAIN)
             state = extract(r'State=(\S+)', 'UNKNOWN')
-            
+
             # CPU info
             cpus_total = extract_int(r'CPUTot=(\d+)')
             cpus_alloc = extract_int(r'CPUAlloc=(\d+)')
             cpu_load = extract_float(r'CPULoad=(\d+\.?\d*)')
-            
+
             # Memory info
             memory_total = extract_int(r'RealMemory=(\d+)')
             memory_alloc = extract_int(r'AllocMem=(\d+)')
             memory_free = extract_int(r'FreeMem=(\d+)')
-            
+
             # Other info
             partitions = extract(r'Partitions=(\S+)', '')
             reason = extract(r'Reason=([^\n]+)', None)
             if reason == 'N/A' or reason == '':
                 reason = None
-            
+
             features = extract(r'ActiveFeatures=(\S+)', None)
             if features == '(null)':
                 features = None
-                
+
             gres = extract(r'Gres=(\S+)', None)
             if gres == '(null)':
                 gres = None
-            
+
             return NodeState(
                 node_name=node_name,
                 state=state,
@@ -227,14 +228,14 @@ class NodeStateCollector(BaseCollector):
                 features=features,
                 gres=gres,
             )
-            
+
         except Exception as e:
             logger.warning(f"Failed to parse node block: {e}")
             return None
-    
+
     def store(self, data: list[dict[str, Any]]) -> None:
         """Store node state data in database."""
-        
+
         with self.get_db_connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS node_state (
@@ -270,7 +271,7 @@ class NodeStateCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_node_state_cluster
                 ON node_state(cluster, timestamp)
             """)
-            
+
             for record in data:
                 if record.get('type') == 'node_state':
                     conn.execute(
@@ -302,10 +303,10 @@ class NodeStateCollector(BaseCollector):
                             1 if record['is_healthy'] else 0,
                         )
                     )
-            
+
             conn.commit()
             logger.debug(f"Stored {len(data)} node state records")
-    
+
     def get_unhealthy_nodes(self) -> list[dict]:
         """Get currently unhealthy nodes."""
         with self.get_db_connection() as conn:

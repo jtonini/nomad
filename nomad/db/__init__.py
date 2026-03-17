@@ -8,6 +8,6 @@ from .queries import QueryManager, TimeSeriesQuery
 __all__ = [
     'MigrationManager',
     'ensure_database',
-    'QueryManager', 
+    'QueryManager',
     'TimeSeriesQuery',
 ]

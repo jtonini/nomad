@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NØMAD GPU Collector
 
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from .base import BaseCollector, CollectionError, registry
+from .base import BaseCollector, registry
 
 logger = logging.getLogger(__name__)
 
@@ -24,24 +25,24 @@ class GPUStats:
     """NVIDIA GPU statistics."""
     gpu_index: int
     gpu_name: str
-    
+
     # Utilization
     gpu_util_percent: float
     memory_util_percent: float
-    
+
     # Memory (MB)
     memory_used_mb: int
     memory_total_mb: int
     memory_free_mb: int
-    
+
     # Temperature and power
     temperature_c: int
     power_draw_w: float
     power_limit_w: float
-    
+
     # Processes
     compute_processes: int
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'gpu_index': self.gpu_index,
@@ -72,22 +73,22 @@ class GPUCollector(BaseCollector):
         - Power draw
         - Process count
     """
-    
+
     name = "gpu"
     description = "NVIDIA GPU statistics"
     default_interval = 60
-    
+
     def __init__(self, config: dict[str, Any], db_path: str):
         super().__init__(config, db_path)
-        
+
         self._gpu_available = None  # Lazy check
         logger.info("GPUCollector initialized")
-    
+
     def _check_gpu_available(self) -> bool:
         """Check if nvidia-smi is available and GPUs are present."""
         if self._gpu_available is not None:
             return self._gpu_available
-        
+
         try:
             result = subprocess.run(
                 ['nvidia-smi', '--query-gpu=count', '--format=csv,noheader'],
@@ -98,18 +99,18 @@ class GPUCollector(BaseCollector):
             self._gpu_available = result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
             self._gpu_available = False
-        
+
         if not self._gpu_available:
             logger.info("No NVIDIA GPUs detected - GPU collector will be skipped")
-        
+
         return self._gpu_available
-    
+
     def collect(self) -> list[dict[str, Any]]:
         """Collect GPU statistics from nvidia-smi."""
-        
+
         if not self._check_gpu_available():
             return []  # Gracefully return empty
-        
+
         try:
             # Query GPU stats in CSV format
             query = ','.join([
@@ -124,20 +125,20 @@ class GPUCollector(BaseCollector):
                 'power.draw',
                 'power.limit',
             ])
-            
+
             result = subprocess.run(
                 ['nvidia-smi', f'--query-gpu={query}', '--format=csv,noheader,nounits'],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            
+
             if result.returncode != 0:
                 logger.warning(f"nvidia-smi failed: {result.stderr}")
                 return []
-            
+
             records = self._parse_nvidia_output(result.stdout)
-            
+
             # Also get process count per GPU
             proc_result = subprocess.run(
                 ['nvidia-smi', '--query-compute-apps=gpu_uuid', '--format=csv,noheader'],
@@ -145,35 +146,35 @@ class GPUCollector(BaseCollector):
                 text=True,
                 timeout=10,
             )
-            
+
             # Count processes (simple line count for now)
             if proc_result.returncode == 0:
                 proc_count = len([l for l in proc_result.stdout.strip().split('\n') if l.strip()])
                 for record in records:
                     record['compute_processes'] = proc_count
-            
+
             return records
-            
+
         except subprocess.TimeoutExpired:
             logger.warning("nvidia-smi timed out")
             return []
         except Exception as e:
             logger.warning(f"GPU collection failed: {e}")
             return []
-    
+
     def _parse_nvidia_output(self, output: str) -> list[dict[str, Any]]:
         """Parse nvidia-smi CSV output."""
         records = []
         timestamp = datetime.now()
-        
+
         for line in output.strip().split('\n'):
             if not line.strip():
                 continue
-            
+
             parts = [p.strip() for p in line.split(',')]
             if len(parts) < 10:
                 continue
-            
+
             try:
                 stats = GPUStats(
                     gpu_index=int(parts[0]),
@@ -188,25 +189,25 @@ class GPUCollector(BaseCollector):
                     power_limit_w=float(parts[9]) if parts[9] != '[N/A]' else 0,
                     compute_processes=0,  # Will be updated
                 )
-                
+
                 records.append({
                     'type': 'gpu',
                     'timestamp': timestamp.isoformat(),
                     **stats.to_dict()
                 })
-                
+
             except (ValueError, IndexError) as e:
                 logger.debug(f"Failed to parse GPU line: {e}")
                 continue
-        
+
         return records
-    
+
     def store(self, data: list[dict[str, Any]]) -> None:
         """Store GPU statistics in database."""
-        
+
         if not data:
             return
-        
+
         with self.get_db_connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS gpu_stats (
@@ -233,7 +234,7 @@ class GPUCollector(BaseCollector):
                 CREATE INDEX IF NOT EXISTS idx_gpu_stats_gpu 
                 ON gpu_stats(gpu_index, timestamp)
             """)
-            
+
             for record in data:
                 if record.get('type') == 'gpu':
                     conn.execute(
@@ -259,6 +260,6 @@ class GPUCollector(BaseCollector):
                             record['compute_processes'],
                         )
                     )
-            
+
             conn.commit()
             logger.debug(f"Stored {len(data)} GPU records")

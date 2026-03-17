@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 from __future__ import annotations
+
 """
 NOMADE Derivative Analysis
 
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 class Trend(Enum):
     """Classification of time series trend."""
-    
+
     UNKNOWN = "unknown"
     STABLE = "stable"
     INCREASING_LINEAR = "increasing_linear"
@@ -38,7 +39,7 @@ class Trend(Enum):
 
 class AlertLevel(Enum):
     """Alert level based on derivative analysis."""
-    
+
     NONE = "none"
     INFO = "info"
     WARNING = "warning"
@@ -48,22 +49,22 @@ class AlertLevel(Enum):
 @dataclass
 class DerivativeAnalysis:
     """Result of derivative analysis on a time series."""
-    
+
     current_value: float
     first_derivative: float | None      # Rate of change (units/day)
     second_derivative: float | None     # Acceleration (units/day²)
     trend: Trend
     alert_level: AlertLevel
-    
+
     # Projections
     projected_value_1d: float | None    # Value in 1 day
     projected_value_7d: float | None    # Value in 7 days
     days_until_limit: float | None      # Days until limit reached (if set)
-    
+
     # Raw data
     n_points: int
     time_span_hours: float
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             'current_value': self.current_value,
@@ -77,7 +78,7 @@ class DerivativeAnalysis:
             'n_points': self.n_points,
             'time_span_hours': self.time_span_hours,
         }
-    
+
     def __repr__(self) -> str:
         d1_str = f"{self.first_derivative:+.2f}/day" if self.first_derivative else "N/A"
         d2_str = f"{self.second_derivative:+.3f}/day²" if self.second_derivative else "N/A"
@@ -117,7 +118,7 @@ class DerivativeAnalyzer:
         print(f"Trend: {result.trend}")
         print(f"Days until limit: {result.days_until_limit}")
     """
-    
+
     def __init__(
         self,
         window_size: int = 10,
@@ -138,15 +139,15 @@ class DerivativeAnalyzer:
         self.smoothing = smoothing
         self.alpha = alpha
         self.min_points = min_points
-        
+
         self.history: deque[dict] = deque(maxlen=window_size)
         self.smoothed_history: deque[dict] = deque(maxlen=window_size)
-    
+
     def clear(self) -> None:
         """Clear all history."""
         self.history.clear()
         self.smoothed_history.clear()
-    
+
     def add_point(self, timestamp: datetime, value: float) -> None:
         """
         Add a new data point.
@@ -156,7 +157,7 @@ class DerivativeAnalyzer:
             value: The measured value
         """
         self.history.append({'t': timestamp, 'v': value})
-        
+
         # Apply smoothing
         if self.smoothing == 'exponential' and len(self.smoothed_history) > 0:
             smoothed = self.alpha * value + (1 - self.alpha) * self.smoothed_history[-1]['v']
@@ -165,14 +166,14 @@ class DerivativeAnalyzer:
             smoothed = sum(p['v'] for p in recent) / len(recent)
         else:
             smoothed = value
-        
+
         self.smoothed_history.append({'t': timestamp, 'v': smoothed})
-    
+
     def add_points(self, points: list[tuple[datetime, float]]) -> None:
         """Add multiple points at once."""
         for timestamp, value in points:
             self.add_point(timestamp, value)
-    
+
     def first_derivative(self) -> float | None:
         """
         Compute first derivative (rate of change).
@@ -182,17 +183,17 @@ class DerivativeAnalyzer:
         """
         if len(self.smoothed_history) < 2:
             return None
-        
+
         p1 = self.smoothed_history[-2]
         p2 = self.smoothed_history[-1]
-        
+
         dt = (p2['t'] - p1['t']).total_seconds()
         if dt == 0:
             return None
-        
+
         dv = p2['v'] - p1['v']
         return dv / dt
-    
+
     def second_derivative(self) -> float | None:
         """
         Compute second derivative (acceleration).
@@ -205,25 +206,25 @@ class DerivativeAnalyzer:
         """
         if len(self.smoothed_history) < 3:
             return None
-        
+
         p1 = self.smoothed_history[-3]
         p2 = self.smoothed_history[-2]
         p3 = self.smoothed_history[-1]
-        
+
         dt1 = (p2['t'] - p1['t']).total_seconds()
         dt2 = (p3['t'] - p2['t']).total_seconds()
-        
+
         if dt1 == 0 or dt2 == 0:
             return None
-        
+
         # First derivatives at two points
         d1 = (p2['v'] - p1['v']) / dt1
         d2 = (p3['v'] - p2['v']) / dt2
-        
+
         # Second derivative (rate of change of first derivative)
         avg_dt = (dt1 + dt2) / 2
         return (d2 - d1) / avg_dt
-    
+
     def analyze(
         self,
         limit: float | None = None,
@@ -254,39 +255,39 @@ class DerivativeAnalyzer:
                 n_points=len(self.smoothed_history),
                 time_span_hours=0,
             )
-        
+
         current = self.smoothed_history[-1]['v']
         d1 = self.first_derivative()
         d2 = self.second_derivative()
-        
+
         # Convert to per-day for human readability
         d1_per_day = d1 * 86400 if d1 is not None else None
         d2_per_day = d2 * 86400 * 86400 if d2 is not None else None
-        
+
         # Calculate time span
         time_span = (
             self.smoothed_history[-1]['t'] - self.smoothed_history[0]['t']
         ).total_seconds() / 3600
-        
+
         # Classify trend
         trend = self._classify_trend(d1, d2)
-        
+
         # Compute projections
         proj_1d = self._project(days=1, d1=d1, d2=d2)
         proj_7d = self._project(days=7, d1=d1, d2=d2)
-        
+
         # Days until limit
         days_until = None
         if limit is not None and d1 is not None and d1 > 0:
             days_until = self._days_until_limit(limit, d1, d2)
-        
+
         # Determine alert level
         alert_level = self._compute_alert_level(
             d1, d2, d1_per_day, d2_per_day,
             acceleration_warning_threshold,
             acceleration_critical_threshold,
         )
-        
+
         return DerivativeAnalysis(
             current_value=current,
             first_derivative=d1_per_day,
@@ -299,23 +300,23 @@ class DerivativeAnalyzer:
             n_points=len(self.smoothed_history),
             time_span_hours=time_span,
         )
-    
+
     def _classify_trend(self, d1: float | None, d2: float | None) -> Trend:
         """Classify the trend based on derivatives."""
         if d1 is None:
             return Trend.UNKNOWN
-        
+
         # Threshold for "essentially zero" (relative to typical values)
         d1_threshold = 1e-10
         d2_threshold = 1e-15
-        
+
         if abs(d1) < d1_threshold:
             return Trend.STABLE
-        
+
         if d2 is None or abs(d2) < d2_threshold:
             # Linear trend
             return Trend.INCREASING_LINEAR if d1 > 0 else Trend.DECREASING_LINEAR
-        
+
         # Non-linear trends
         if d1 > 0:
             if d2 > 0:
@@ -327,7 +328,7 @@ class DerivativeAnalyzer:
                 return Trend.ACCELERATING_DECLINE
             else:
                 return Trend.DECELERATING_DECLINE
-    
+
     def _project(
         self,
         days: float,
@@ -343,17 +344,17 @@ class DerivativeAnalyzer:
         """
         if len(self.smoothed_history) == 0 or d1 is None:
             return None
-        
+
         current = self.smoothed_history[-1]['v']
         t = days * 86400  # Convert to seconds
-        
+
         if d2 is None or abs(d2) < 1e-15:
             # Linear projection
             return current + d1 * t
         else:
             # Quadratic projection
             return current + d1 * t + 0.5 * d2 * t * t
-    
+
     def _days_until_limit(
         self,
         limit: float,
@@ -368,17 +369,17 @@ class DerivativeAnalyzer:
         """
         if len(self.smoothed_history) == 0:
             return None
-        
+
         current = self.smoothed_history[-1]['v']
-        
+
         if current >= limit:
             return 0.0
-        
+
         if d1 <= 0:
             return None  # Not approaching limit
-        
+
         remaining = limit - current
-        
+
         if d2 is None or abs(d2) < 1e-15:
             # Linear: t = remaining / d1
             t_seconds = remaining / d1
@@ -386,23 +387,23 @@ class DerivativeAnalyzer:
             # Quadratic: solve ½d2·t² + d1·t - remaining = 0
             # Using quadratic formula: t = (-d1 ± √(d1² + 2·d2·remaining)) / d2
             discriminant = d1 * d1 + 2 * d2 * remaining
-            
+
             if discriminant < 0:
                 # No real solution (decelerating and won't reach limit)
                 return None
-            
+
             if d2 > 0:
                 # Accelerating - take the smaller positive root
                 t_seconds = (-d1 + discriminant ** 0.5) / d2
             else:
                 # Decelerating - take the larger root
                 t_seconds = (-d1 - discriminant ** 0.5) / d2
-            
+
             if t_seconds < 0:
                 return None
-        
+
         return t_seconds / 86400  # Convert to days
-    
+
     def _compute_alert_level(
         self,
         d1: float | None,
@@ -420,14 +421,14 @@ class DerivativeAnalyzer:
         """
         if d1 is None or d2 is None:
             return AlertLevel.NONE
-        
+
         # Accelerating growth is the most dangerous
         if d1 > 0 and d2 > 0:
             if d2_per_day and critical_threshold > 0 and d2_per_day > critical_threshold:
                 return AlertLevel.CRITICAL
             if d2_per_day and warning_threshold > 0 and d2_per_day > warning_threshold:
                 return AlertLevel.WARNING
-            
+
             # Even without thresholds, accelerating growth is concerning
             # if acceleration is significant relative to rate
             if d1_per_day and d2_per_day:
@@ -436,7 +437,7 @@ class DerivativeAnalyzer:
                     return AlertLevel.CRITICAL
                 elif accel_ratio > 0.05:
                     return AlertLevel.WARNING
-        
+
         return AlertLevel.NONE
 
 
@@ -470,20 +471,20 @@ def analyze_disk_trend(
         smoothing=smoothing,
         alpha=alpha,
     )
-    
+
     for record in history:
         timestamp = record.get('timestamp')
         value = record.get('used_bytes')
-        
+
         if timestamp is None or value is None:
             continue
-        
+
         # Parse timestamp if string
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp)
-        
+
         analyzer.add_point(timestamp, value)
-    
+
     # Convert limit to GB for human-readable derivatives
     # (actually keep in bytes for accurate projection)
     return analyzer.analyze(
@@ -512,19 +513,19 @@ def analyze_queue_trend(
         smoothing=smoothing,
         alpha=0.4,
     )
-    
+
     for record in history:
         timestamp = record.get('timestamp')
         value = record.get('pending_jobs')
-        
+
         if timestamp is None or value is None:
             continue
-        
+
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp)
-        
+
         analyzer.add_point(timestamp, value)
-    
+
     return analyzer.analyze(
         acceleration_warning_threshold=5,   # 5 jobs/hour² acceleration
         acceleration_critical_threshold=20, # 20 jobs/hour² acceleration

@@ -3,6 +3,6 @@
 """
 NOMADE Visualization Module
 """
-from nomad.viz.server import serve_dashboard, build_job_network, generate_demo_jobs
+from nomad.viz.server import build_job_network, generate_demo_jobs, serve_dashboard
 
 __all__ = ['serve_dashboard', 'build_job_network', 'generate_demo_jobs']
