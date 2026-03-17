@@ -3181,8 +3181,8 @@ def diag():
 
 
 @diag.command('node')
-@click.argument('cluster')
-@click.argument('node_name')
+@click.argument('cluster', required=False, default=None)
+@click.argument('node_name', required=False, default=None)
 @click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
 @click.option('--hours', default=24, help='Hours of history to analyze (default: 24)')
 @click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
@@ -3212,6 +3212,21 @@ def diag_node(ctx, cluster, node_name, db_path, hours, output_json):
         click.echo("Error: No database found. Use --db or run 'nomad init'.", err=True)
         raise SystemExit(1)
 
+    if cluster and "/" in cluster and not node_name:
+        cluster, node_name = cluster.split("/", 1)
+    if not cluster or not node_name:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT DISTINCT cluster, node_name FROM node_state ORDER BY cluster, node_name").fetchall()
+        conn.close()
+        if not rows:
+            click.echo("No nodes found in database.", err=True)
+            raise SystemExit(1)
+        click.echo("\nAvailable nodes:")
+        for r in rows:
+            click.echo(f"  {r[0]}/{r[1]}")
+        click.echo("\nUsage: nomad diag node <cluster> <node_name>")
+        return
     diag = diagnose_node(db_path, cluster, node_name, hours)
 
     if not diag:
@@ -3231,7 +3246,7 @@ def diag_node(ctx, cluster, node_name, db_path, hours, output_json):
 
 
 @diag.command('workstation')
-@click.argument('hostname')
+@click.argument('hostname', required=False, default=None)
 @click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
 @click.option('--hours', default=24, help='Hours of history to analyze (default: 24)')
 @click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
@@ -3268,6 +3283,19 @@ def diag_workstation(ctx, hostname, db_path, hours, output_json):
         click.echo("Error: No database found. Use --db or run 'nomad init'.", err=True)
         raise SystemExit(1)
 
+    if not hostname:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT DISTINCT hostname FROM workstation_state ORDER BY hostname").fetchall()
+        conn.close()
+        if not rows:
+            click.echo("No workstations found in database.", err=True)
+            raise SystemExit(1)
+        click.echo("\nAvailable workstations:")
+        for r in rows:
+            click.echo(f"  {r[0]}")
+        click.echo("\nUsage: nomad diag workstation <hostname>")
+        return
     diag = diagnose_workstation(db_path, hostname, hours)
 
     if not diag:
@@ -3286,7 +3314,7 @@ def diag_workstation(ctx, hostname, db_path, hours, output_json):
 
 
 @diag.command('nas')
-@click.argument('hostname')
+@click.argument('hostname', required=False, default=None)
 @click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
 @click.option('--hours', default=24, help='Hours of history to analyze (default: 24)')
 @click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
@@ -3323,6 +3351,19 @@ def diag_nas(ctx, hostname, db_path, hours, output_json):
         click.echo("Error: No database found. Use --db or run 'nomad init'.", err=True)
         raise SystemExit(1)
 
+    if not hostname:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT DISTINCT hostname FROM storage_state ORDER BY hostname").fetchall()
+        conn.close()
+        if not rows:
+            click.echo("No storage devices found in database.", err=True)
+            raise SystemExit(1)
+        click.echo("\nAvailable storage devices:")
+        for r in rows:
+            click.echo(f"  {r[0]}")
+        click.echo("\nUsage: nomad diag nas <hostname>")
+        return
     diag = diagnose_storage(db_path, hostname, hours)
 
     if not diag:
