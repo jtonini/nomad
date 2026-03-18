@@ -317,6 +317,18 @@ class DemoDatabase:
             memory_util_percent REAL, memory_used_mb INTEGER, memory_total_mb INTEGER,
             temperature_c INTEGER, power_draw_w REAL)""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_gpu_stats_ts ON gpu_stats(timestamp)")
+        c.execute("""CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            severity TEXT,
+            source TEXT,
+            host TEXT,
+            message TEXT,
+            details TEXT,
+            resolved INTEGER DEFAULT 0,
+            resolved_at TEXT)""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(timestamp)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)")
         conn.commit()
         conn.close()
 
@@ -476,6 +488,43 @@ class DemoDatabase:
         conn.commit()
         conn.close()
 
+
+    def write_alerts(self):
+        """Write synthetic alert data for demo."""
+        import json
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        now = datetime.now()
+        nodes = [n["name"] for n in DEMO_CLUSTER["nodes"]]
+        alert_templates = [
+            ("warning", "disk", "Disk usage at {pct}% on {path}", {"path": "/home", "threshold": 80}),
+            ("critical", "disk", "Disk usage critical at {pct}% on {path}", {"path": "/scratch", "threshold": 90}),
+            ("warning", "memory", "High memory pressure on {node}", {}),
+            ("critical", "job", "Job failure rate elevated: {rate}% in last hour", {"partition": "compute"}),
+            ("info", "slurm", "Node {node} returned to service", {}),
+            ("warning", "gpu", "GPU temperature {temp}C on {node}", {}),
+            ("critical", "memory", "OOM killer invoked on {node}", {}),
+            ("info", "disk", "Scrub completed on storage pool", {}),
+        ]
+        for i in range(40):
+            ts = (now - timedelta(hours=random.uniform(0, 168))).isoformat()
+            severity, source, msg_tmpl, details = random.choice(alert_templates)
+            node = random.choice(nodes)
+            msg = msg_tmpl.format(
+                pct=random.randint(80, 98),
+                path=random.choice(["/home", "/scratch", "/data"]),
+                node=node,
+                rate=random.randint(10, 40),
+                temp=random.randint(80, 95),
+            )
+            resolved = 1 if random.random() > 0.3 else 0
+            resolved_at = (now - timedelta(hours=random.uniform(0, 24))).isoformat() if resolved else None
+            c.execute("""INSERT INTO alerts
+                (timestamp, severity, source, host, message, details, resolved, resolved_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (ts, severity, source, node, msg, json.dumps(details), resolved, resolved_at))
+        conn.commit()
+        conn.close()
 
     def write_network_perf(self):
         """Write demo network performance data."""
@@ -1117,6 +1166,7 @@ def run_demo(
     db.write_job_accounting(jobs)
     db.write_interactive_sessions()
     db.write_gpu_stats()
+    db.write_alerts()
     db.write_network_perf()
     db.write_workstation_state()
     db.write_storage_state()
