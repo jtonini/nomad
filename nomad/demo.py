@@ -38,6 +38,14 @@ DEMO_CLUSTER = {
         {"name": "gpu02", "cores": 32, "memory_gb": 256, "gpus": 4, "partition": "gpu"},
     ],
     "users": ["alice", "bob", "charlie", "diana", "eve", "frank"],
+    "cloud_instances": [
+        {"name": "ml-train-01",   "instance_id": "i-0a1b2c3d4e5f6a7b8", "instance_type": "p3.2xlarge",   "az": "us-east-1a", "gpus": 1},
+        {"name": "ml-train-02",   "instance_id": "i-1b2c3d4e5f6a7b8c9", "instance_type": "p3.2xlarge",   "az": "us-east-1b", "gpus": 1},
+        {"name": "data-proc-01",  "instance_id": "i-2c3d4e5f6a7b8c9d0", "instance_type": "c5.4xlarge",   "az": "us-east-1a", "gpus": 0},
+        {"name": "data-proc-02",  "instance_id": "i-3d4e5f6a7b8c9d0e1", "instance_type": "c5.4xlarge",   "az": "us-east-1a", "gpus": 0},
+        {"name": "burst-compute", "instance_id": "i-4e5f6a7b8c9d0e1f2", "instance_type": "c5.9xlarge",   "az": "us-east-1b", "gpus": 0},
+        {"name": "gpu-inference",  "instance_id": "i-5f6a7b8c9d0e1f2a3", "instance_type": "g4dn.xlarge", "az": "us-east-1a", "gpus": 1},
+    ],
     "job_names": [
         "analysis", "simulation", "training", "inference", "preprocessing",
         "postprocess", "benchmark", "test_run", "production", "debug",
@@ -232,7 +240,7 @@ class DemoDatabase:
             node_name TEXT NOT NULL, state TEXT, cpus_total INTEGER, cpus_alloc INTEGER,
             cpu_load REAL, memory_total_mb INTEGER, memory_alloc_mb INTEGER,
             memory_free_mb INTEGER, cpu_alloc_percent REAL, memory_alloc_percent REAL,
-            cluster TEXT DEFAULT 'demo', partitions TEXT, reason TEXT, features TEXT, gres TEXT, is_healthy INTEGER)""")
+            cluster TEXT DEFAULT 'demo-cluster', partitions TEXT, reason TEXT, features TEXT, gres TEXT, is_healthy INTEGER)""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_node_state_ts ON node_state(timestamp)")
 
         # Proficiency scores for edu tracking
@@ -329,6 +337,21 @@ class DemoDatabase:
             resolved_at TEXT)""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(timestamp)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)")
+        c.execute("""CREATE TABLE IF NOT EXISTS cloud_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            node_name TEXT NOT NULL,
+            cluster TEXT NOT NULL,
+            metric_name TEXT NOT NULL,
+            value REAL NOT NULL,
+            unit TEXT NOT NULL,
+            source TEXT NOT NULL,
+            instance_type TEXT,
+            availability_zone TEXT,
+            tags TEXT,
+            cost_usd REAL)""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cloud_ts ON cloud_metrics(timestamp)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cloud_node ON cloud_metrics(node_name, timestamp)")
         conn.commit()
         conn.close()
 
@@ -525,6 +548,125 @@ class DemoDatabase:
                 (ts, severity, source, node, msg, json.dumps(details), resolved, resolved_at))
         conn.commit()
         conn.close()
+
+    def write_cloud_metrics(self):
+        """Write synthetic cloud metrics for demo.
+
+        Generates realistic AWS CloudWatch-style metrics for a small
+        fleet of cloud instances, showing the cross-environment
+        monitoring story: on-prem HPC + cloud in the same dashboard.
+        """
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        now = datetime.now()
+        instances = DEMO_CLUSTER.get("cloud_instances", [])
+        if not instances:
+            conn.close()
+            return
+
+        # Generate 7 days of metrics at 5-minute intervals
+        interval_minutes = 5
+        samples_per_day = (24 * 60) // interval_minutes
+        total_samples = samples_per_day * 7
+
+        # Workload profiles per instance (create realistic patterns)
+        profiles = {
+            "ml-train-01":   {"cpu_base": 75, "cpu_var": 20, "mem_base": 70, "mem_var": 15, "pattern": "training"},
+            "ml-train-02":   {"cpu_base": 80, "cpu_var": 15, "mem_base": 75, "mem_var": 10, "pattern": "training"},
+            "data-proc-01":  {"cpu_base": 45, "cpu_var": 30, "mem_base": 35, "mem_var": 20, "pattern": "bursty"},
+            "data-proc-02":  {"cpu_base": 40, "cpu_var": 35, "mem_base": 30, "mem_var": 25, "pattern": "bursty"},
+            "burst-compute": {"cpu_base": 20, "cpu_var": 60, "mem_base": 25, "mem_var": 40, "pattern": "spiky"},
+            "gpu-inference":  {"cpu_base": 30, "cpu_var": 10, "mem_base": 50, "mem_var": 10, "pattern": "steady"},
+        }
+
+        # Cost rates per instance type (approximate hourly USD)
+        cost_rates = {
+            "p3.2xlarge":  3.06,
+            "c5.4xlarge":  0.68,
+            "c5.9xlarge":  1.53,
+            "g4dn.xlarge": 0.526,
+        }
+
+        records = []
+        for inst in instances:
+            name = inst["name"]
+            profile = profiles.get(name, {"cpu_base": 50, "cpu_var": 25, "mem_base": 50, "mem_var": 25, "pattern": "steady"})
+            hourly_cost = cost_rates.get(inst["instance_type"], 1.0)
+
+            for i in range(total_samples):
+                ts = now - timedelta(minutes=(total_samples - i) * interval_minutes)
+                hour = ts.hour
+
+                # Time-of-day modulation (research workloads peak daytime)
+                if profile["pattern"] == "training":
+                    # ML training runs long, slight dip overnight
+                    time_mod = 0.85 if 2 <= hour <= 6 else 1.0
+                elif profile["pattern"] == "bursty":
+                    # Data processing peaks during work hours
+                    time_mod = 1.2 if 9 <= hour <= 17 else 0.4
+                elif profile["pattern"] == "spiky":
+                    # Burst compute — random spikes
+                    time_mod = 2.5 if random.random() > 0.85 else 0.3
+                else:
+                    # Steady inference
+                    time_mod = 0.9 + 0.2 * (random.random())
+
+                cpu = max(0, min(100, profile["cpu_base"] * time_mod + random.gauss(0, profile["cpu_var"] * 0.3)))
+                mem = max(0, min(100, profile["mem_base"] * time_mod + random.gauss(0, profile["mem_var"] * 0.3)))
+                net_in = max(0, random.gauss(50_000_000, 20_000_000) * time_mod)
+                net_out = max(0, random.gauss(30_000_000, 15_000_000) * time_mod)
+
+                ts_str = ts.isoformat()
+                tags = str({"Environment": "research", "ManagedBy": "nomad"})
+
+                base = (ts_str, inst["name"], "research-aws", "aws",
+                        inst["instance_type"], inst["az"], tags)
+
+                records.append(base + ("cpu_util", round(cpu, 1), "percent", None))
+                records.append(base + ("mem_util", round(mem, 1), "percent", None))
+                records.append(base + ("net_recv_bytes", round(net_in), "bytes", None))
+                records.append(base + ("net_send_bytes", round(net_out), "bytes", None))
+
+                # GPU metrics for GPU instances
+                if inst.get("gpus", 0) > 0:
+                    if profile["pattern"] == "training":
+                        gpu_util = max(0, min(100, 85 * time_mod + random.gauss(0, 8)))
+                        gpu_mem = max(0, min(100, 75 * time_mod + random.gauss(0, 6)))
+                    else:
+                        gpu_util = max(0, min(100, 40 + random.gauss(0, 15)))
+                        gpu_mem = max(0, min(100, 35 + random.gauss(0, 10)))
+                    records.append(base + ("gpu_util", round(gpu_util, 1), "percent", None))
+                    records.append(base + ("gpu_mem_util", round(gpu_mem, 1), "percent", None))
+
+            # Daily cost entries (one per day)
+            for day_offset in range(7):
+                day_ts = now - timedelta(days=day_offset)
+                # Cost varies with utilization
+                avg_cpu = profile["cpu_base"] / 100.0
+                daily_cost = hourly_cost * 24 * (0.5 + 0.5 * avg_cpu)
+                daily_cost *= random.uniform(0.9, 1.1)  # small variance
+                records.append((
+                    day_ts.replace(hour=0, minute=0, second=0).isoformat(),
+                    f"EC2/{inst['name']}", "research-aws", "aws",
+                    inst["instance_type"], inst["az"], "",
+                    "daily_cost_usd", round(daily_cost, 2), "usd", round(daily_cost, 2),
+                ))
+
+        c.executemany("""INSERT INTO cloud_metrics
+            (timestamp, node_name, cluster, source,
+             instance_type, availability_zone, tags,
+             metric_name, value, unit, cost_usd)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", records)
+
+        conn.commit()
+        conn.close()
+
+        total_instances = len(instances)
+        total_metrics = len(records)
+        gpu_instances = sum(1 for i in instances if i.get("gpus", 0) > 0)
+        print(f"  Cloud instances: {total_instances} ({gpu_instances} GPU)")
+        print(f"  Cloud metrics: {total_metrics:,}")
 
     def write_network_perf(self):
         """Write demo network performance data."""
@@ -1174,10 +1316,12 @@ def run_demo(
     db.write_iostat()
     db.write_mpstat()
     db.write_vmstat()
+    db.write_cloud_metrics()
 
     success = sum(1 for j in jobs if j.failure_reason == 0)
     print("\nGenerated:")
-    print(f"  Nodes: {len(DEMO_CLUSTER['nodes'])}")
+    print(f"  On-prem nodes: {len(DEMO_CLUSTER['nodes'])}")
+    print(f"  Cloud instances: {len(DEMO_CLUSTER.get('cloud_instances', []))}")
     print(f"  Jobs:  {n_jobs}")
     print(f"  Success rate: {success/n_jobs*100:.1f}%")
     print(f"\nDatabase: {db_path}")
