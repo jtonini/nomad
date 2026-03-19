@@ -41,6 +41,13 @@ from nomad.collectors.node_state import NodeStateCollector
 from nomad.collectors.slurm import SlurmCollector
 from nomad.collectors.vmstat import VMStatCollector
 
+# Cloud collectors (optional — only available when provider SDKs are installed)
+try:
+    from nomad.collectors.cloud.aws import AWSCollector
+    HAS_AWS_COLLECTOR = True
+except ImportError:
+    HAS_AWS_COLLECTOR = False
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -203,6 +210,13 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
     if not collector or "interactive" in collector:
         if interactive_config.get("enabled", False):
             collectors.append(InteractiveCollector(interactive_config, db_path))
+
+    # Cloud collectors
+    cloud_config = config.get('collectors', {}).get('cloud', {})
+    if not collector or 'aws' in collector or 'cloud' in collector:
+        aws_config = cloud_config.get('aws', {})
+        if HAS_AWS_COLLECTOR and aws_config.get('enabled', False):
+            collectors.append(AWSCollector(aws_config, db_path=str(db_path)))
 
     if not collectors:
         raise click.ClickException("No collectors enabled")
@@ -3562,3 +3576,173 @@ def report_interactive(server_id, idle_hours, memory_threshold, max_idle, as_jso
         return
 
     print_report(data)
+
+
+# =============================================================================
+# CLOUD COMMANDS
+# =============================================================================
+@cli.group()
+@click.pass_context
+def cloud(ctx):
+    """Cloud provider monitoring commands.
+
+    Manage cloud metric collection from AWS, Azure, and GCP.
+    """
+    ctx.ensure_object(dict)
+
+
+@cloud.command('status')
+@click.pass_context
+def cloud_status(ctx):
+    """Check cloud collector connectivity and authentication."""
+    config = ctx.obj.get('config', {})
+    cloud_cfg = config.get('collectors', {}).get('cloud', {})
+
+    if not cloud_cfg:
+        click.echo("No cloud collectors configured in nomad.toml.")
+        click.echo("See: nomad/config/cloud_collectors.toml.example")
+        return
+
+    click.echo(f"{'Provider':<12} {'Enabled':<10} {'Auth':<12} {'Instances':<12}")
+    click.echo("-" * 46)
+
+    for name, pcfg in cloud_cfg.items():
+        if not isinstance(pcfg, dict):
+            continue
+
+        enabled = pcfg.get('enabled', False)
+        enabled_str = "yes" if enabled else "no"
+
+        if not enabled:
+            click.echo(f"{name:<12} {enabled_str:<10} {'--':<12} {'--':<12}")
+            continue
+
+        if name == 'aws':
+            if not HAS_AWS_COLLECTOR:
+                click.echo(
+                    f"{name:<12} {enabled_str:<10} "
+                    f"{'no SDK':<12} {'--':<12}"
+                )
+                click.echo("  Install with: pip install boto3")
+                continue
+            try:
+                db_path = get_db_path(config)
+                collector = AWSCollector(pcfg, db_path=str(db_path))
+                collector._ensure_authenticated()
+                instances = collector._list_instances()
+                click.echo(
+                    f"{name:<12} {enabled_str:<10} "
+                    f"{click.style('OK', fg='green'):<12} {len(instances):<12}"
+                )
+            except Exception as exc:
+                err = str(exc)[:30]
+                click.echo(
+                    f"{name:<12} {enabled_str:<10} "
+                    f"{click.style('FAIL', fg='red'):<12} {err}"
+                )
+        else:
+            click.echo(
+                f"{name:<12} {enabled_str:<10} "
+                f"{'planned':<12} {'--':<12}"
+            )
+
+
+@cloud.command('instances')
+@click.option('--provider', '-p', type=click.Choice(['aws']), help='Specific provider')
+@click.pass_context
+def cloud_instances(ctx, provider):
+    """List discovered cloud instances."""
+    config = ctx.obj.get('config', {})
+    cloud_cfg = config.get('collectors', {}).get('cloud', {})
+
+    if not cloud_cfg:
+        click.echo("No cloud collectors configured.")
+        return
+
+    providers = (
+        [(provider, cloud_cfg[provider])]
+        if provider and provider in cloud_cfg
+        else [
+            (n, c) for n, c in cloud_cfg.items()
+            if isinstance(c, dict) and c.get('enabled', False)
+        ]
+    )
+
+    for name, pcfg in providers:
+        if name == 'aws':
+            if not HAS_AWS_COLLECTOR:
+                click.echo(f"{name.upper()} -- boto3 not installed")
+                continue
+            try:
+                db_path = get_db_path(config)
+                collector = AWSCollector(pcfg, db_path=str(db_path))
+                collector._ensure_authenticated()
+                instances = collector._list_instances()
+
+                click.echo(f"\n{name.upper()} -- {len(instances)} instance(s)")
+                click.echo(f"{'Name':<30} {'Type':<16} {'AZ':<16} {'State':<10}")
+                click.echo("-" * 72)
+
+                for inst in instances:
+                    click.echo(
+                        f"{inst.get('name', inst['instance_id']):<30} "
+                        f"{inst.get('instance_type', '--'):<16} "
+                        f"{inst.get('availability_zone', '--'):<16} "
+                        f"{inst.get('state', '--'):<10}"
+                    )
+            except Exception as exc:
+                click.echo(f"\n{name.upper()} -- ERROR: {exc}")
+        else:
+            click.echo(f"\n{name.upper()} -- not yet implemented")
+
+
+@cloud.command('collect')
+@click.option('--provider', '-p', type=click.Choice(['aws']), help='Specific provider')
+@click.option('--db', type=click.Path(), help='Database path override')
+@click.pass_context
+def cloud_collect(ctx, provider, db):
+    """Run cloud collectors once."""
+    config = ctx.obj.get('config', {})
+    cloud_cfg = config.get('collectors', {}).get('cloud', {})
+
+    if db:
+        db_path = Path(db)
+    else:
+        db_path = get_db_path(config)
+
+    if not cloud_cfg:
+        click.echo("No cloud collectors configured.")
+        return
+
+    providers = (
+        [(provider, cloud_cfg[provider])]
+        if provider and provider in cloud_cfg
+        else [
+            (n, c) for n, c in cloud_cfg.items()
+            if isinstance(c, dict) and c.get('enabled', False)
+        ]
+    )
+
+    for name, pcfg in providers:
+        click.echo(f"Collecting from {name}... ", nl=False)
+        if name == 'aws':
+            if not HAS_AWS_COLLECTOR:
+                click.echo(click.style("MISSING boto3", fg='yellow'))
+                continue
+            try:
+                collector = AWSCollector(pcfg, db_path=str(db_path))
+                result = collector.run()
+                if result.success:
+                    click.echo(click.style(
+                        f"OK ({result.records_collected} metrics "
+                        f"in {result.duration_seconds:.1f}s)",
+                        fg='green',
+                    ))
+                else:
+                    click.echo(click.style(
+                        f"FAILED: {result.error_message}", fg='red'
+                    ))
+            except Exception as exc:
+                click.echo(click.style(f"ERROR: {exc}", fg='red'))
+        else:
+            click.echo(click.style("not yet implemented", fg='yellow'))

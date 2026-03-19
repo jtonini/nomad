@@ -40,6 +40,26 @@ enabled = true
 mount_points = []
 
 # ============================================
+# CLOUD COLLECTORS
+# ============================================
+# Cloud collectors ingest metrics from cloud provider APIs and normalize
+# them into the same schema as on-prem collectors. Everything downstream
+# (analysis, TESSERA, alerting, dashboards) works unchanged.
+
+[collectors.cloud.aws]
+# Enable AWS CloudWatch metric collection (requires: pip install boto3)
+enabled = false
+# region = "us-east-1"
+# profile = "research-account"
+# account_alias = "research-aws"
+# lookback_minutes = 10
+# metric_period = 300
+# collect_cost = false
+# collect_cw_agent_metrics = true
+# [collectors.cloud.aws.tag_filters]
+# Environment = "research"
+
+# ============================================
 # ALERTS
 # ============================================
 
