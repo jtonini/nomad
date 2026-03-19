@@ -91,19 +91,30 @@ def load_config(config_path: Path | None = None) -> dict:
 # ============================================================================
 
 def find_database() -> Path | None:
-    """Search for NOMADE database."""
+    """Search for NOMADE database.
+
+    Checks standard locations plus the demo database.
+    Skips empty files (0 bytes) to avoid returning an
+    uninitialized database over one with actual data.
+    """
     search_paths = [
         Path("/var/lib/nomad/nomad.db"),
-        Path.home() / "nomad" / "vm-simulation" / "nomad.db",  # VM simulation data
+        Path.home() / "nomad" / "vm-simulation" / "nomad.db",
         Path.home() / "nomad" / "nomad.db",
+        Path.home() / ".local" / "share" / "nomad" / "nomad.db",
         Path.home() / "nomad.db",
         Path("nomad.db"),
-        # Also check for cluster_monitor.db as fallback
+        Path.home() / "nomad_demo.db",
         Path.home() / "cluster_monitor.db",
     ]
-    for path in search_paths:
-        if path.exists():
-            return path
+    # First pass: find a database with actual data
+    for p in search_paths:
+        if p.exists() and p.stat().st_size > 0:
+            return p
+    # Second pass: return any existing file
+    for p in search_paths:
+        if p.exists():
+            return p
     return None
 
 
@@ -2575,6 +2586,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             >
                                 Interactive
                             </div>
+                            <div
+                                className={`tab ${activeTab === 'cloud' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('cloud'); setSelectedNode(null); }}
+                            >
+                                Cloud
+                            </div>
                         </nav>
                         
                         <div className="header-right">
@@ -2598,6 +2615,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             />
                         ) : activeTab === 'interactive' ? (
                             <InteractiveView />
+                        ) : activeTab === 'cloud' ? (
+                            <CloudView />
                         ) : (
                             <>
                                 <ClusterView
@@ -2614,6 +2633,222 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             );
         }
         
+
+        function CloudView() {
+            const [data, setData] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [selectedInstance, setSelectedInstance] = useState(null);
+
+            useEffect(() => {
+                fetchCloud();
+                const interval = setInterval(fetchCloud, 30000);
+                return () => clearInterval(interval);
+            }, []);
+
+            const fetchCloud = async () => {
+                try {
+                    const response = await fetch('/api/cloud');
+                    const result = await response.json();
+                    setData(result);
+                } catch (e) {
+                    console.error('Cloud fetch error:', e);
+                }
+                setLoading(false);
+            };
+
+            if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading cloud metrics...</div>;
+            if (!data || !data.instances || data.instances.length === 0) {
+                return (
+                    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        <h2 style={{ fontSize: '20px', marginBottom: '12px' }}>Cloud Monitoring</h2>
+                        <p>No cloud metrics found. Enable cloud collectors in nomad.toml or run nomad demo.</p>
+                    </div>
+                );
+            }
+
+            const { instances, latest, timeseries, cost, summary } = data;
+
+            // Group latest metrics by instance
+            const metricsByInstance = {};
+            (latest || []).forEach(m => {
+                if (!metricsByInstance[m.node_name]) metricsByInstance[m.node_name] = {};
+                metricsByInstance[m.node_name][m.metric_name] = m;
+            });
+
+            // Group cost by instance
+            const costByInstance = {};
+            (cost || []).forEach(c => { costByInstance[c.node_name] = c; });
+
+            const metricColor = (name, val) => {
+                if (name.includes('cpu') || name.includes('gpu') || name.includes('mem')) {
+                    if (val > 90) return 'var(--red)';
+                    if (val > 70) return 'var(--yellow)';
+                    return 'var(--green)';
+                }
+                return 'var(--text-primary)';
+            };
+
+            const formatBytes = (b) => {
+                if (b > 1e9) return (b / 1e9).toFixed(1) + ' GB';
+                if (b > 1e6) return (b / 1e6).toFixed(1) + ' MB';
+                if (b > 1e3) return (b / 1e3).toFixed(1) + ' KB';
+                return b + ' B';
+            };
+
+            const metricLabel = {
+                cpu_util: 'CPU', mem_util: 'Memory', gpu_util: 'GPU',
+                gpu_mem_util: 'GPU Mem', net_recv_bytes: 'Net In',
+                net_send_bytes: 'Net Out',
+            };
+
+            // Build sparkline data per instance
+            const sparklines = {};
+            (timeseries || []).forEach(t => {
+                const key = t.node_name + '|' + t.metric_name;
+                if (!sparklines[key]) sparklines[key] = [];
+                sparklines[key].push(t.avg_value);
+            });
+
+            const Sparkline = ({ values, color, width = 80, height = 24 }) => {
+                if (!values || values.length < 2) return null;
+                const max = Math.max(...values);
+                const min = Math.min(...values);
+                const range = max - min || 1;
+                const step = width / (values.length - 1);
+                const points = values.map((v, i) =>
+                    `${i * step},${height - ((v - min) / range) * (height - 2) - 1}`
+                ).join(' ');
+                return (
+                    <svg width={width} height={height} style={{ display: 'block' }}>
+                        <polyline points={points} fill="none" stroke={color || 'var(--accent)'}
+                            strokeWidth="1.5" strokeLinejoin="round" />
+                    </svg>
+                );
+            };
+
+            return (
+                <div style={{ padding: '24px', width: '100%', overflow: 'auto' }}>
+                    <div style={{ marginBottom: '24px' }}>
+                        <h2 style={{ fontSize: '20px', marginBottom: '8px' }}>Cloud Monitoring</h2>
+                        <div style={{ display: 'flex', gap: '24px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                            <span>{summary.instance_count || 0} instances</span>
+                            <span>{(summary.total_metrics || 0).toLocaleString()} metrics</span>
+                            <span>{(summary.providers || []).join(', ').toUpperCase()}</span>
+                            {summary.total_cost_7d > 0 && (
+                                <span style={{ color: 'var(--yellow)' }}>
+                                    ${summary.total_cost_7d.toFixed(2)} / 7d
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                        {instances.map(inst => {
+                            const m = metricsByInstance[inst.node_name] || {};
+                            const c = costByInstance['EC2/' + inst.node_name];
+                            const isSelected = selectedInstance === inst.node_name;
+                            return (
+                                <div key={inst.node_name}
+                                    onClick={() => setSelectedInstance(isSelected ? null : inst.node_name)}
+                                    style={{
+                                        background: 'var(--bg-secondary)',
+                                        borderRadius: '8px',
+                                        padding: '16px',
+                                        cursor: 'pointer',
+                                        border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border)',
+                                        transition: 'border-color 0.15s',
+                                    }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 600, fontSize: '14px' }}>{inst.node_name}</div>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                                {inst.instance_type} &middot; {inst.availability_zone}
+                                            </div>
+                                        </div>
+                                        <div style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
+                                            background: 'var(--green-muted)', color: 'var(--green)' }}>
+                                            {inst.source.toUpperCase()}
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                        {['cpu_util', 'mem_util', 'gpu_util'].map(metric => {
+                                            const val = m[metric];
+                                            if (!val) return null;
+                                            const spark = sparklines[inst.node_name + '|' + metric];
+                                            return (
+                                                <div key={metric} style={{ textAlign: 'center' }}>
+                                                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                                                        {metricLabel[metric] || metric}
+                                                    </div>
+                                                    <div style={{ fontSize: '18px', fontWeight: 600,
+                                                        color: metricColor(metric, val.avg_value) }}>
+                                                        {val.avg_value.toFixed(0)}%
+                                                    </div>
+                                                    {spark && <Sparkline values={spark}
+                                                        color={metricColor(metric, val.avg_value)} />}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {isSelected && (
+                                        <div style={{ marginTop: '12px', paddingTop: '12px',
+                                            borderTop: '1px solid var(--border)', fontSize: '12px' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                                                {Object.entries(m).map(([name, val]) => (
+                                                    <div key={name} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                        <span style={{ color: 'var(--text-secondary)' }}>{metricLabel[name] || name}</span>
+                                                        <span>
+                                                            {val.unit === 'bytes' ? formatBytes(val.avg_value)
+                                                                : val.avg_value.toFixed(1) + (val.unit === 'percent' ? '%' : '')}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            {c && (
+                                                <div style={{ marginTop: '8px', color: 'var(--yellow)' }}>
+                                                    Cost: ${c.total_cost.toFixed(2)} / 7d
+                                                    (avg ${c.avg_daily_cost.toFixed(2)}/day)
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {cost && cost.length > 0 && (
+                        <div style={{ background: 'var(--bg-secondary)', borderRadius: '8px',
+                            padding: '16px', border: '1px solid var(--border)' }}>
+                            <h3 style={{ fontSize: '14px', marginBottom: '12px' }}>Cost Breakdown (7 days)</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+                                {cost.map(c => {
+                                    const name = c.node_name.replace('EC2/', '');
+                                    const pct = summary.total_cost_7d > 0
+                                        ? (c.total_cost / summary.total_cost_7d * 100) : 0;
+                                    return (
+                                        <div key={c.node_name}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between',
+                                                fontSize: '13px', marginBottom: '4px' }}>
+                                                <span>{name}</span>
+                                                <span style={{ color: 'var(--yellow)' }}>${c.total_cost.toFixed(2)}</span>
+                                            </div>
+                                            <div style={{ height: '4px', background: 'var(--bg-primary)',
+                                                borderRadius: '2px', overflow: 'hidden' }}>
+                                                <div style={{ height: '100%', width: pct + '%',
+                                                    background: 'var(--yellow)', borderRadius: '2px' }} />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
 
         function InteractiveView() {
             const [data, setData] = useState(null);
@@ -4417,6 +4652,95 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 # HTTP Server
 # ============================================================================
 
+def _get_cloud_data(db_path) -> dict:
+    """Query cloud_metrics table for dashboard display."""
+    if db_path is None:
+        return {"instances": [], "metrics": [], "cost": [], "summary": {}}
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    # Check if table exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_metrics'")
+    if not c.fetchone():
+        conn.close()
+        return {"instances": [], "metrics": [], "cost": [], "summary": {}}
+
+    # Get unique instances
+    c.execute("""
+        SELECT DISTINCT node_name, instance_type, availability_zone, source
+        FROM cloud_metrics
+        WHERE metric_name != 'daily_cost_usd'
+        ORDER BY node_name
+    """)
+    instances = [dict(r) for r in c.fetchall()]
+
+    # Get latest metrics per instance (last hour)
+    c.execute("""
+        SELECT node_name, metric_name, AVG(value) as avg_value,
+               MAX(value) as max_value, MIN(value) as min_value,
+               unit, COUNT(*) as samples
+        FROM cloud_metrics
+        WHERE metric_name != 'daily_cost_usd'
+          AND timestamp >= datetime('now', '-1 hour')
+        GROUP BY node_name, metric_name
+        ORDER BY node_name, metric_name
+    """)
+    latest = [dict(r) for r in c.fetchall()]
+
+    # Get time series for charts (last 24 hours, 30-min buckets)
+    c.execute("""
+        SELECT
+            node_name,
+            metric_name,
+            strftime('%Y-%m-%dT%H:', timestamp) ||
+                CASE WHEN CAST(strftime('%M', timestamp) AS INTEGER) < 30
+                     THEN '00' ELSE '30' END AS bucket,
+            AVG(value) as avg_value,
+            unit
+        FROM cloud_metrics
+        WHERE metric_name IN ('cpu_util', 'mem_util', 'gpu_util', 'gpu_mem_util')
+          AND timestamp >= datetime('now', '-24 hours')
+        GROUP BY node_name, metric_name, bucket
+        ORDER BY bucket
+    """)
+    timeseries = [dict(r) for r in c.fetchall()]
+
+    # Get cost summary (last 7 days)
+    c.execute("""
+        SELECT node_name, SUM(value) as total_cost,
+               AVG(value) as avg_daily_cost,
+               COUNT(*) as days
+        FROM cloud_metrics
+        WHERE metric_name = 'daily_cost_usd'
+        GROUP BY node_name
+        ORDER BY total_cost DESC
+    """)
+    cost = [dict(r) for r in c.fetchall()]
+
+    # Summary stats
+    total_cost = sum(r["total_cost"] for r in cost)
+    c.execute("""
+        SELECT COUNT(DISTINCT node_name) as instance_count,
+               COUNT(*) as total_metrics
+        FROM cloud_metrics
+        WHERE metric_name != 'daily_cost_usd'
+    """)
+    summary_row = dict(c.fetchone())
+    summary_row["total_cost_7d"] = round(total_cost, 2)
+    summary_row["providers"] = list(set(i["source"] for i in instances))
+
+    conn.close()
+    return {
+        "instances": instances,
+        "latest": latest,
+        "timeseries": timeseries,
+        "cost": cost,
+        "summary": summary_row,
+    }
+
+
 class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     """Custom handler for the dashboard."""
 
@@ -4481,6 +4805,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 # Fallback to demo data on error
                 report = generate_demo_interactive()
                 self.wfile.write(json.dumps(report).encode())
+        elif parsed.path == '/api/cloud':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            try:
+                dm = DashboardHandler.data_manager
+                db_path = dm.db_path if hasattr(dm, 'db_path') else None
+                if db_path is None:
+                    db_path = find_database()
+                cloud_data = _get_cloud_data(db_path)
+                self.wfile.write(json.dumps(cloud_data).encode())
+            except Exception as e:
+                logger.error(f"Cloud API error: {e}")
+                self.wfile.write(json.dumps({"error": str(e), "instances": [], "metrics": [], "cost": [], "summary": {}}).encode())
+
         elif parsed.path.startswith('/api/failed_jobs'):
             # Parse query parameters
             query = parse_qs(parsed.query)

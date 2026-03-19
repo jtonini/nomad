@@ -3335,6 +3335,170 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 );
             };
 
+            const CloudPanel = () => {
+                const [data, setData] = React.useState(null);
+                const [loading, setLoading] = React.useState(true);
+                const [selectedInstance, setSelectedInstance] = React.useState(null);
+
+                React.useEffect(() => {
+                    fetch('/api/cloud').then(r => r.json()).then(d => { setData(d); setLoading(false); });
+                    const iv = setInterval(() => {
+                        fetch('/api/cloud').then(r => r.json()).then(setData);
+                    }, 30000);
+                    return () => clearInterval(iv);
+                }, []);
+
+                if (loading) return React.createElement("div", {style: {padding: "40px", textAlign: "center", color: "var(--text-secondary)"}}, "Loading cloud metrics...");
+                if (!data || !data.instances || data.instances.length === 0) {
+                    return React.createElement("div", {style: {padding: "40px", textAlign: "center", color: "var(--text-secondary)"}},
+                        React.createElement("h2", {style: {fontSize: "20px", marginBottom: "12px"}}, "Cloud Monitoring"),
+                        React.createElement("p", null, "No cloud metrics found. Enable cloud collectors in nomad.toml or run nomad demo.")
+                    );
+                }
+
+                const { instances, latest, timeseries, cost, summary } = data;
+
+                const metricsByInstance = {};
+                (latest || []).forEach(m => {
+                    if (!metricsByInstance[m.node_name]) metricsByInstance[m.node_name] = {};
+                    metricsByInstance[m.node_name][m.metric_name] = m;
+                });
+
+                const costByInstance = {};
+                (cost || []).forEach(c => { costByInstance[c.node_name] = c; });
+
+                const metricColor = (name, val) => {
+                    if (name.includes('cpu') || name.includes('gpu') || name.includes('mem')) {
+                        if (val > 90) return 'var(--red)';
+                        if (val > 70) return 'var(--yellow)';
+                        return 'var(--green)';
+                    }
+                    return 'var(--text-primary)';
+                };
+
+                const formatBytes = (b) => {
+                    if (b > 1e9) return (b / 1e9).toFixed(1) + ' GB';
+                    if (b > 1e6) return (b / 1e6).toFixed(1) + ' MB';
+                    return (b / 1e3).toFixed(1) + ' KB';
+                };
+
+                const metricLabel = {cpu_util: 'CPU', mem_util: 'Memory', gpu_util: 'GPU', gpu_mem_util: 'GPU Mem', net_recv_bytes: 'Net In', net_send_bytes: 'Net Out'};
+
+                // Sparkline data
+                const sparklines = {};
+                (timeseries || []).forEach(t => {
+                    const key = t.node_name + '|' + t.metric_name;
+                    if (!sparklines[key]) sparklines[key] = [];
+                    sparklines[key].push(t.avg_value);
+                });
+
+                const Sparkline = ({values, color, width, height}) => {
+                    width = width || 80; height = height || 24;
+                    if (!values || values.length < 2) return null;
+                    const max = Math.max(...values), min = Math.min(...values);
+                    const range = max - min || 1;
+                    const step = width / (values.length - 1);
+                    const points = values.map((v, i) => (i * step) + ',' + (height - ((v - min) / range) * (height - 2) - 1)).join(' ');
+                    return React.createElement("svg", {width, height, style: {display: "block"}},
+                        React.createElement("polyline", {points, fill: "none", stroke: color || "var(--accent)", strokeWidth: "1.5", strokeLinejoin: "round"})
+                    );
+                };
+
+                const styles = {
+                    container: {padding: "24px", width: "100%", overflow: "auto"},
+                    header: {marginBottom: "24px"},
+                    title: {fontSize: "20px", marginBottom: "8px"},
+                    summaryRow: {display: "flex", gap: "24px", color: "var(--text-secondary)", fontSize: "13px"},
+                    grid: {display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "16px", marginBottom: "24px"},
+                    card: (sel) => ({background: "var(--bg-secondary)", borderRadius: "8px", padding: "16px", cursor: "pointer", border: sel ? "1px solid var(--accent)" : "1px solid var(--border)", transition: "border-color 0.15s"}),
+                    cardHeader: {display: "flex", justifyContent: "space-between", marginBottom: "12px"},
+                    cardName: {fontWeight: 600, fontSize: "14px"},
+                    cardSub: {fontSize: "12px", color: "var(--text-secondary)"},
+                    badge: {fontSize: "11px", padding: "2px 8px", borderRadius: "4px", background: "var(--green-muted)", color: "var(--green)"},
+                    metricsGrid: {display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px"},
+                    metricCell: {textAlign: "center"},
+                    metricName: {fontSize: "11px", color: "var(--text-secondary)", marginBottom: "4px"},
+                    expanded: {marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border)", fontSize: "12px"},
+                    detailGrid: {display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px"},
+                    detailRow: {display: "flex", justifyContent: "space-between"},
+                    costSection: {background: "var(--bg-secondary)", borderRadius: "8px", padding: "16px", border: "1px solid var(--border)"},
+                    costGrid: {display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px"},
+                    costBar: {height: "4px", background: "var(--bg-primary)", borderRadius: "2px", overflow: "hidden"},
+                };
+
+                return React.createElement("div", {style: styles.container},
+                    // Header
+                    React.createElement("div", {style: styles.header},
+                        React.createElement("h2", {style: styles.title}, "Cloud Monitoring"),
+                        React.createElement("div", {style: styles.summaryRow},
+                            React.createElement("span", null, (summary.instance_count || 0) + " instances"),
+                            React.createElement("span", null, (summary.total_metrics || 0).toLocaleString() + " metrics"),
+                            React.createElement("span", null, (summary.providers || []).join(', ').toUpperCase()),
+                            summary.total_cost_7d > 0 ? React.createElement("span", {style: {color: "var(--yellow)"}}, "$" + summary.total_cost_7d.toFixed(2) + " / 7d") : null
+                        )
+                    ),
+                    // Instance cards
+                    React.createElement("div", {style: styles.grid},
+                        instances.map(inst => {
+                            const m = metricsByInstance[inst.node_name] || {};
+                            const c = costByInstance['EC2/' + inst.node_name];
+                            const isSel = selectedInstance === inst.node_name;
+                            return React.createElement("div", {key: inst.node_name, onClick: () => setSelectedInstance(isSel ? null : inst.node_name), style: styles.card(isSel)},
+                                React.createElement("div", {style: styles.cardHeader},
+                                    React.createElement("div", null,
+                                        React.createElement("div", {style: styles.cardName}, inst.node_name),
+                                        React.createElement("div", {style: styles.cardSub}, inst.instance_type + " \u00b7 " + inst.availability_zone)
+                                    ),
+                                    React.createElement("div", {style: styles.badge}, inst.source.toUpperCase())
+                                ),
+                                React.createElement("div", {style: styles.metricsGrid},
+                                    ['cpu_util', 'mem_util', 'gpu_util'].map(metric => {
+                                        const val = m[metric];
+                                        if (!val) return null;
+                                        const spark = sparklines[inst.node_name + '|' + metric];
+                                        return React.createElement("div", {key: metric, style: styles.metricCell},
+                                            React.createElement("div", {style: styles.metricName}, metricLabel[metric] || metric),
+                                            React.createElement("div", {style: {fontSize: "18px", fontWeight: 600, color: metricColor(metric, val.avg_value)}}, val.avg_value.toFixed(0) + "%"),
+                                            spark ? React.createElement(Sparkline, {values: spark, color: metricColor(metric, val.avg_value)}) : null
+                                        );
+                                    })
+                                ),
+                                isSel ? React.createElement("div", {style: styles.expanded},
+                                    React.createElement("div", {style: styles.detailGrid},
+                                        Object.entries(m).map(([name, val]) =>
+                                            React.createElement("div", {key: name, style: styles.detailRow},
+                                                React.createElement("span", {style: {color: "var(--text-secondary)"}}, metricLabel[name] || name),
+                                                React.createElement("span", null, val.unit === 'bytes' ? formatBytes(val.avg_value) : val.avg_value.toFixed(1) + (val.unit === 'percent' ? '%' : ''))
+                                            )
+                                        )
+                                    ),
+                                    c ? React.createElement("div", {style: {marginTop: "8px", color: "var(--yellow)"}}, "Cost: $" + c.total_cost.toFixed(2) + " / 7d (avg $" + c.avg_daily_cost.toFixed(2) + "/day)") : null
+                                ) : null
+                            );
+                        })
+                    ),
+                    // Cost breakdown
+                    cost && cost.length > 0 ? React.createElement("div", {style: styles.costSection},
+                        React.createElement("h3", {style: {fontSize: "14px", marginBottom: "12px"}}, "Cost Breakdown (7 days)"),
+                        React.createElement("div", {style: styles.costGrid},
+                            cost.map(c => {
+                                const name = c.node_name.replace('EC2/', '');
+                                const pct = summary.total_cost_7d > 0 ? (c.total_cost / summary.total_cost_7d * 100) : 0;
+                                return React.createElement("div", {key: c.node_name},
+                                    React.createElement("div", {style: {display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "4px"}},
+                                        React.createElement("span", null, name),
+                                        React.createElement("span", {style: {color: "var(--yellow)"}}, "$" + c.total_cost.toFixed(2))
+                                    ),
+                                    React.createElement("div", {style: styles.costBar},
+                                        React.createElement("div", {style: {height: "100%", width: pct + "%", background: "var(--yellow)", borderRadius: "2px"}})
+                                    )
+                                );
+                            })
+                        )
+                    ) : null
+                );
+            };
+
             const InteractivePanel = () => {
                 const [sessions, setSessions] = useState(null);
                 useEffect(() => {
@@ -3531,6 +3695,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             >
                                 Storage
                             </div>
+                            <div
+                                className={`tab ${activeTab === 'cloud' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('cloud'); setSelectedNode(null); }}
+                            >
+                                Cloud
+                            </div>
                         </nav>
                         
                         <div className="header-right">
@@ -3565,6 +3735,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <WorkstationsPanel />
                         ) : activeTab === 'storage' ? (
                             <StoragePanel />
+                        ) : activeTab === 'cloud' ? (
+                            <CloudPanel />
                         ) : (
                             <>
                                 <ClusterView
@@ -5763,6 +5935,71 @@ def query_activity_heatmap(db_path, cluster='all', group='all', days=30):
     }
 
 
+def _get_cloud_data(db_path) -> dict:
+    """Query cloud_metrics table for dashboard display."""
+    empty = {"instances": [], "latest": [], "timeseries": [], "cost": [], "summary": {}}
+    if db_path is None:
+        return empty
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_metrics'")
+    if not c.fetchone():
+        conn.close()
+        return empty
+
+    c.execute("""
+        SELECT DISTINCT node_name, instance_type, availability_zone, source
+        FROM cloud_metrics WHERE metric_name != 'daily_cost_usd'
+        ORDER BY node_name
+    """)
+    instances = [dict(r) for r in c.fetchall()]
+
+    c.execute("""
+        SELECT node_name, metric_name, AVG(value) as avg_value,
+               MAX(value) as max_value, MIN(value) as min_value, unit, COUNT(*) as samples
+        FROM cloud_metrics
+        WHERE metric_name != 'daily_cost_usd'
+          AND timestamp >= datetime('now', '-1 hour')
+        GROUP BY node_name, metric_name ORDER BY node_name, metric_name
+    """)
+    latest = [dict(r) for r in c.fetchall()]
+
+    c.execute("""
+        SELECT node_name, metric_name,
+            strftime('%Y-%m-%dT%H:', timestamp) ||
+                CASE WHEN CAST(strftime('%M', timestamp) AS INTEGER) < 30
+                     THEN '00' ELSE '30' END AS bucket,
+            AVG(value) as avg_value, unit
+        FROM cloud_metrics
+        WHERE metric_name IN ('cpu_util', 'mem_util', 'gpu_util', 'gpu_mem_util')
+          AND timestamp >= datetime('now', '-24 hours')
+        GROUP BY node_name, metric_name, bucket ORDER BY bucket
+    """)
+    timeseries = [dict(r) for r in c.fetchall()]
+
+    c.execute("""
+        SELECT node_name, SUM(value) as total_cost, AVG(value) as avg_daily_cost, COUNT(*) as days
+        FROM cloud_metrics WHERE metric_name = 'daily_cost_usd'
+        GROUP BY node_name ORDER BY total_cost DESC
+    """)
+    cost = [dict(r) for r in c.fetchall()]
+
+    total_cost = sum(r["total_cost"] for r in cost)
+    c.execute("""
+        SELECT COUNT(DISTINCT node_name) as instance_count, COUNT(*) as total_metrics
+        FROM cloud_metrics WHERE metric_name != 'daily_cost_usd'
+    """)
+    summary = dict(c.fetchone())
+    summary["total_cost_7d"] = round(total_cost, 2)
+    summary["providers"] = list(set(i["source"] for i in instances))
+
+    conn.close()
+    return {"instances": instances, "latest": latest, "timeseries": timeseries, "cost": cost, "summary": summary}
+
+
 class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     """Custom handler for the dashboard."""
 
@@ -5961,6 +6198,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 workstations, summary = [], {}
             self.wfile.write(json.dumps({'workstations': workstations, 'summary': summary}).encode())
+
+        elif parsed.path == '/api/cloud':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            try:
+                dm = DashboardHandler.data_manager
+                db_path = getattr(dm, 'db_path', None)
+                if db_path is None:
+                    db_path = find_database()
+                cloud_data = _get_cloud_data(db_path)
+                self.wfile.write(json.dumps(cloud_data).encode())
+            except Exception as e:
+                logger.error(f"Cloud API error: {e}")
+                self.wfile.write(json.dumps({"error": str(e), "instances": [], "latest": [], "timeseries": [], "cost": [], "summary": {}}).encode())
 
         elif parsed.path == '/api/storage':
             self.send_response(200)

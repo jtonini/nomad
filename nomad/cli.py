@@ -1069,20 +1069,25 @@ def dashboard(ctx, host, port, db):
     data_source = db
     if not data_source:
         config = ctx.obj.get('config', {})
-        # Try database first
+        # Try database first (skip empty/uninitialized files)
         db_path = get_db_path(config)
-        if db_path.exists():
+        if db_path.exists() and db_path.stat().st_size > 0:
             data_source = str(db_path)
         else:
-            # Try simulation metrics
-            metrics_paths = [
-                Path('/tmp/nomad-metrics.log'),
-                Path.home() / 'nomad-metrics.log',
-            ]
-            for mp in metrics_paths:
-                if mp.exists():
-                    data_source = str(mp)
-                    break
+            # Try demo database
+            demo_db = Path.home() / "nomad_demo.db"
+            if demo_db.exists() and demo_db.stat().st_size > 0:
+                data_source = str(demo_db)
+            else:
+                # Try simulation metrics
+                metrics_paths = [
+                    Path('/tmp/nomad-metrics.log'),
+                    Path.home() / 'nomad-metrics.log',
+                ]
+                for mp in metrics_paths:
+                    if mp.exists():
+                        data_source = str(mp)
+                        break
 
     click.echo(click.style("===========================================", fg='cyan'))
     click.echo(click.style("           ", fg='cyan') +
