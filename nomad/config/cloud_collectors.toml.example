@@ -1,0 +1,83 @@
+# ──────────────────────────────────────────────────────────────────────
+# NØMAD Cloud Collector Configuration
+# Add this section to your nomad.toml to enable cloud metric collection.
+# ──────────────────────────────────────────────────────────────────────
+
+[collectors.cloud.aws]
+enabled = true
+
+# AWS region to monitor
+region = "us-east-1"
+
+# Authentication — choose ONE method:
+#
+# Method 1: Named profile (from ~/.aws/credentials)
+# profile = "research-account"
+#
+# Method 2: Explicit credentials (prefer env vars over config file)
+# access_key_id = "AKIA..."
+# secret_access_key = "..."
+#
+# Method 3: IAM instance role (no config needed — just enable the collector)
+#
+# Method 4: Assume role (cross-account)
+# role_arn = "arn:aws:iam::123456789012:role/NomadReadOnly"
+# profile = "base-account"   # optional, credentials for STS call
+#
+# Environment variable overrides (take precedence over config):
+#   NOMAD_AWS_ACCESS_KEY_ID
+#   NOMAD_AWS_SECRET_ACCESS_KEY
+#   NOMAD_AWS_SESSION_TOKEN
+#   NOMAD_AWS_REGION
+#   NOMAD_AWS_PROFILE
+#   NOMAD_AWS_ROLE_ARN
+
+# Friendly name for this AWS account (appears as "cluster" in NØMAD)
+account_alias = "research-aws"
+
+# How far back to look on each collection cycle (minutes)
+lookback_minutes = 10
+
+# CloudWatch metric period (seconds). 300 = basic monitoring (free).
+# Set to 60 for detailed monitoring ($3.50/instance/month).
+metric_period = 300
+
+# Filter instances by tags. Only instances matching ALL tags are collected.
+# Useful for monitoring only research workloads in a shared account.
+[collectors.cloud.aws.tag_filters]
+# Environment = "research"
+# Project = "computational-chemistry"
+# ManagedBy = "nomad"
+
+# Which EC2 metrics to collect (defaults shown below)
+# ec2_metrics = [
+#     "CPUUtilization",
+#     "NetworkIn",
+#     "NetworkOut",
+#     "DiskReadBytes",
+#     "DiskWriteBytes",
+#     "StatusCheckFailed",
+# ]
+
+# Collect CloudWatch Agent metrics (memory, GPU) if agent is installed
+collect_cw_agent_metrics = true
+
+# Enable cost data collection from AWS Cost Explorer
+# Note: Cost Explorer charges $0.01 per API request and has ~24h data lag.
+collect_cost = false
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Future providers (planned — architecture ready, implementation TBD)
+# ──────────────────────────────────────────────────────────────────────
+
+# [collectors.cloud.azure]
+# enabled = false
+# tenant_id = "..."
+# client_id = "..."
+# subscription_id = "..."
+
+# [collectors.cloud.gcp]
+# enabled = false
+# project_id = "..."
+# service_account_json = "/path/to/keyfile.json"
