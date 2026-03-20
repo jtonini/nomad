@@ -3420,6 +3420,186 @@ def diag_network(ctx, source, dest, db_path, hours, output_json):
         click.echo(format_diagnostic(diag))
 
 # =============================================================================
+# INSIGHT ENGINE COMMANDS
+# =============================================================================
+
+@cli.group()
+def insights():
+    """NØMAD Insight Engine — operational narratives and analysis."""
+    pass
+
+
+@insights.command('brief')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.pass_context
+def insights_brief(ctx, db_path, hours, cluster):
+    """Print a concise operational briefing."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        # Try demo DB
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found. Run 'nomad demo' first or specify --db.", err=True)
+            raise SystemExit(1)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    click.echo(engine.brief())
+
+
+@insights.command('detail')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.pass_context
+def insights_detail(ctx, db_path, hours, cluster):
+    """Print a detailed operational analysis."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found. Run 'nomad demo' first or specify --db.", err=True)
+            raise SystemExit(1)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    click.echo(engine.detail())
+
+
+@insights.command('json')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.pass_context
+def insights_json(ctx, db_path, hours, cluster):
+    """Output insights as JSON (for API/Console integration)."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found.", err=True)
+            raise SystemExit(1)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    click.echo(engine.to_json())
+
+
+@insights.command('slack')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.option('--webhook', help='Slack webhook URL (if provided, posts directly)')
+@click.pass_context
+def insights_slack(ctx, db_path, hours, cluster, webhook):
+    """Generate a Slack-formatted insight message."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found.", err=True)
+            raise SystemExit(1)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    message = engine.to_slack()
+
+    if webhook:
+        import urllib.request
+        import json as json_mod
+        req = urllib.request.Request(
+            webhook,
+            data=json_mod.dumps({"text": message}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            urllib.request.urlopen(req)
+            click.echo("Posted to Slack.")
+        except Exception as e:
+            click.echo(f"Failed to post: {e}", err=True)
+            click.echo(message)
+    else:
+        click.echo(message)
+
+
+@insights.command('digest')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.option('--period', type=click.Choice(['daily', 'weekly']), default='daily', help='Digest period')
+@click.option('--email', 'email_addr', help='Send via email (requires configured SMTP)')
+@click.pass_context
+def insights_digest(ctx, db_path, hours, cluster, period, email_addr):
+    """Generate an email digest of insights."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found.", err=True)
+            raise SystemExit(1)
+
+    if period == 'weekly':
+        hours = max(hours, 168)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    subject, body = engine.to_email(period=period)
+
+    if email_addr:
+        click.echo(f"Email delivery not yet configured. Subject and body below:")
+
+    click.echo(f"Subject: {subject}")
+    click.echo("")
+    click.echo(body)
+
+# =============================================================================
 # COMMUNITY COMMANDS
 # =============================================================================
 
