@@ -19,7 +19,7 @@ import logging
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -639,6 +639,61 @@ def status(ctx: click.Context, db: str) -> None:
     except Exception:
             click.echo(" No collection data available")
     click.echo()
+
+    # Cloud Resources
+    try:
+        cloud_count = conn.execute(
+            "SELECT COUNT(DISTINCT node_name) as n FROM cloud_metrics WHERE node_name NOT LIKE 'EC2/%'"
+        ).fetchone()
+        if cloud_count and cloud_count['n'] > 0:
+            click.echo(click.style("Cloud Resources:", bold=True))
+            cloud_instances = conn.execute(
+                "SELECT DISTINCT node_name, instance_type, availability_zone "
+                "FROM cloud_metrics WHERE node_name NOT LIKE 'EC2/%' AND instance_type IS NOT NULL"
+            ).fetchall()
+            for inst in cloud_instances:
+                cpu_row = conn.execute(
+                    "SELECT AVG(value) as avg_cpu FROM cloud_metrics "
+                    "WHERE node_name = ? AND metric_name = 'cpu_util' "
+                    "AND timestamp > datetime('now', '-7 days')",
+                    (inst['node_name'],)
+                ).fetchone()
+                mem_row = conn.execute(
+                    "SELECT AVG(value) as avg_mem FROM cloud_metrics "
+                    "WHERE node_name = ? AND metric_name = 'mem_util' "
+                    "AND timestamp > datetime('now', '-7 days')",
+                    (inst['node_name'],)
+                ).fetchone()
+                cost_row = conn.execute(
+                    "SELECT value FROM cloud_metrics "
+                    "WHERE node_name LIKE ? AND metric_name = 'daily_cost_usd' "
+                    "ORDER BY timestamp DESC LIMIT 1",
+                    ('EC2/' + inst['node_name'],)
+                ).fetchone()
+                cpu_val = cpu_row['avg_cpu'] if cpu_row and cpu_row['avg_cpu'] else 0
+                mem_val = mem_row['avg_mem'] if mem_row and mem_row['avg_mem'] else 0
+                cost_val = cost_row['value'] if cost_row else 0
+                cpu_color = 'green' if cpu_val < 50 else 'yellow' if cpu_val < 80 else 'red'
+                mem_color = 'green' if mem_val < 50 else 'yellow' if mem_val < 80 else 'red'
+                cpu_bar_len = int(cpu_val / 5)
+                cpu_bar = chr(9608) * cpu_bar_len + chr(9617) * (20 - cpu_bar_len)
+                click.echo(
+                    "  {:<18} {:<14} [{}] CPU: {}  Mem: {}  ${:.2f}/day".format(
+                        inst['node_name'], inst['instance_type'],
+                        click.style(cpu_bar, fg=cpu_color),
+                        click.style("{:.0f}%".format(cpu_val), fg=cpu_color),
+                        click.style("{:.0f}%".format(mem_val), fg=mem_color),
+                        cost_val))
+            total_cost = conn.execute(
+                "SELECT SUM(value) as total FROM cloud_metrics "
+                "WHERE metric_name = 'daily_cost_usd' AND timestamp > datetime('now', '-7 days')"
+            ).fetchone()
+            if total_cost and total_cost['total']:
+                click.echo("  {:<34} {}".format('Total 7-day cost:',
+                    click.style("${:.2f}".format(total_cost['total']), fg='yellow', bold=True)))
+            click.echo()
+    except sqlite3.OperationalError:
+        pass
 
 @cli.command()
 @click.option('--db', type=click.Path(), help='Database path override')
@@ -3172,6 +3227,127 @@ def edu_report(ctx, group_name, db_path, days, output_json):
 # DIAGNOSTICS COMMANDS
 # =============================================================================
 
+
+@edu.command('cloud')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--instance', 'instance_name', type=str, help='Specific instance')
+@click.option('--days', default=7, help='Days to analyze (default: 7)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def edu_cloud(ctx, db_path, instance_name, days, output_json):
+    """Cloud resource proficiency analysis.
+
+    Analyzes how efficiently cloud instances are being used.
+    Same proficiency framework as HPC jobs, applied to cloud.
+
+    Examples:
+        nomad edu cloud --db ~/nomad.db
+        nomad edu cloud --instance ml-train-01
+    """
+    config = ctx.obj.get('config', {})
+    if not db_path:
+        db_path = str(get_db_path(config))
+    import sqlite3 as _sql
+    conn = _sql.connect(db_path)
+    conn.row_factory = _sql.Row
+    try:
+        cloud_check = conn.execute(
+            "SELECT COUNT(DISTINCT node_name) as n FROM cloud_metrics WHERE node_name NOT LIKE 'EC2/%'"
+        ).fetchone()
+    except _sql.OperationalError:
+        click.echo("No cloud data found in database.")
+        conn.close()
+        return
+    if not cloud_check or cloud_check['n'] == 0:
+        click.echo("No cloud instances found.")
+        conn.close()
+        return
+    cutoff_dt = (datetime.now() - timedelta(days=days)).isoformat()
+    if instance_name:
+        instances = [{'node_name': instance_name}]
+    else:
+        instances = conn.execute(
+            "SELECT DISTINCT node_name, instance_type FROM cloud_metrics "
+            "WHERE node_name NOT LIKE 'EC2/%' AND instance_type IS NOT NULL"
+        ).fetchall()
+    results = []
+    for inst in instances:
+        name = inst['node_name']
+        cpu_row = conn.execute("SELECT AVG(value) as avg, MAX(value) as peak FROM cloud_metrics WHERE node_name = ? AND metric_name = 'cpu_util' AND timestamp > ?", (name, cutoff_dt)).fetchone()
+        mem_row = conn.execute("SELECT AVG(value) as avg, MAX(value) as peak FROM cloud_metrics WHERE node_name = ? AND metric_name = 'mem_util' AND timestamp > ?", (name, cutoff_dt)).fetchone()
+        gpu_row = conn.execute("SELECT AVG(value) as avg, MAX(value) as peak FROM cloud_metrics WHERE node_name = ? AND metric_name = 'gpu_util' AND timestamp > ?", (name, cutoff_dt)).fetchone()
+        cost_row = conn.execute("SELECT SUM(value) as total, AVG(value) as daily FROM cloud_metrics WHERE (node_name = ? OR node_name = 'EC2/' || ?) AND metric_name = 'daily_cost_usd' AND timestamp > ?", (name, name, cutoff_dt)).fetchone()
+        itype_row = conn.execute("SELECT DISTINCT instance_type FROM cloud_metrics WHERE node_name = ? AND instance_type IS NOT NULL LIMIT 1", (name,)).fetchone()
+        cpu_avg = cpu_row['avg'] if cpu_row and cpu_row['avg'] else 0
+        mem_avg = mem_row['avg'] if mem_row and mem_row['avg'] else 0
+        gpu_avg = gpu_row['avg'] if gpu_row and gpu_row['avg'] else None
+        total_cost = cost_row['total'] if cost_row and cost_row['total'] else 0
+        daily_cost = cost_row['daily'] if cost_row and cost_row['daily'] else 0
+        itype = itype_row['instance_type'] if itype_row else 'unknown'
+        def score_util(avg):
+            if avg <= 0: return 0
+            if 60 <= avg <= 85: return min(100, 90 + (avg - 60) * 0.4)
+            if avg > 85: return 85 - (avg - 85) * 0.5
+            if avg >= 40: return 50 + (avg - 40) * 2.0
+            if avg >= 20: return 20 + (avg - 20) * 1.5
+            return avg
+        cpu_score = round(score_util(cpu_avg), 1)
+        mem_score = round(score_util(mem_avg), 1)
+        gpu_score = round(score_util(gpu_avg), 1) if gpu_avg is not None and gpu_avg > 0 else None
+        if gpu_score is not None:
+            overall = cpu_score * 0.3 + mem_score * 0.25 + gpu_score * 0.25 + 50 * 0.2
+        else:
+            overall = cpu_score * 0.35 + mem_score * 0.30 + 50 * 0.35
+        overall = round(overall, 1)
+        def level(s):
+            if s >= 90: return 'Excellent'
+            if s >= 70: return 'Good'
+            if s >= 50: return 'Developing'
+            return 'Needs Work'
+        results.append({'instance': name, 'type': itype, 'cpu_avg': round(cpu_avg, 1), 'mem_avg': round(mem_avg, 1),
+            'gpu_avg': round(gpu_avg, 1) if gpu_avg else None, 'cpu_score': cpu_score, 'mem_score': mem_score,
+            'gpu_score': gpu_score, 'overall_score': overall, 'overall_level': level(overall),
+            'total_cost': round(total_cost, 2), 'daily_cost': round(daily_cost, 2)})
+    conn.close()
+    if output_json:
+        import json
+        click.echo(json.dumps({'instances': results, 'days': days}, indent=2))
+        return
+    hline = chr(9472) * 56
+    click.echo()
+    click.echo(click.style("  NOMAD Cloud Proficiency Report", bold=True))
+    click.echo("  Analysis period: {} days".format(days))
+    click.echo("  " + hline)
+    click.echo()
+    for r in sorted(results, key=lambda x: x['overall_score']):
+        lc = 'green' if r['overall_score'] >= 70 else 'yellow' if r['overall_score'] >= 50 else 'red'
+        click.echo("  {}  ({})".format(click.style(r['instance'], bold=True), r['type']))
+        click.echo("    Overall: {}".format(click.style("{:.1f}% -- {}".format(r['overall_score'], r['overall_level']), fg=lc)))
+        for dim, val, score in [('CPU', r['cpu_avg'], r['cpu_score']), ('Memory', r['mem_avg'], r['mem_score'])]:
+            color = 'green' if score >= 70 else 'yellow' if score >= 50 else 'red'
+            bar_len = int(val / 5)
+            bar = chr(9608) * bar_len + chr(9617) * (20 - bar_len)
+            click.echo("    {:<10} [{}] Util: {:.0f}%  Score: {:.0f}%".format(dim, click.style(bar, fg=color), val, score))
+        if r.get('gpu_avg') is not None and r.get('gpu_score') is not None:
+            color = 'green' if r['gpu_score'] >= 70 else 'yellow' if r['gpu_score'] >= 50 else 'red'
+            bar_len = int(r['gpu_avg'] / 5)
+            bar = chr(9608) * bar_len + chr(9617) * (20 - bar_len)
+            click.echo("    {:<10} [{}] Util: {:.0f}%  Score: {:.0f}%".format('GPU', click.style(bar, fg=color), r['gpu_avg'], r['gpu_score']))
+        click.echo("    Cost: ${:.2f}/day  (${:.2f} total)".format(r['daily_cost'], r['total_cost']))
+        click.echo()
+    avg_overall = sum(r['overall_score'] for r in results) / len(results)
+    total_cost_all = sum(r['total_cost'] for r in results)
+    needs_work = [r for r in results if r['overall_score'] < 50]
+    lc = 'green' if avg_overall >= 70 else 'yellow' if avg_overall >= 50 else 'red'
+    click.echo("  " + hline)
+    click.echo("  Average Score: {}".format(click.style("{:.1f}%".format(avg_overall), fg=lc, bold=True)))
+    click.echo("  Total Cost ({}d): ${:.2f}".format(days, total_cost_all))
+    if needs_work:
+        names = ', '.join(r['instance'] for r in needs_work)
+        click.echo(click.style("  Needs attention: " + names, fg='yellow'))
+    click.echo()
+
+
 @cli.group()
 def diag():
     """NØMAD Diagnostics — Infrastructure troubleshooting.
@@ -3762,6 +3938,66 @@ def report_interactive(server_id, idle_hours, memory_threshold, max_idle, as_jso
 
     print_report(data)
 
+
+
+@diag.command('cloud')
+@click.argument('instance_name')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--days', default=7, help='Days of history (default: 7)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def diag_cloud(ctx, instance_name, db_path, days, output_json):
+    """Diagnose a cloud instance."""
+    config = ctx.obj.get('config', {})
+    if not db_path:
+        db_path = str(get_db_path(config))
+    import sqlite3 as _sql
+    conn = _sql.connect(db_path)
+    conn.row_factory = _sql.Row
+    cutoff_dt = (datetime.now() - timedelta(days=days)).isoformat()
+    check = conn.execute('SELECT COUNT(*) as n FROM cloud_metrics WHERE node_name = ? AND timestamp > ?', (instance_name, cutoff_dt)).fetchone()
+    if not check or check['n'] == 0:
+        click.echo('No data for {}'.format(instance_name)); conn.close(); return
+    info = conn.execute("SELECT DISTINCT instance_type, availability_zone FROM cloud_metrics WHERE (node_name = ? OR node_name = 'EC2/' || ?) AND instance_type IS NOT NULL LIMIT 1", (instance_name, instance_name)).fetchone()
+    itype = info['instance_type'] if info else 'unknown'
+    az = info['availability_zone'] if info else 'unknown'
+    metrics = {}
+    for m in ['cpu_util','mem_util','gpu_util','gpu_mem_util']:
+        row = conn.execute('SELECT AVG(value) as avg, MIN(value) as mn, MAX(value) as mx, COUNT(*) as n FROM cloud_metrics WHERE node_name = ? AND metric_name = ? AND timestamp > ?', (instance_name, m, cutoff_dt)).fetchone()
+        if row and row['n'] > 0: metrics[m] = {'avg':row['avg'],'min':row['mn'],'max':row['mx'],'n':row['n']}
+    cost_row = conn.execute("SELECT SUM(value) as total, AVG(value) as daily FROM cloud_metrics WHERE (node_name = ? OR node_name = 'EC2/' || ?) AND metric_name = 'daily_cost_usd' AND timestamp > ?", (instance_name, instance_name, cutoff_dt)).fetchone()
+    total_cost = cost_row['total'] if cost_row and cost_row['total'] else 0
+    daily_avg = cost_row['daily'] if cost_row and cost_row['daily'] else 0
+    conn.close()
+    if output_json:
+        import json; click.echo(json.dumps({'instance':instance_name,'type':itype,'zone':az,'days':days,'metrics':{k:{kk:round(vv,2) for kk,vv in v.items()} for k,v in metrics.items()},'total_cost':round(total_cost,2),'daily_avg':round(daily_avg,2)},indent=2)); return
+    hl = chr(9472)*56
+    click.echo()
+    click.echo(click.style('  NOMAD Cloud Diagnostic -- {}'.format(instance_name), bold=True))
+    click.echo('  Instance type: {}'.format(itype))
+    click.echo('  Availability zone: {}'.format(az))
+    click.echo('  '+hl); click.echo()
+    click.echo(click.style('  Utilization Summary', bold=True)); click.echo('  '+hl)
+    for mn,lb in [('cpu_util','CPU'),('mem_util','Memory'),('gpu_util','GPU Compute'),('gpu_mem_util','GPU Memory')]:
+        if mn not in metrics: continue
+        v = metrics[mn]; a = v['avg']
+        c = 'green' if a < 50 else 'yellow' if a < 80 else 'red'
+        bl = int(a/5); b = chr(9608)*bl + chr(9617)*(20-bl)
+        click.echo('    {:<16} [{}] {}'.format(lb, click.style(b,fg=c), click.style('{:.1f}%'.format(a),fg=c)))
+        click.echo('                   Min: {:.1f}%  Max: {:.1f}%  ({} samples)'.format(v['min'],v['max'],v['n']))
+    click.echo(); click.echo(click.style('  Cost Analysis', bold=True)); click.echo('  '+hl)
+    click.echo('    Daily average:     ${:.2f}'.format(daily_avg))
+    click.echo('    {}-day total:      ${:.2f}'.format(days, total_cost))
+    click.echo('    30-day projection: ${:.2f}'.format(daily_avg*30))
+    click.echo(); click.echo(click.style('  Recommendations', bold=True)); click.echo('  '+hl)
+    ca = metrics.get('cpu_util',{}).get('avg',0); ma = metrics.get('mem_util',{}).get('avg',0); ga = metrics.get('gpu_util',{}).get('avg',0)
+    hr = False
+    if ca < 20: click.echo(click.style('    [HIGH] ',fg='red')+'CPU averages {:.0f}% -- over-provisioned'.format(ca)); hr=True
+    elif ca < 40: click.echo(click.style('    [MEDIUM] ',fg='yellow')+'CPU averages {:.0f}% -- consider downsizing'.format(ca)); hr=True
+    if ma < 20: click.echo(click.style('    [HIGH] ',fg='red')+'Memory averages {:.0f}% -- over-provisioned'.format(ma)); hr=True
+    if 'gpu_util' in metrics and ga < 20: click.echo(click.style('    [HIGH] ',fg='red')+'GPU averages {:.0f}% -- batch or use CPU'.format(ga)); hr=True
+    if not hr: click.echo(click.style('    [OK] ',fg='green')+'Instance is well-utilized')
+    click.echo()
 
 # =============================================================================
 # CLOUD COMMANDS

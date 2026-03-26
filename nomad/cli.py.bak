@@ -1,8 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 João Tonini
 from __future__ import annotations
-"""
-NOMADE CLI
 
-Command-line interface for NOMADE monitoring and analysis.
+"""
+NOMAD CLI
+
+Command-line interface for NOMAD monitoring and analysis.
 
 Commands:
     collect     Run collectors once or continuously
@@ -23,24 +26,27 @@ from typing import Any
 import click
 import toml
 
-from nomade.collectors.base import registry
-from nomade.collectors.disk import DiskCollector
-from nomade.collectors.slurm import SlurmCollector
-from nomade.collectors.job_metrics import JobMetricsCollector
-from nomade.collectors.iostat import IOStatCollector
-from nomade.collectors.mpstat import MPStatCollector
-from nomade.collectors.vmstat import VMStatCollector
-from nomade.collectors.node_state import NodeStateCollector
-from nomade.collectors.gpu import GPUCollector
-from nomade.collectors.nfs import NFSCollector
-from nomade.collectors.groups import GroupCollector
-from nomade.collectors.interactive import InteractiveCollector
-from nomade.analysis.derivatives import (
-    DerivativeAnalyzer,
+from nomad.analysis.derivatives import (
     analyze_disk_trend,
-    AlertLevel,
 )
+from nomad.collectors.disk import DiskCollector
+from nomad.collectors.gpu import GPUCollector
+from nomad.collectors.groups import GroupCollector
+from nomad.collectors.interactive import InteractiveCollector
+from nomad.collectors.iostat import IOStatCollector
+from nomad.collectors.job_metrics import JobMetricsCollector
+from nomad.collectors.mpstat import MPStatCollector
+from nomad.collectors.nfs import NFSCollector
+from nomad.collectors.node_state import NodeStateCollector
+from nomad.collectors.slurm import SlurmCollector
+from nomad.collectors.vmstat import VMStatCollector
 
+# Cloud collectors (optional — only available when provider SDKs are installed)
+try:
+    from nomad.collectors.cloud.aws import AWSCollector
+    HAS_AWS_COLLECTOR = True
+except ImportError:
+    HAS_AWS_COLLECTOR = False
 
 # Configure logging
 logging.basicConfig(
@@ -48,42 +54,56 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
 )
-logger = logging.getLogger('nomade')
+logger = logging.getLogger('nomad')
 
 
 def load_config(config_path: Path) -> dict[str, Any]:
     """Load TOML configuration file."""
     if not config_path.exists():
         raise click.ClickException(f"Config file not found: {config_path}")
-    
+
     with open(config_path) as f:
         return toml.load(f)
 
 
+def resolve_config_path() -> str:
+    """Find config file: user path first, then system path."""
+    user_config = Path.home() / '.config' / 'nomad' / 'nomad.toml'
+    system_config = Path('/etc/nomad/nomad.toml')
+    if user_config.exists():
+        return str(user_config)
+    if system_config.exists():
+        return str(system_config)
+    return str(user_config)  # Default to user path even if missing
+
+
 def get_db_path(config: dict[str, Any]) -> Path:
     """Get database path from config."""
-    data_dir = Path(config.get('general', {}).get('data_dir', '/var/lib/nomade'))
-    return data_dir / 'nomade.db'
+    default_data = str(Path.home() / '.local' / 'share' / 'nomad')
+    data_dir = Path(config.get('general', {}).get('data_dir', default_data))
+    return data_dir / 'nomad.db'
 
 
 @click.group()
-@click.option('-c', '--config', 'config_path', 
+@click.option('-c', '--config', 'config_path',
               type=click.Path(),
-              default='/etc/nomade/nomade.toml',
+              default=None,
               help='Path to config file')
 @click.option('-v', '--verbose', is_flag=True, help='Enable debug logging')
 @click.pass_context
 def cli(ctx: click.Context, config_path: str, verbose: bool) -> None:
-    """NØMAD - NØde MAnagement DEvice
+    """NØMAD - NØde Monitoring And Diagnostics
     
     Lightweight HPC monitoring and prediction tool.
     """
     ctx.ensure_object(dict)
-    
+
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    
+
     # Try to load config, but don't fail if not found
+    if config_path is None:
+        config_path = resolve_config_path()
     config_file = Path(config_path)
     if config_file.exists():
         try:
@@ -109,66 +129,68 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
     Use --once to run a single collection cycle.
     """
     config = ctx.obj['config']
-    
+
     # Determine database path
     if db:
         db_path = Path(db)
     else:
         db_path = get_db_path(config)
-    
+
     click.echo(f"Database: {db_path}")
-    
+
     # Initialize collectors
     collectors = []
-    
+
     # Disk collector
     disk_config = config.get('collectors', {}).get('disk', {})
     if not collector or 'disk' in collector:
         if disk_config.get('enabled', True):
             collectors.append(DiskCollector(disk_config, db_path))
-    
+
     # SLURM collector
     slurm_config = config.get('collectors', {}).get('slurm', {})
     if not collector or 'slurm' in collector:
         if slurm_config.get('enabled', True):
             collectors.append(SlurmCollector(slurm_config, db_path))
-    
+
     # Job metrics collector
     job_metrics_config = config.get('collectors', {}).get('job_metrics', {})
     if not collector or 'job_metrics' in collector:
         if job_metrics_config.get('enabled', True):
             collectors.append(JobMetricsCollector(job_metrics_config, db_path))
-    
+
     # IOStat collector
     iostat_config = config.get('collectors', {}).get('iostat', {})
     if not collector or 'iostat' in collector:
         if iostat_config.get('enabled', True):
             collectors.append(IOStatCollector(iostat_config, db_path))
-    
+
     # MPStat collector
     mpstat_config = config.get('collectors', {}).get('mpstat', {})
     if not collector or 'mpstat' in collector:
         if mpstat_config.get('enabled', True):
             collectors.append(MPStatCollector(mpstat_config, db_path))
-    
+
     # VMStat collector
     vmstat_config = config.get('collectors', {}).get('vmstat', {})
     if not collector or 'vmstat' in collector:
         if vmstat_config.get('enabled', True):
             collectors.append(VMStatCollector(vmstat_config, db_path))
-    
+
     # Node state collector
     node_state_config = config.get('collectors', {}).get('node_state', {})
     if not collector or 'node_state' in collector:
         if node_state_config.get('enabled', True):
+            if 'cluster_name' not in node_state_config:
+                node_state_config['cluster_name'] = config.get('cluster_name', 'default')
             collectors.append(NodeStateCollector(node_state_config, db_path))
-    
+
     # GPU collector (graceful skip if no GPU)
     gpu_config = config.get('collectors', {}).get('gpu', {})
     if not collector or 'gpu' in collector:
         if gpu_config.get('enabled', True):
             collectors.append(GPUCollector(gpu_config, db_path))
-    
+
     # NFS collector (graceful skip if no NFS)
     nfs_config = config.get('collectors', {}).get('nfs', {})
     if not collector or 'nfs' in collector:
@@ -188,12 +210,19 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
     if not collector or "interactive" in collector:
         if interactive_config.get("enabled", False):
             collectors.append(InteractiveCollector(interactive_config, db_path))
-    
+
+    # Cloud collectors
+    cloud_config = config.get('collectors', {}).get('cloud', {})
+    if not collector or 'aws' in collector or 'cloud' in collector:
+        aws_config = cloud_config.get('aws', {})
+        if HAS_AWS_COLLECTOR and aws_config.get('enabled', False):
+            collectors.append(AWSCollector(aws_config, db_path=str(db_path)))
+
     if not collectors:
         raise click.ClickException("No collectors enabled")
-    
+
     click.echo(f"Running collectors: {[c.name for c in collectors]}")
-    
+
     if once:
         # Single collection cycle
         for c in collectors:
@@ -204,14 +233,14 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
         # Continuous collection
         click.echo(f"Starting continuous collection (interval: {interval}s)")
         click.echo("Press Ctrl+C to stop")
-        
+
         try:
             while True:
                 for c in collectors:
                     result = c.run()
                     status = '✓' if result.success else '✗'
                     click.echo(f"[{datetime.now():%H:%M:%S}] {status} {c.name}: {result.records_collected} records")
-                
+
                 time.sleep(interval)
         except KeyboardInterrupt:
             click.echo("\nStopping collectors")
@@ -229,60 +258,60 @@ def analyze(ctx: click.Context, path: str, hours: int, limit_gb: float, db: str)
     Shows current trend, rate of change, and projections.
     """
     config = ctx.obj['config']
-    
+
     if db:
         db_path = Path(db)
     else:
         db_path = get_db_path(config)
-    
+
     if not db_path.exists():
         raise click.ClickException(f"Database not found: {db_path}")
-    
+
     # Get historical data
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    
+
     rows = conn.execute(
         """
         SELECT timestamp, used_bytes, used_percent, total_bytes
-        FROM filesystems
+        FROM storage_state
         WHERE path = ?
           AND timestamp > datetime('now', ?)
         ORDER BY timestamp ASC
         """,
         (path, f'-{hours} hours')
     ).fetchall()
-    
+
     if not rows:
         raise click.ClickException(f"No data found for {path}")
-    
+
     # Convert to history format
     history = [dict(row) for row in rows]
-    
+
     # Determine limit
     limit_bytes = None
     if limit_gb:
         limit_bytes = int(limit_gb * 1e9)
     elif history:
         limit_bytes = history[-1]['total_bytes']
-    
+
     # Analyze
     analysis = analyze_disk_trend(history, limit_bytes=limit_bytes)
-    
+
     # Display results
     click.echo()
     click.echo(click.style(f"═══ Analysis: {path} ═══", bold=True))
     click.echo(f"  Records:     {analysis.n_points}")
     click.echo(f"  Time span:   {analysis.time_span_hours:.1f} hours")
     click.echo()
-    
+
     # Current state
     current_gb = analysis.current_value / 1e9
     total_gb = limit_bytes / 1e9 if limit_bytes else 0
     pct = (current_gb / total_gb * 100) if total_gb else 0
-    
+
     click.echo(f"  Current:     {current_gb:.2f} GB / {total_gb:.2f} GB ({pct:.1f}%)")
-    
+
     # Trend
     trend_colors = {
         'stable': 'green',
@@ -296,31 +325,31 @@ def analyze(ctx: click.Context, path: str, hours: int, limit_gb: float, db: str)
     }
     trend_color = trend_colors.get(analysis.trend.value, 'white')
     click.echo(f"  Trend:       {click.style(analysis.trend.value, fg=trend_color)}")
-    
+
     # Derivatives
     if analysis.first_derivative:
         rate_gb = analysis.first_derivative / 1e9
         direction = "↑" if rate_gb > 0 else "↓" if rate_gb < 0 else "→"
         click.echo(f"  Rate:        {direction} {abs(rate_gb):.4f} GB/day")
-    
+
     if analysis.second_derivative:
         accel_gb = analysis.second_derivative / 1e9
         direction = "↑↑" if accel_gb > 0 else "↓↓" if accel_gb < 0 else "→→"
         click.echo(f"  Accel:       {direction} {abs(accel_gb):.6f} GB/day²")
-    
+
     # Projections
     click.echo()
     if analysis.projected_value_1d:
         proj_1d_gb = analysis.projected_value_1d / 1e9
         click.echo(f"  In 1 day:    {proj_1d_gb:.2f} GB")
-    
+
     if analysis.projected_value_7d:
         proj_7d_gb = analysis.projected_value_7d / 1e9
         click.echo(f"  In 7 days:   {proj_7d_gb:.2f} GB")
-    
+
     if analysis.days_until_limit:
         click.echo(f"  Days until full: {click.style(f'{analysis.days_until_limit:.1f}', fg='red')}")
-    
+
     # Alert level
     click.echo()
     alert_colors = {
@@ -340,69 +369,71 @@ def analyze(ctx: click.Context, path: str, hours: int, limit_gb: float, db: str)
 def status(ctx: click.Context, db: str) -> None:
     """Show system status overview."""
     config = ctx.obj['config']
-    
+
     if db:
         db_path = Path(db)
     else:
         db_path = get_db_path(config)
-    
+
     if not db_path.exists():
         raise click.ClickException(f"Database not found: {db_path}")
-    
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    
+
     click.echo()
     click.echo(click.style("═══ NØMAD Status ═══", bold=True))
     click.echo()
-    
+
     # Filesystem status
     click.echo(click.style("Filesystems:", bold=True))
-    fs_rows = conn.execute(
-        """
-        SELECT path, 
-               round(used_bytes/1e9, 2) as used_gb,
-               round(total_bytes/1e9, 2) as total_gb,
-               round(used_percent, 1) as pct,
-               timestamp
-        FROM filesystems f1
-        WHERE timestamp = (
-            SELECT MAX(timestamp) FROM filesystems f2 WHERE f2.path = f1.path
-        )
-        ORDER BY path
-        """
-    ).fetchall()
-    
-    for row in fs_rows:
-        pct = row['pct']
-        color = 'green' if pct < 70 else 'yellow' if pct < 85 else 'red'
-        bar_len = int(pct / 5)
-        bar = '█' * bar_len + '░' * (20 - bar_len)
-        click.echo(f"  {row['path']:<20} [{bar}] {click.style(f'{pct}%', fg=color):>6} ({row['used_gb']}/{row['total_gb']} GB)")
-    
-    click.echo()
-    
+    try:
+        fs_rows = conn.execute(
+            """
+            SELECT hostname,
+                   round(used_bytes/1e9, 2) as used_gb,
+                   round(total_bytes/1e9, 2) as total_gb,
+                   round(usage_percent, 1) as pct,
+                   timestamp
+            FROM storage_state f1
+            WHERE timestamp = (
+                SELECT MAX(timestamp) FROM storage_state f2 WHERE f2.hostname = f1.hostname
+            )
+            ORDER BY hostname
+            """
+        ).fetchall()
+
+        for row in fs_rows:
+            pct = row['pct']
+            color = 'green' if pct < 70 else 'yellow' if pct < 85 else 'red'
+            bar_len = int(pct / 5)
+            bar = '█' * bar_len + '░' * (20 - bar_len)
+            click.echo(f"  {row['hostname']:<20} [{click.style(bar, fg=color)}] {click.style(f'{pct}%', fg=color)} ({row['used_gb']}/{row['total_gb']} GB)")
+    except Exception:
+        click.echo("  No filesystem data available")
+
     # Queue status
     click.echo(click.style("Queue:", bold=True))
-    queue_rows = conn.execute(
-        """
-        SELECT partition, pending_jobs, running_jobs, total_jobs, timestamp
-        FROM queue_state q1
-        WHERE timestamp = (
-            SELECT MAX(timestamp) FROM queue_state q2 WHERE q2.partition = q1.partition
-        )
-        ORDER BY partition
-        """
-    ).fetchall()
-    
-    if queue_rows:
-        for row in queue_rows:
-            click.echo(f"  {row['partition']:<15} Running: {row['running_jobs']:>3}  Pending: {row['pending_jobs']:>3}")
-    else:
-        click.echo("  No queue data")
-    
-    click.echo()
-    
+    try:
+        queue_rows = conn.execute(
+            """
+            SELECT partition, pending_jobs, running_jobs, total_jobs, timestamp
+            FROM queue_state q1
+            WHERE timestamp = (
+                SELECT MAX(timestamp) FROM queue_state q2 WHERE q2.partition = q1.partition
+            )
+            ORDER BY partition
+            """
+        ).fetchall()
+
+        if queue_rows:
+            for row in queue_rows:
+                click.echo(f"  {row['partition']:<15} Running: {row['running_jobs']:>3}  Pending: {row['pending_jobs']:>3}")
+        else:
+            click.echo("  No queue data")
+    except Exception:
+        click.echo("  No queue data available")
+
     # I/O status (from iostat)
     click.echo(click.style("I/O:", bold=True))
     try:
@@ -414,13 +445,13 @@ def status(ctx: click.Context, db: str) -> None:
             LIMIT 1
             """
         ).fetchone()
-        
+
         if iostat_row:
             iowait = iostat_row['iowait_percent']
             iowait_color = 'green' if iowait < 10 else 'yellow' if iowait < 30 else 'red'
             click.echo(f"  CPU iowait:    {click.style(f'{iowait:.1f}%', fg=iowait_color)}")
             click.echo(f"  CPU user/sys:  {iostat_row['user_percent']:.1f}% / {iostat_row['system_percent']:.1f}%")
-            
+
             # Device utilization
             device_rows = conn.execute(
                 """
@@ -433,18 +464,18 @@ def status(ctx: click.Context, db: str) -> None:
                 LIMIT 3
                 """
             ).fetchall()
-            
+
             for dev in device_rows:
                 util = dev['util_percent']
                 util_color = 'green' if util < 50 else 'yellow' if util < 80 else 'red'
                 click.echo(f"  {dev['device']:<12} util: {click.style(f'{util:.1f}%', fg=util_color):<8} write: {dev['write_kb_per_sec']:.0f} KB/s  latency: {dev['write_await_ms']:.1f}ms")
         else:
-            click.echo("  No iostat data (run: nomade collect -C iostat --once)")
+            click.echo("  No iostat data (run: nomad collect -C iostat --once)")
     except sqlite3.OperationalError:
         click.echo("  No iostat data (table not created yet)")
-    
+
     click.echo()
-    
+
     # CPU Core status (from mpstat)
     click.echo(click.style("CPU Cores:", bold=True))
     try:
@@ -458,30 +489,30 @@ def status(ctx: click.Context, db: str) -> None:
             LIMIT 1
             """
         ).fetchone()
-        
+
         if mpstat_row:
             avg_busy = mpstat_row['avg_busy_percent']
             busy_color = 'green' if avg_busy < 50 else 'yellow' if avg_busy < 80 else 'red'
-            
+
             imbalance = mpstat_row['imbalance_ratio']
             imbalance_color = 'green' if imbalance < 0.3 else 'yellow' if imbalance < 0.6 else 'red'
-            
+
             click.echo(f"  Cores:         {mpstat_row['num_cores']}")
             click.echo(f"  Avg busy:      {click.style(f'{avg_busy:.1f}%', fg=busy_color)}")
             click.echo(f"  Range:         {mpstat_row['min_busy_percent']:.1f}% - {mpstat_row['max_busy_percent']:.1f}% (spread: {mpstat_row['busy_spread']:.1f}%)")
             click.echo(f"  Imbalance:     {click.style(f'{imbalance:.2f}', fg=imbalance_color)} (std/avg)")
-            
+
             if mpstat_row['cores_idle'] > 0:
                 click.echo(f"  Idle cores:    {click.style(str(mpstat_row['cores_idle']), fg='cyan')} (<5% busy)")
             if mpstat_row['cores_saturated'] > 0:
                 click.echo(f"  Saturated:     {click.style(str(mpstat_row['cores_saturated']), fg='red')} (>95% busy)")
         else:
-            click.echo("  No mpstat data (run: nomade collect -C mpstat --once)")
+            click.echo("  No mpstat data (run: nomad collect -C mpstat --once)")
     except sqlite3.OperationalError:
         click.echo("  No mpstat data (table not created yet)")
-    
+
     click.echo()
-    
+
     # Memory status (from vmstat)
     click.echo(click.style("Memory:", bold=True))
     try:
@@ -495,21 +526,21 @@ def status(ctx: click.Context, db: str) -> None:
             LIMIT 1
             """
         ).fetchone()
-        
+
         if vmstat_row:
             free_gb = vmstat_row['free_kb'] / 1024 / 1024
             cache_gb = vmstat_row['cache_kb'] / 1024 / 1024
             swap_mb = vmstat_row['swap_used_kb'] / 1024
             pressure = vmstat_row['memory_pressure']
-            
+
             pressure_color = 'green' if pressure < 0.3 else 'yellow' if pressure < 0.6 else 'red'
             swap_color = 'green' if swap_mb < 100 else 'yellow' if swap_mb < 1000 else 'red'
-            
+
             click.echo(f"  Free:          {free_gb:.2f} GB")
             click.echo(f"  Cache:         {cache_gb:.2f} GB")
             click.echo(f"  Swap used:     {click.style(f'{swap_mb:.0f} MB', fg=swap_color)}")
             click.echo(f"  Pressure:      {click.style(f'{pressure:.2f}', fg=pressure_color)}")
-            
+
             if vmstat_row['procs_blocked'] > 0:
                 click.echo(f"  Blocked procs: {click.style(str(vmstat_row['procs_blocked']), fg='yellow')}")
             if vmstat_row['swap_in_kb'] > 0 or vmstat_row['swap_out_kb'] > 0:
@@ -518,9 +549,9 @@ def status(ctx: click.Context, db: str) -> None:
             click.echo("  No vmstat data")
     except sqlite3.OperationalError:
         click.echo("  No vmstat data (table not created yet)")
-    
+
     click.echo()
-    
+
     # Node status (from scontrol)
     click.echo(click.style("Nodes:", bold=True))
     try:
@@ -533,26 +564,26 @@ def status(ctx: click.Context, db: str) -> None:
             ORDER BY node_name
             """
         ).fetchall()
-        
+
         if node_rows:
             for node in node_rows:
                 state = node['state']
                 state_color = 'green' if state in ('IDLE', 'MIXED', 'ALLOCATED') else 'yellow' if 'DRAIN' in state else 'red'
-                
+
                 cpu_pct = (node['cpus_alloc'] / node['cpus_total'] * 100) if node['cpus_total'] else 0
                 mem_pct = (node['memory_alloc_mb'] / node['memory_total_mb'] * 100) if node['memory_total_mb'] else 0
-                
+
                 click.echo(f"  {node['node_name']:<15} {click.style(state, fg=state_color):<12} CPU: {node['cpus_alloc']}/{node['cpus_total']} ({cpu_pct:.0f}%)  Mem: {mem_pct:.0f}%  Load: {node['cpu_load']:.2f}")
-                
+
                 if node['reason']:
                     click.echo(f"    └─ Reason: {click.style(node['reason'], fg='yellow')}")
         else:
             click.echo("  No node data")
     except sqlite3.OperationalError:
         click.echo("  No node data (table not created yet)")
-    
+
     click.echo()
-    
+
     # GPU status (if available)
     try:
         gpu_rows = conn.execute(
@@ -564,7 +595,7 @@ def status(ctx: click.Context, db: str) -> None:
             ORDER BY gpu_index
             """
         ).fetchall()
-        
+
         if gpu_rows:
             click.echo(click.style("GPUs:", bold=True))
             for gpu in gpu_rows:
@@ -572,21 +603,22 @@ def status(ctx: click.Context, db: str) -> None:
                 util_color = 'green' if util < 50 else 'yellow' if util < 80 else 'red'
                 temp = gpu['temperature_c']
                 temp_color = 'green' if temp < 70 else 'yellow' if temp < 85 else 'red'
-                
+
                 mem_pct = (gpu['memory_used_mb'] / gpu['memory_total_mb'] * 100) if gpu['memory_total_mb'] else 0
                 power = gpu['power_draw_w']
-                
+
                 click.echo(f"  GPU {gpu['gpu_index']}: {gpu['gpu_name']}")
                 click.echo(f"    Util: {click.style(f'{util:.0f}%', fg=util_color)}  Mem: {mem_pct:.0f}%  Temp: {click.style(f'{temp}°C', fg=temp_color)}  Power: {power:.0f}W")
             click.echo()
     except sqlite3.OperationalError:
         pass  # No GPU table - skip silently
-    
+
     click.echo()
-    
+
     # Recent collection stats
     click.echo(click.style("Collection:", bold=True))
-    collection_rows = conn.execute(
+    try:
+        collection_rows = conn.execute(
         """
         SELECT collector, 
                COUNT(*) as runs,
@@ -596,18 +628,17 @@ def status(ctx: click.Context, db: str) -> None:
         WHERE started_at > datetime('now', '-24 hours')
         GROUP BY collector
         """
-    ).fetchall()
-    
-    if collection_rows:
-        for row in collection_rows:
-            success_rate = (row['successes'] / row['runs'] * 100) if row['runs'] else 0
-            color = 'green' if success_rate == 100 else 'yellow' if success_rate > 90 else 'red'
-            click.echo(f"  {row['collector']:<15} {row['runs']:>3} runs  {click.style(f'{success_rate:.0f}% success', fg=color)}")
-    else:
-        click.echo("  No collection data")
-    
+        ).fetchall()
+        if collection_rows:
+            for row in collection_rows:
+                success_rate = (row['successes'] / row['runs'] * 100) if row['runs'] else 0
+                color = 'green' if success_rate == 100 else 'yellow' if success_rate > 90 else 'red'
+                click.echo(f"  {row['collector']:<15} {row['runs']:>3} runs  {click.style(f'{success_rate:.0f}% success', fg=color)}")
+            else:
+                click.echo("  No collection data")
+    except Exception:
+            click.echo(" No collection data available")
     click.echo()
-
 
 @cli.command()
 @click.option('--db', type=click.Path(), help='Database path override')
@@ -617,52 +648,63 @@ def status(ctx: click.Context, db: str) -> None:
 def alerts(ctx: click.Context, db: str, unresolved: bool, severity: str) -> None:
     """Show and manage alerts."""
     config = ctx.obj['config']
-    
+
     if db:
         db_path = Path(db)
     else:
         db_path = get_db_path(config)
-    
+
     if not db_path.exists():
         raise click.ClickException(f"Database not found: {db_path}")
-    
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    
+
+    # Check if alerts table exists
+    table_check = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='alerts'"
+    ).fetchone()
+    if not table_check:
+        click.echo()
+        click.echo("  No alerts table found. Use NØMAD Console for real-time alerts.")
+        click.echo()
+        conn.close()
+        return
+
     # Build query
     query = "SELECT * FROM alerts WHERE 1=1"
     params = []
-    
+
     if unresolved:
         query += " AND resolved = 0"
-    
+
     if severity:
         query += " AND severity = ?"
         params.append(severity)
-    
+
     query += " ORDER BY timestamp DESC LIMIT 20"
-    
+
     rows = conn.execute(query, params).fetchall()
-    
+
     click.echo()
     click.echo(click.style("═══ Alerts ═══", bold=True))
     click.echo()
-    
+
     if not rows:
         click.echo("  No alerts found")
         click.echo()
         return
-    
+
     severity_colors = {
         'info': 'blue',
         'warning': 'yellow',
         'critical': 'red',
     }
-    
+
     for row in rows:
         color = severity_colors.get(row['severity'], 'white')
         resolved = '✓' if row['resolved'] else '○'
-        
+
         click.echo(f"  {resolved} [{click.style(row['severity'].upper(), fg=color)}] {row['timestamp']}")
         click.echo(f"    {row['message']}")
         if row['source']:
@@ -677,41 +719,41 @@ def alerts(ctx: click.Context, db: str, unresolved: bool, severity: str) -> None
 @click.option('--local-paths', multiple=True, help='Paths to classify as local')
 @click.option('--db', type=click.Path(), help='Database path override')
 @click.pass_context
-def monitor(ctx: click.Context, interval: int, once: bool, 
+def monitor(ctx: click.Context, interval: int, once: bool,
             nfs_paths: tuple, local_paths: tuple, db: str) -> None:
     """Monitor running jobs for I/O metrics.
     
     Tracks NFS vs local storage writes in real-time.
     Updates job_summary with actual I/O patterns when jobs complete.
     """
-    from nomade.monitors.job_monitor import JobMonitor
-    
+    from nomad.monitors.job_monitor import JobMonitor
+
     config = ctx.obj['config']
-    
+
     # Determine database path
     if db:
         db_path = Path(db)
     else:
         db_path = get_db_path(config)
-    
+
     click.echo(f"Database: {db_path}")
-    
+
     # Build monitor config
     monitor_config = config.get('monitor', {})
     monitor_config['sample_interval'] = interval
-    
+
     if nfs_paths:
         monitor_config['nfs_paths'] = list(nfs_paths)
     if local_paths:
         monitor_config['local_paths'] = list(local_paths)
-    
+
     # Create and run monitor
     job_monitor = JobMonitor(monitor_config, str(db_path))
-    
+
     click.echo(f"Starting job monitor (interval: {interval}s)")
     if not once:
         click.echo("Press Ctrl+C to stop")
-    
+
     job_monitor.run(once=once)
 
 
@@ -721,45 +763,45 @@ def monitor(ctx: click.Context, interval: int, once: bool,
 @click.option('--find-similar', type=str, help='Find jobs similar to this job ID')
 @click.option('--db', type=click.Path(), help='Database path override')
 @click.pass_context
-def similarity(ctx: click.Context, min_samples: int, export: str, 
+def similarity(ctx: click.Context, min_samples: int, export: str,
                find_similar: str, db: str) -> None:
     """Analyze job similarity and clustering.
     
     Computes similarity matrix using enriched feature vectors
     from both sacct metrics and real-time I/O monitoring.
     """
-    from nomade.analysis.similarity import SimilarityAnalyzer
-    
+    from nomad.analysis.similarity import SimilarityAnalyzer
+
     config = ctx.obj['config']
-    
+
     if db:
         db_path = Path(db)
     else:
         db_path = get_db_path(config)
-    
+
     analyzer = SimilarityAnalyzer(str(db_path))
-    
+
     if find_similar:
         features = analyzer.get_enriched_features(min_samples)
         sim_matrix, job_ids = analyzer.compute_similarity_matrix(features)
         similar = analyzer.find_similar_jobs(find_similar, features, sim_matrix)
-        
+
         click.echo(f"\nJobs similar to {find_similar}:")
         for job_id, score in similar:
             bar = "█" * int(score * 20)
             click.echo(f"  {job_id}: {bar} {score:.3f}")
-    
+
     elif export:
         import json
         features = analyzer.get_enriched_features(min_samples)
         sim_matrix, job_ids = analyzer.compute_similarity_matrix(features)
         clusters = analyzer.cluster_jobs(sim_matrix, job_ids)
         data = analyzer.export_for_visualization(features, sim_matrix, clusters)
-        
+
         with open(export, 'w') as f:
             json.dump(data, f, indent=2)
         click.echo(f"Exported {len(data['nodes'])} nodes, {len(data['edges'])} edges to {export}")
-    
+
     else:
         click.echo(analyzer.summary_report())
 
@@ -773,25 +815,24 @@ def syscheck(ctx: click.Context) -> None:
     """
     import shutil
     import subprocess
-    
+
     click.echo()
     click.echo(click.style("NØMAD System Check", bold=True))
     click.echo("═" * 40)
     click.echo()
-    
+
     errors = 0
     warnings = 0
-    
+
     # Python check
     click.echo(click.style("Python:", bold=True))
-    import sys
     py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    if sys.version_info >= (3, 9):
-        click.echo(f"  {click.style('✓', fg='green')} Version {py_version} (requires >=3.9)")
+    if sys.version_info >= (3, 10):
+        click.echo(f"  {click.style('✓', fg='green')} Version {py_version} (requires >=3.10)")
     else:
-        click.echo(f"  {click.style('✗', fg='red')} Version {py_version} (requires >=3.9)")
+        click.echo(f"  {click.style('✗', fg='red')} Version {py_version} (requires >=3.10)")
         errors += 1
-    
+
     # Check required packages
     required_packages = ['click', 'toml', 'rich', 'numpy', 'pandas', 'scipy']
     missing = []
@@ -800,7 +841,7 @@ def syscheck(ctx: click.Context) -> None:
             __import__(pkg)
         except ImportError:
             missing.append(pkg)
-    
+
     if not missing:
         click.echo(f"  {click.style('✓', fg='green')} Required packages installed")
     else:
@@ -820,13 +861,13 @@ def syscheck(ctx: click.Context) -> None:
             click.echo(f"  {click.style('○', fg='cyan')} {name} (not installed)")
             ml_available = False
     if not ml_available:
-        click.echo(f"  {click.style('→', fg='yellow')} Install with: pip install nomade[ml]")
-    
+        click.echo(f"  {click.style('→', fg='yellow')} Install with: pip install nomad[ml]")
+
     click.echo()
-    
+
     # SLURM check
     click.echo(click.style("SLURM:", bold=True))
-    
+
     slurm_commands = ['sinfo', 'squeue', 'sacct', 'sstat']
     for cmd in slurm_commands:
         if shutil.which(cmd):
@@ -834,21 +875,21 @@ def syscheck(ctx: click.Context) -> None:
         else:
             click.echo(f"  {click.style('✗', fg='red')} {cmd} not found")
             errors += 1
-    
+
     # Check slurmdbd
     try:
         result = subprocess.run(['sacct', '--version'], capture_output=True, text=True, timeout=5)
         result2 = subprocess.run(['sacct', '-n', '-X', '-j', '1'], capture_output=True, text=True, timeout=5)
         if 'Slurm accounting storage is disabled' in result2.stderr:
             click.echo(f"  {click.style('⚠', fg='yellow')} slurmdbd not enabled (job history limited)")
-            click.echo(f"    → Enable AccountingStorageType in slurm.conf")
+            click.echo("    → Enable AccountingStorageType in slurm.conf")
             warnings += 1
         else:
             click.echo(f"  {click.style('✓', fg='green')} slurmdbd enabled")
     except Exception:
         click.echo(f"  {click.style('⚠', fg='yellow')} Could not check slurmdbd status")
         warnings += 1
-    
+
     # Check JobAcctGather
     try:
         result = subprocess.run(['scontrol', 'show', 'config'], capture_output=True, text=True, timeout=10)
@@ -857,66 +898,66 @@ def syscheck(ctx: click.Context) -> None:
                 click.echo(f"  {click.style('✓', fg='green')} JobAcctGather configured")
             elif 'jobacct_gather/none' in result.stdout:
                 click.echo(f"  {click.style('✗', fg='red')} JobAcctGather disabled (no per-job metrics)")
-                click.echo(f"    → Add: JobAcctGatherType=jobacct_gather/linux")
+                click.echo("    → Add: JobAcctGatherType=jobacct_gather/linux")
                 errors += 1
     except Exception:
         pass
-    
+
     click.echo()
-    
+
     # System tools check
     click.echo(click.style("System Tools:", bold=True))
-    
+
     if shutil.which('iostat'):
         click.echo(f"  {click.style('✓', fg='green')} iostat available")
     else:
         click.echo(f"  {click.style('⚠', fg='yellow')} iostat not found (install sysstat package)")
-        click.echo(f"    → apt install sysstat  OR  yum install sysstat")
+        click.echo("    → apt install sysstat  OR  yum install sysstat")
         warnings += 1
-    
+
     if shutil.which('mpstat'):
         click.echo(f"  {click.style('✓', fg='green')} mpstat available")
     else:
         click.echo(f"  {click.style('⚠', fg='yellow')} mpstat not found (install sysstat package)")
-        click.echo(f"    → apt install sysstat  OR  yum install sysstat")
+        click.echo("    → apt install sysstat  OR  yum install sysstat")
         warnings += 1
-    
+
     if shutil.which('vmstat'):
         click.echo(f"  {click.style('✓', fg='green')} vmstat available")
     else:
         click.echo(f"  {click.style('⚠', fg='yellow')} vmstat not found")
         warnings += 1
-    
+
     if shutil.which('nvidia-smi'):
         click.echo(f"  {click.style('✓', fg='green')} nvidia-smi available (GPU monitoring)")
     else:
         click.echo(f"  {click.style('○', fg='cyan')} nvidia-smi not found (no GPU monitoring)")
-    
+
     if shutil.which('nfsiostat'):
         click.echo(f"  {click.style('✓', fg='green')} nfsiostat available (NFS monitoring)")
     else:
         click.echo(f"  {click.style('○', fg='cyan')} nfsiostat not found (no NFS monitoring)")
-    
+
     if Path('/proc/1/io').exists():
         click.echo(f"  {click.style('✓', fg='green')} /proc/[pid]/io accessible")
     else:
         click.echo(f"  {click.style('⚠', fg='yellow')} /proc/[pid]/io not accessible (job I/O monitoring limited)")
         warnings += 1
-    
+
     click.echo()
-    
+
     # Database check
     click.echo(click.style("Database:", bold=True))
-    
+
     config = ctx.obj.get('config', {})
     db_path = get_db_path(config)
-    
+
     if shutil.which('sqlite3'):
         click.echo(f"  {click.style('✓', fg='green')} SQLite available")
     else:
         click.echo(f"  {click.style('⚠', fg='yellow')} sqlite3 CLI not found (optional)")
         warnings += 1
-    
+
     if db_path.exists():
         click.echo(f"  {click.style('✓', fg='green')} Database: {db_path}")
         # Check schema
@@ -931,25 +972,25 @@ def syscheck(ctx: click.Context) -> None:
             warnings += 1
     else:
         click.echo(f"  {click.style('⚠', fg='yellow')} Database not found: {db_path}")
-        click.echo(f"    → Run: nomade collect --once")
+        click.echo("    → Run: nomad collect --once")
         warnings += 1
-    
+
     click.echo()
-    
+
     # Config check
     click.echo(click.style("Config:", bold=True))
-    
+
     config_path = ctx.obj.get('config_path')
     if config_path and Path(config_path).exists():
         click.echo(f"  {click.style('✓', fg='green')} Config: {config_path}")
-        
+
         # Check partitions match SLURM
         config_partitions = config.get('collectors', {}).get('slurm', {}).get('partitions', [])
         if config_partitions:
             try:
                 result = subprocess.run(['sinfo', '-h', '-o', '%P'], capture_output=True, text=True, timeout=5)
                 slurm_partitions = [p.strip().rstrip('*') for p in result.stdout.strip().split('\n') if p.strip()]
-                
+
                 for p in config_partitions:
                     if p not in slurm_partitions:
                         click.echo(f"  {click.style('⚠', fg='yellow')} Partition '{p}' in config but not in SLURM")
@@ -957,15 +998,16 @@ def syscheck(ctx: click.Context) -> None:
             except Exception:
                 pass
     else:
-        click.echo(f"  {click.style('✗', fg='red')} Config not found: /etc/nomade/nomade.toml")
-        click.echo(f"    → Create config or use: nomade -c /path/to/config.toml")
+        expected = resolve_config_path()
+        click.echo(f"  {click.style('✗', fg='red')} Config not found: {expected}")
+        click.echo("    → Run: nomad init")
         errors += 1
-    
+
     click.echo()
-    
+
     # Filesystem check
     click.echo(click.style("Filesystems:", bold=True))
-    
+
     filesystems = config.get('collectors', {}).get('disk', {}).get('filesystems', ['/'])
     for fs in filesystems:
         if Path(fs).exists():
@@ -973,9 +1015,9 @@ def syscheck(ctx: click.Context) -> None:
         else:
             click.echo(f"  {click.style('✗', fg='red')} {fs} (not found)")
             errors += 1
-    
+
     click.echo()
-    
+
     # Summary
     click.echo("─" * 40)
     if errors == 0 and warnings == 0:
@@ -987,7 +1029,7 @@ def syscheck(ctx: click.Context) -> None:
         if warnings > 0:
             parts.append(click.style(f"{warnings} warning(s)", fg='yellow'))
         click.echo(f"Summary: {', '.join(parts)}")
-    
+
     click.echo()
 
 
@@ -996,15 +1038,15 @@ def syscheck(ctx: click.Context) -> None:
 def version(ctx: click.Context) -> None:
     """Show version information."""
     click.echo("NØMAD v0.2.0")
-    click.echo("NØde MAnagement DEvice")
+    click.echo("NØde Monitoring And Diagnostics")
 
 
 @cli.command()
 @click.option('--host', default='localhost', help='Host to bind to (use 0.0.0.0 for all interfaces)')
 @click.option('--port', '-p', type=int, default=8050, help='Port to listen on')
-@click.option('--data', '-d', type=click.Path(), help='Data source (db file or metrics log)')
+@click.option('--db', '-d', type=click.Path(), help='Path to database file')
 @click.pass_context
-def dashboard(ctx, host, port, data):
+def dashboard(ctx, host, port, db):
     """Start the interactive web dashboard.
     
     The dashboard provides a 3D visualization of job networks with two view modes:
@@ -1017,38 +1059,79 @@ def dashboard(ctx, host, port, data):
         Then open http://localhost:8050 in your browser
     
     Examples:
-        nomade dashboard                      # Start with demo data
-        nomade dashboard --port 9000          # Custom port
-        nomade dashboard --data /path/to.db   # Use database
+        nomad dashboard                      # Start with demo data
+        nomad dashboard --port 9000          # Custom port
+        nomad dashboard --db /path/to.db   # Use database
     """
-    from nomade.viz.server import serve_dashboard
-    
+    from nomad.viz.server import serve_dashboard
+
     # Try to find data source
-    data_source = data
+    data_source = db
     if not data_source:
         config = ctx.obj.get('config', {})
-        # Try database first
+        # Try database first (skip empty/uninitialized files)
         db_path = get_db_path(config)
-        if db_path.exists():
+        if db_path.exists() and db_path.stat().st_size > 0:
             data_source = str(db_path)
         else:
-            # Try simulation metrics
-            metrics_paths = [
-                Path('/tmp/nomade-metrics.log'),
-                Path.home() / 'nomade-metrics.log',
-            ]
-            for mp in metrics_paths:
-                if mp.exists():
-                    data_source = str(mp)
-                    break
-    
+            # Try demo database
+            demo_db = Path.home() / "nomad_demo.db"
+            if demo_db.exists() and demo_db.stat().st_size > 0:
+                data_source = str(demo_db)
+            else:
+                # Try simulation metrics
+                metrics_paths = [
+                    Path('/tmp/nomad-metrics.log'),
+                    Path.home() / 'nomad-metrics.log',
+                ]
+                for mp in metrics_paths:
+                    if mp.exists():
+                        data_source = str(mp)
+                        break
+
     click.echo(click.style("===========================================", fg='cyan'))
-    click.echo(click.style("           ", fg='cyan') + 
-               click.style("NOMADE Dashboard", fg='white', bold=True))
+    click.echo(click.style("           ", fg='cyan') +
+               click.style("NOMAD Dashboard", fg='white', bold=True))
     click.echo(click.style("===========================================", fg='cyan'))
     click.echo()
+
+    serve_dashboard(host, port, db_path=data_source)
+
+
+@cli.command()
+@click.option("--db", type=click.Path(), help="Database path")
+@click.option("-v", "--verbose", is_flag=True, help="Show feature details")
+@click.pass_context
+def readiness(ctx, db, verbose):
+    """Check data readiness for ML training.
     
-    serve_dashboard(host, port, data_source)
+    Analyzes your job data and reports:
+    - Sample size adequacy (minimum, recommended, optimal thresholds)
+    - Class balance (success/failure ratio)
+    - Feature coverage and variance
+    - Data recency
+    - Estimated model accuracy at current sample size
+    
+    Examples:
+        nomad readiness                # Check readiness
+        nomad readiness -v             # Verbose with feature details
+        nomad readiness --db data.db   # Specify database
+    """
+    from nomad.ml.estimator import check_readiness
+
+    db_path = db
+    if not db_path:
+        config = ctx.obj.get("config", {})
+        db_path = str(get_db_path(config))
+
+    if not Path(db_path).exists():
+        click.echo(click.style(f"Database not found: {db_path}", fg="red"))
+        click.echo("Run 'nomad collect' first to gather job data.")
+        return
+
+    report = check_readiness(db_path, verbose=verbose)
+    click.echo(report)
+
 
 
 @cli.command()
@@ -1063,35 +1146,35 @@ def train(ctx, db, epochs, verbose):
     and saves predictions to the database.
     
     Examples:
-        nomade train                    # Train with default settings
-        nomade train --epochs 50        # Fewer epochs (faster)
-        nomade train --db data.db       # Specify database
+        nomad train                    # Train with default settings
+        nomad train --epochs 50        # Fewer epochs (faster)
+        nomad train --db data.db       # Specify database
     """
-    from nomade.ml import train_and_save_ensemble, is_torch_available
-    
+    from nomad.ml import is_torch_available, train_and_save_ensemble
+
     if not is_torch_available():
         click.echo(click.style("Error: PyTorch not available", fg="red"))
         click.echo("Install with: pip install torch torch-geometric")
         return
-    
+
     db_path = db
     if not db_path:
         config = ctx.obj.get("config", {})
         db_path = str(get_db_path(config))
-    
+
     if not Path(db_path).exists():
         click.echo(click.style(f"Database not found: {db_path}", fg="red"))
         return
-    
+
     click.echo(click.style("=" * 60, fg="cyan"))
-    click.echo(click.style("  NOMADE ML Training", fg="white", bold=True))
+    click.echo(click.style("  NOMAD ML Training", fg="white", bold=True))
     click.echo(click.style("=" * 60, fg="cyan"))
     click.echo(f"  Database: {db_path}")
     click.echo(f"  Epochs: {epochs}")
     click.echo()
-    
+
     result = train_and_save_ensemble(db_path, epochs=epochs, verbose=verbose)
-    
+
     click.echo()
     click.echo(click.style("=" * 60, fg="green"))
     click.echo(click.style("  Training Complete", fg="white", bold=True))
@@ -1113,38 +1196,38 @@ def predict(ctx, db, top):
     """Show ML predictions for jobs.
     
     Displays high-risk jobs identified by the ensemble model.
-    Run 'nomade train' first to generate predictions.
+    Run 'nomad train' first to generate predictions.
     
     Examples:
-        nomade predict                  # Show top 20 high-risk jobs
-        nomade predict --top 50         # Show top 50
+        nomad predict                  # Show top 20 high-risk jobs
+        nomad predict --top 50         # Show top 50
     """
-    from nomade.ml import load_predictions_from_db
-    
+    from nomad.ml import load_predictions_from_db
+
     db_path = db
     if not db_path:
         config = ctx.obj.get("config", {})
         db_path = str(get_db_path(config))
-    
+
     if not Path(db_path).exists():
         click.echo(click.style(f"Database not found: {db_path}", fg="red"))
         return
-    
+
     predictions = load_predictions_from_db(db_path)
-    
+
     if not predictions:
-        click.echo(click.style("No predictions found. Run 'nomade train' first.", fg="yellow"))
+        click.echo(click.style("No predictions found. Run 'nomad train' first.", fg="yellow"))
         return
-    
+
     click.echo(click.style("=" * 60, fg="cyan"))
-    click.echo(click.style("  NOMADE ML Predictions", fg="white", bold=True))
+    click.echo(click.style("  NOMAD ML Predictions", fg="white", bold=True))
     click.echo(click.style("=" * 60, fg="cyan"))
     click.echo(f"  Status: {predictions.get('status', 'unknown')}")
     click.echo(f"  Jobs analyzed: {predictions.get('n_jobs', 0)}")
     click.echo(f"  Anomalies: {predictions.get('n_anomalies', 0)}")
     click.echo(f"  Threshold: {predictions.get('threshold', 0):.4f}")
     click.echo()
-    
+
     high_risk = predictions.get("high_risk", [])[:top]
     if high_risk:
         click.echo(click.style(f"  Top {len(high_risk)} High-Risk Jobs:", fg="red", bold=True))
@@ -1166,36 +1249,37 @@ def report(ctx, db, output):
     Creates a summary report of job failures and ML predictions.
     
     Examples:
-        nomade report                   # Print to stdout
-        nomade report -o report.txt     # Save to file
+        nomad report                   # Print to stdout
+        nomad report -o report.txt     # Save to file
     """
-    from nomade.ml import load_predictions_from_db, FAILURE_NAMES
     import sqlite3
-    
+
+    from nomad.ml import FAILURE_NAMES, load_predictions_from_db
+
     db_path = db
     if not db_path:
         config = ctx.obj.get("config", {})
         db_path = str(get_db_path(config))
-    
+
     if not Path(db_path).exists():
         click.echo(click.style(f"Database not found: {db_path}", fg="red"))
         return
-    
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     jobs = [dict(row) for row in conn.execute("SELECT * FROM jobs").fetchall()]
     conn.close()
-    
+
     predictions = load_predictions_from_db(db_path)
-    
+
     lines = []
     lines.append("=" * 60)
-    lines.append("  NOMADE Analysis Report")
+    lines.append("  NOMAD Analysis Report")
     lines.append("=" * 60)
     lines.append(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"  Database: {db_path}")
     lines.append("")
-    
+
     total = len(jobs)
     success = sum(1 for j in jobs if j.get("failure_reason", 0) == 0)
     failed = total - success
@@ -1204,7 +1288,7 @@ def report(ctx, db, output):
     lines.append(f"  Success: {success} ({100*success/total:.1f}%)")
     lines.append(f"  Failed: {failed} ({100*failed/total:.1f}%)")
     lines.append("")
-    
+
     if failed > 0:
         lines.append("  FAILURE BREAKDOWN")
         failure_counts = {}
@@ -1216,7 +1300,7 @@ def report(ctx, db, output):
         for name, count in sorted(failure_counts.items(), key=lambda x: -x[1]):
             lines.append(f"    {name}: {count} ({100*count/failed:.1f}%)")
         lines.append("")
-    
+
     if predictions:
         lines.append("  ML PREDICTIONS")
         lines.append(f"  Status: {predictions.get('status', 'unknown')}")
@@ -1227,20 +1311,20 @@ def report(ctx, db, output):
             lines.append(f"  LSTM Accuracy: {s.get('lstm_accuracy', 0)*100:.1f}%")
             lines.append(f"  AE Precision: {s.get('ae_precision', 0)*100:.1f}%")
         lines.append("")
-        
+
         high_risk = predictions.get("high_risk", [])[:10]
         if high_risk:
             lines.append("  TOP 10 HIGH-RISK JOBS")
             for job in high_risk:
                 lines.append(f"    Job {job.get('job_id', '-')}: score={job.get('anomaly_score', 0):.2f}")
     else:
-        lines.append("  ML PREDICTIONS: Not available (run 'nomade train')")
-    
+        lines.append("  ML PREDICTIONS: Not available (run 'nomad train')")
+
     lines.append("")
     lines.append("=" * 60)
-    
+
     report_text = "\n".join(lines)
-    
+
     if output:
         Path(output).write_text(report_text)
         click.echo(f"Report saved to {output}")
@@ -1258,14 +1342,14 @@ def test_alerts(ctx, email, slack, webhook):
     """Test alert notification backends.
     
     Examples:
-        nomade test-alerts --email     # Test email
-        nomade test-alerts --slack     # Test Slack
-        nomade test-alerts             # Test all configured backends
+        nomad test-alerts --email     # Test email
+        nomad test-alerts --slack     # Test Slack
+        nomad test-alerts             # Test all configured backends
     """
-    from nomade.alerts import AlertDispatcher, send_alert
-    
+    from nomad.alerts import AlertDispatcher
+
     config = ctx.obj.get('config', {})
-    
+
     # Build test config if flags provided
     if email or slack or webhook:
         if email:
@@ -1275,13 +1359,13 @@ def test_alerts(ctx, email, slack, webhook):
             click.echo("Testing Slack backend...")
         if webhook:
             click.echo("Testing webhook backend...")
-    
+
     # Test with actual config
     dispatcher = AlertDispatcher(config)
-    
+
     if not dispatcher.backends:
         click.echo(click.style("No alert backends configured.", fg="yellow"))
-        click.echo("Add configuration to nomade.toml:")
+        click.echo("Add configuration to nomad.toml:")
         click.echo("""
 [alerts.email]
 enabled = true
@@ -1293,25 +1377,25 @@ enabled = true
 webhook_url = "https://hooks.slack.com/..."
 """)
         return
-    
+
     click.echo(f"Testing {len(dispatcher.backends)} backend(s)...")
     results = dispatcher.test_backends()
-    
+
     for backend, success in results.items():
         if success:
             click.echo(click.style(f"  {backend}: OK", fg="green"))
         else:
             click.echo(click.style(f"  {backend}: FAILED", fg="red"))
-    
+
     # Send test alert
     click.echo("\nSending test alert...")
     send_results = dispatcher.dispatch({
         'severity': 'info',
         'source': 'test',
-        'message': 'This is a test alert from NOMADE',
+        'message': 'This is a test alert from NOMAD',
         'host': 'cli-test'
     })
-    
+
     for backend, success in send_results.items():
         if success:
             click.echo(click.style(f"  {backend}: Sent", fg="green"))
@@ -1322,22 +1406,22 @@ webhook_url = "https://hooks.slack.com/..."
 
 @cli.command()
 @click.option('--db', type=click.Path(), help='Database path')
-@click.option('--strategy', type=click.Choice(['time', 'count', 'drift']), 
+@click.option('--strategy', type=click.Choice(['time', 'count', 'drift']),
               default='count', help='Retraining strategy')
-@click.option('--threshold', type=int, default=100, 
+@click.option('--threshold', type=int, default=100,
               help='Job count threshold (for count strategy)')
-@click.option('--interval', type=int, default=6, 
+@click.option('--interval', type=int, default=6,
               help='Hours between training (for time strategy)')
 @click.option('--epochs', type=int, default=100, help='Training epochs')
 @click.option('--force', is_flag=True, help='Force training regardless of strategy')
 @click.option('--daemon', is_flag=True, help='Run as daemon')
-@click.option('--check-interval', type=int, default=300, 
+@click.option('--check-interval', type=int, default=300,
               help='Daemon check interval in seconds')
 @click.option('--status', 'show_status', is_flag=True, help='Show training status')
 @click.option('--history', 'show_history', is_flag=True, help='Show training history')
 @click.option('-v', '--verbose', is_flag=True, help='Verbose output')
 @click.pass_context
-def learn(ctx, db, strategy, threshold, interval, epochs, force, daemon, 
+def learn(ctx, db, strategy, threshold, interval, epochs, force, daemon,
           check_interval, show_status, show_history, verbose):
     """Continuous learning - retrain models as new data arrives.
     
@@ -1349,27 +1433,27 @@ def learn(ctx, db, strategy, threshold, interval, epochs, force, daemon,
     
     \b
     Examples:
-      nomade learn --status           Show training status
-      nomade learn --force            Train now
-      nomade learn --strategy count   Train after 100 new jobs
-      nomade learn --daemon           Run continuously
+      nomad learn --status           Show training status
+      nomad learn --force            Train now
+      nomad learn --strategy count   Train after 100 new jobs
+      nomad learn --daemon           Run continuously
     """
-    from nomade.ml import is_torch_available
-    from nomade.ml.continuous import ContinuousLearner
-    
+    from nomad.ml import is_torch_available
+    from nomad.ml.continuous import ContinuousLearner
+
     if not is_torch_available():
         click.echo(click.style("Error: PyTorch not available", fg="red"))
         return
-    
+
     db_path = db
     if not db_path:
         config = ctx.obj.get('config', {})
         db_path = str(get_db_path(config))
-    
+
     if not Path(db_path).exists():
         click.echo(click.style(f"Database not found: {db_path}", fg="red"))
         return
-    
+
     # Build config
     learn_config = {
         'learning': {
@@ -1379,52 +1463,52 @@ def learn(ctx, db, strategy, threshold, interval, epochs, force, daemon,
             'epochs': epochs
         }
     }
-    
+
     learner = ContinuousLearner(db_path, learn_config)
-    
+
     # Show status
     if show_status:
         status = learner.get_training_status()
         click.echo(click.style("=" * 50, fg="cyan"))
-        click.echo(click.style("  NOMADE Learning Status", fg="white", bold=True))
+        click.echo(click.style("  NOMAD Learning Status", fg="white", bold=True))
         click.echo(click.style("=" * 50, fg="cyan"))
         click.echo(f"  Strategy: {status['strategy']}")
         click.echo(f"  Total jobs: {status['total_jobs']}")
         click.echo(f"  Jobs since last training: {status['jobs_since_last_training']}")
         click.echo(f"  Last trained: {status['last_trained_at'] or 'Never'}")
-        
+
         should_train, reason = learner.should_retrain()
         if should_train:
             click.echo(click.style(f"  Status: Training needed - {reason}", fg="yellow"))
         else:
             click.echo(click.style(f"  Status: Up to date - {reason}", fg="green"))
         return
-    
+
     # Show history
     if show_history:
         history = learner.get_training_history()
         click.echo(click.style("=" * 70, fg="cyan"))
         click.echo(click.style("  Training History", fg="white", bold=True))
         click.echo(click.style("=" * 70, fg="cyan"))
-        
+
         if not history:
             click.echo("  No training runs yet")
             return
-        
+
         click.echo(f"  {'Completed':<20} {'Status':<10} {'Jobs':<8} {'GNN':<8} {'LSTM':<8}")
         click.echo(f"  {'-'*20} {'-'*10} {'-'*8} {'-'*8} {'-'*8}")
-        
+
         for run in history:
             completed = run.get('completed_at', 'N/A')[:19] if run.get('completed_at') else 'N/A'
             status_color = 'green' if run['status'] == 'completed' else 'red'
             gnn = f"{run.get('gnn_accuracy', 0)*100:.1f}%" if run.get('gnn_accuracy') else 'N/A'
             lstm = f"{run.get('lstm_accuracy', 0)*100:.1f}%" if run.get('lstm_accuracy') else 'N/A'
-            
-            click.echo(f"  {completed:<20} " + 
+
+            click.echo(f"  {completed:<20} " +
                       click.style(f"{run['status']:<10}", fg=status_color) +
                       f" {run.get('jobs_trained', 'N/A'):<8} {gnn:<8} {lstm:<8}")
         return
-    
+
     # Run daemon
     if daemon:
         click.echo(click.style("Starting continuous learning daemon...", fg="cyan"))
@@ -1436,10 +1520,10 @@ def learn(ctx, db, strategy, threshold, interval, epochs, force, daemon,
         except KeyboardInterrupt:
             click.echo("\nDaemon stopped")
         return
-    
+
     # Single training run
     result = learner.train(force=force, verbose=verbose)
-    
+
     if result['status'] == 'skipped':
         click.echo(click.style(f"Training skipped: {result['reason']}", fg="yellow"))
     elif result['status'] == 'completed':
@@ -1462,7 +1546,7 @@ def learn(ctx, db, strategy, threshold, interval, epochs, force, daemon,
 @click.option('--no-prolog', is_flag=True, help='Skip SLURM prolog hook')
 @click.pass_context
 def init(ctx, system, force, quick, no_systemd, no_prolog):
-    """Initialize NOMADE with an interactive setup wizard.
+    """Initialize NOMAD with an interactive setup wizard.
 
     \b
     The wizard walks you through configuring NØMAD for your
@@ -1471,42 +1555,40 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
 
     \b
     If the wizard is interrupted (Ctrl+C), your progress is saved
-    automatically. Run 'nomade init' again to pick up where you
+    automatically. Run 'nomad init' again to pick up where you
     left off.
 
     \b
     User install (default):
-      ~/.config/nomade/nomade.toml   Configuration
-      ~/.local/share/nomade/         Data directory
+      ~/.config/nomad/nomad.toml   Configuration
+      ~/.local/share/nomad/         Data directory
 
     \b
     System install (--system, requires root):
-      /etc/nomade/nomade.toml        Configuration
-      /var/lib/nomade/               Data directory
+      /etc/nomad/nomad.toml        Configuration
+      /var/lib/nomad/               Data directory
 
     \b
     Examples:
-      nomade init                    Interactive wizard
-      nomade init --quick            Auto-detect everything
-      nomade init --force            Overwrite existing config
-      sudo nomade init --system      System-wide installation
+      nomad init                    Interactive wizard
+      nomad init --quick            Auto-detect everything
+      nomad init --force            Overwrite existing config
+      sudo nomad init --system      System-wide installation
     """
-    import shutil
-    import subprocess as sp
     import os
-    import json
+    import subprocess as sp
 
     # ── Determine paths ──────────────────────────────────────────────
     if system:
-        config_dir = Path('/etc/nomade')
-        data_dir = Path('/var/lib/nomade')
-        log_dir = Path('/var/log/nomade')
+        config_dir = Path('/etc/nomad')
+        data_dir = Path('/var/lib/nomad')
+        log_dir = Path('/var/log/nomad')
     else:
-        config_dir = Path.home() / '.config' / 'nomade'
-        data_dir = Path.home() / '.local' / 'share' / 'nomade'
+        config_dir = Path.home() / '.config' / 'nomad'
+        data_dir = Path.home() / '.local' / 'share' / 'nomad'
         log_dir = data_dir / 'logs'
 
-    config_file = config_dir / 'nomade.toml'
+    config_file = config_dir / 'nomad.toml'
 
     # Check existing config
     if config_file.exists() and not force:
@@ -1525,7 +1607,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
         (data_dir / 'models').mkdir(exist_ok=True)
     except PermissionError:
         click.echo(click.style(
-            "\n  Permission denied. Use: sudo nomade init --system",
+            "\n  Permission denied. Use: sudo nomad init --system",
             fg="red"))
         return
 
@@ -1580,8 +1662,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     def detect_partitions(host=None, ssh_user=None, ssh_key=None):
         out = run_cmd("sinfo -h -o %P", host, ssh_user, ssh_key)
         if out:
-            return [l.strip().rstrip('*')
-                    for l in out.split('\n') if l.strip()]
+            return [line.strip().rstrip('*')
+                    for line in out.split('\n') if line.strip()]
         return []
 
     def detect_nodes_per_partition(partition, host=None, ssh_user=None,
@@ -1589,8 +1671,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
         out = run_cmd(f"sinfo -h -p {partition} -o %n",
                       host, ssh_user, ssh_key)
         if out:
-            return sorted(set(
-                l.strip() for l in out.split('\n') if l.strip()))
+            return sorted({line.strip() for line in out.split('\n') if line.strip()})
         return []
 
     def detect_gpu_nodes(host=None, ssh_user=None, ssh_key=None):
@@ -1609,8 +1690,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
         hpc_paths = {'/', '/home', '/scratch', '/localscratch', '/project',
                      '/work', '/data', '/shared'}
         if out:
-            found = [l.strip() for l in out.split('\n')[1:]
-                     if l.strip() in hpc_paths]
+            found = [line.strip() for line in out.split('\n')[1:]
+                     if line.strip() in hpc_paths]
             return sorted(found) if found else ['/', '/home']
         return ['/', '/home']
 
@@ -1688,8 +1769,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
                         f"    {p}: could not detect nodes automatically")
                     click.echo()
                     click.echo(f"  Type the node names for '{p}',")
-                    click.echo(f"  separated by commas:")
-                    click.echo(f"  (e.g., node01, node02, node03)")
+                    click.echo("  separated by commas:")
+                    click.echo("  (e.g., node01, node02, node03)")
                     nodes_str = click.prompt(
                         f"  Nodes for {p}", default="")
                     nodes = [n.strip() for n in nodes_str.split(',')
@@ -1719,8 +1800,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
 
             for dept in depts:
                 click.echo(f"  Type the hostnames for '{dept}',")
-                click.echo(f"  separated by commas:")
-                click.echo(f"  (e.g., bio-ws01, bio-ws02, bio-ws03)")
+                click.echo("  separated by commas:")
+                click.echo("  (e.g., bio-ws01, bio-ws02, bio-ws03)")
                 nodes_str = click.prompt(f"  Nodes for {dept}")
                 nodes = [n.strip() for n in nodes_str.split(',')
                          if n.strip()]
@@ -2650,7 +2731,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     # ══════════════════════════════════════════════════════════════════
     lines = []
     lines.append("# NØMAD Configuration File")
-    lines.append("# Generated by: nomade init")
+    lines.append("# Generated by: nomad init")
     lines.append(
         f"# Date:"
         f" {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -2662,7 +2743,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     lines.append("")
 
     lines.append("[database]")
-    lines.append('path = "nomade.db"')
+    lines.append('path = "nomad.db"')
     lines.append("")
 
     # Collectors
@@ -2799,7 +2880,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
             "# Update these with your SMTP server details:")
         lines.append('smtp_server = "smtp.example.com"')
         lines.append("smtp_port = 587")
-        lines.append('from_address = "nomade@example.com"')
+        lines.append('from_address = "nomad@example.com"')
         lines.append(f'recipients = ["{admin_email}"]')
         lines.append("")
 
@@ -2872,18 +2953,18 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
 
     click.echo(click.style("  What to do next:", bold=True))
     click.echo()
-    click.echo(f"    1. Review your config (optional):")
+    click.echo("    1. Review your config (optional):")
     click.echo(f"         nano {config_file}")
     click.echo()
-    click.echo(f"    2. Check that everything is ready:")
-    click.echo(f"         nomade syscheck")
+    click.echo("    2. Check that everything is ready:")
+    click.echo("         nomad syscheck")
     click.echo()
-    click.echo(f"    3. Start collecting data:")
-    click.echo(f"         nomade collect")
+    click.echo("    3. Start collecting data:")
+    click.echo("         nomad collect")
     click.echo()
     click.echo(
-        f"    4. Open the dashboard in your browser:")
-    click.echo(f"         nomade dashboard")
+        "    4. Open the dashboard in your browser:")
+    click.echo("         nomad dashboard")
     click.echo()
 
 
@@ -2900,12 +2981,12 @@ def demo(jobs, days, seed, port, no_launch):
     Perfect for testing NØMAD without a real HPC cluster.
 
     Examples:
-        nomade demo                  # Generate 1000 jobs, launch dashboard
-        nomade demo --jobs 500       # Generate 500 jobs
-        nomade demo --no-launch      # Generate only, don't launch dashboard
-        nomade demo --seed 42        # Reproducible data
+        nomad demo                  # Generate 1000 jobs, launch dashboard
+        nomad demo --jobs 500       # Generate 500 jobs
+        nomad demo --no-launch      # Generate only, don't launch dashboard
+        nomad demo --seed 42        # Reproducible data
     """
-    from nomade.demo import run_demo
+    from nomad.demo import run_demo
     run_demo(
         n_jobs=jobs,
         days=days,
@@ -2915,8 +2996,609 @@ def demo(jobs, days, seed, port, no_launch):
     )
 
 
-def main() -> None:
-    """Entry point for CLI."""
+
+
+# =============================================================================
+# EDU COMMANDS
+# =============================================================================
+
+@cli.group()
+def edu():
+    """NØMAD Edu — Educational analytics for HPC.
+
+    Measures the development of computational proficiency over time
+    by analyzing per-job behavioral fingerprints.
+    """
+    pass
+
+
+@edu.command('explain')
+@click.argument('job_id')
+@click.option('--cluster', '-c', default=None, help='Cluster name (required if multiple clusters)')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.option('--no-progress', is_flag=True, help='Skip progress comparison')
+@click.pass_context
+def edu_explain(ctx, job_id, cluster, db_path, output_json, no_progress):
+    """Explain a job in plain language with proficiency scores.
+
+    Analyzes a completed job across five dimensions of computational
+    proficiency: CPU efficiency, memory sizing, time estimation,
+    I/O awareness, and GPU utilization.
+
+    Examples:
+        nomad edu explain 12345
+        nomad edu explain 12345 --cluster hpc-main
+        nomad edu explain 12345 -c gpu-cluster --json
+    """
+    from nomad.edu.explain import explain_job
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+
+    result = explain_job(
+        job_id=job_id,
+        cluster=cluster,
+        db_path=db_path,
+        show_progress=not no_progress,
+        output_format='json' if output_json else 'terminal',
+    )
+
+    if result is None:
+        click.echo(f"Job {job_id} not found in database.", err=True)
+        click.echo("\nHint: Specify a database with --db or run 'nomad init' to configure.", err=True)
+        click.echo("  Example: nomad edu explain {job_id} --db ~/nomad_demo.db", err=True)
+        raise SystemExit(1)
+
+    click.echo(result)
+
+
+@edu.command('trajectory')
+@click.argument('username')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--days', default=90, help='Lookback period in days (default: 90)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def edu_trajectory(ctx, username, db_path, days, output_json):
+    """Show a user's proficiency development over time.
+
+    Tracks how a student or researcher's HPC skills evolve across
+    their job submissions, highlighting areas of improvement and
+    dimensions that need attention.
+
+    Examples:
+        nomad edu trajectory student01
+        nomad edu trajectory student01 --days 30
+    """
+    from nomad.edu.progress import format_trajectory, user_trajectory
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+
+    traj = user_trajectory(db_path, username, days)
+
+    if traj is None:
+        click.echo(f"Not enough data for {username} (need at least 3 completed jobs).", err=True)
+        click.echo("\nHint: Specify a database with --db or run 'nomad init' to configure.", err=True)
+        click.echo(f"  Example: nomad edu trajectory {username} --db ~/nomad_demo.db", err=True)
+        raise SystemExit(1)
+
+    if output_json:
+        result = {
+            "username": traj.username,
+            "total_jobs": traj.total_jobs,
+            "date_range": traj.date_range,
+            "overall_improvement": traj.overall_improvement,
+            "summary": traj.summary,
+            "current_scores": traj.current_scores,
+            "improvement": traj.improvement,
+            "windows": [
+                {"start": w.start, "end": w.end, "job_count": w.job_count,
+                 "scores": w.scores, "overall": w.overall}
+                for w in traj.windows
+            ],
+        }
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(format_trajectory(traj))
+
+
+@edu.command('report')
+@click.argument('group_name')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--days', default=90, help='Lookback period in days (default: 90)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def edu_report(ctx, group_name, db_path, days, output_json):
+    """Generate a proficiency report for a course or lab group.
+
+    Aggregates per-student proficiency data to produce insights like
+    "15/20 students improved memory efficiency over the semester."
+
+    The group_name maps to a Linux group (from SLURM accounting or
+    LDAP). Configure group filters in nomad.toml.
+
+    Examples:
+        nomad edu report bio301
+        nomad edu report bio301 --days 120
+        nomad edu report physics-lab --json
+    """
+    from nomad.edu.progress import format_group_summary, group_summary
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+
+    gs = group_summary(db_path, group_name, days)
+
+    if gs is None:
+        click.echo(f"No data found for group '{group_name}'.", err=True)
+        click.echo("Ensure group membership data has been collected:")
+        click.echo("  nomad collect -C groups --once")
+        click.echo("\nOr specify a database with --db:", err=True)
+        click.echo(f"  nomad edu report {group_name} --db ~/nomad_demo.db", err=True)
+        raise SystemExit(1)
+
+    if output_json:
+        result = {
+            "group_name": gs.group_name,
+            "member_count": gs.member_count,
+            "total_jobs": gs.total_jobs,
+            "date_range": gs.date_range,
+            "improvement_rate": gs.improvement_rate,
+            "avg_overall": gs.avg_overall,
+            "avg_improvement": gs.avg_improvement,
+            "users_improving": gs.users_improving,
+            "users_stable": gs.users_stable,
+            "users_declining": gs.users_declining,
+            "dimension_avgs": gs.dimension_avgs,
+            "dimension_improvements": gs.dimension_improvements,
+            "weakest_dimension": gs.weakest_dimension,
+            "strongest_dimension": gs.strongest_dimension,
+            "users": [
+                {"username": t.username, "total_jobs": t.total_jobs,
+                 "overall_improvement": t.overall_improvement,
+                 "current_scores": t.current_scores}
+                for t in gs.users
+            ],
+        }
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(format_group_summary(gs))
+
+# =============================================================================
+# DIAGNOSTICS COMMANDS
+# =============================================================================
+
+@cli.group()
+def diag():
+    """NØMAD Diagnostics — Infrastructure troubleshooting.
+
+    Analyze nodes, workstations, and storage devices to identify
+    issues and get actionable recommendations.
+
+    Examples:
+        nomad diag node hpc-cluster node01
+        nomad diag workstation ws-physics-01
+        nomad diag nas storage-01
+    """
+    pass
+
+
+@diag.command('node')
+@click.argument('cluster', required=False, default=None)
+@click.argument('node_name', required=False, default=None)
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', default=24, help='Hours of history to analyze (default: 24)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def diag_node(ctx, cluster, node_name, db_path, hours, output_json):
+    """Diagnose an HPC node.
+
+    Analyzes SLURM state, job history, resource utilization, and failure
+    patterns to identify issues and suggest fixes.
+
+    Examples:
+        nomad diag node hpc-cluster node01
+        nomad diag node gpu-cluster gpu01 --hours 48
+        nomad diag node main-cluster node05 --json
+    """
+    from nomad.diag.node import diagnose_node, format_diagnostic
+
+    # Clear screen for clean output
+    if not output_json:
+        click.echo("\033[2J\033[H", nl=False)
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+
+    if not db_path:
+        click.echo("Error: No database found. Use --db or run 'nomad init'.", err=True)
+        raise SystemExit(1)
+
+    if cluster and "/" in cluster and not node_name:
+        cluster, node_name = cluster.split("/", 1)
+    if not cluster or not node_name:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT DISTINCT cluster, node_name FROM node_state ORDER BY cluster, node_name").fetchall()
+        conn.close()
+        if not rows:
+            click.echo("No nodes found in database.", err=True)
+            raise SystemExit(1)
+        click.echo("\nAvailable nodes:")
+        for r in rows:
+            click.echo(f"  {r[0]}/{r[1]}")
+        click.echo("\nUsage: nomad diag node <cluster> <node_name>")
+        return
+    diag = diagnose_node(db_path, cluster, node_name, hours)
+
+    if not diag:
+        click.echo(f"Node {cluster}/{node_name} not found in database.", err=True)
+        raise SystemExit(1)
+
+    if output_json:
+        import json
+        from dataclasses import asdict
+        result = asdict(diag)
+        # Convert datetime to string
+        if result.get('last_seen'):
+            result['last_seen'] = str(result['last_seen'])
+        click.echo(json.dumps(result, indent=2, default=str))
+    else:
+        click.echo(format_diagnostic(diag))
+
+
+@diag.command('workstation')
+@click.argument('hostname', required=False, default=None)
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', default=24, help='Hours of history to analyze (default: 24)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def diag_workstation(ctx, hostname, db_path, hours, output_json):
+    """Diagnose a workstation.
+
+    Analyzes system state, user sessions, resource utilization, and
+    issues to identify problems and suggest fixes.
+
+    Features:
+    - CPU/memory utilization and bottlenecks
+    - Disk usage and I/O performance
+    - Active user sessions
+    - Process analysis (runaway jobs, zombies)
+    - Department/group association
+
+    Examples:
+        nomad diag workstation ws-physics-01
+        nomad diag workstation lab-desktop-05 --hours 48
+        nomad diag workstation chem-workstation --json
+    """
+    from nomad.diag.workstation import diagnose_workstation, format_diagnostic
+
+    # Clear screen for clean output
+    if not output_json:
+        click.echo("\033[2J\033[H", nl=False)
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+
+    if not db_path:
+        click.echo("Error: No database found. Use --db or run 'nomad init'.", err=True)
+        raise SystemExit(1)
+
+    if not hostname:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT DISTINCT hostname FROM workstation_state ORDER BY hostname").fetchall()
+        conn.close()
+        if not rows:
+            click.echo("No workstations found in database.", err=True)
+            raise SystemExit(1)
+        click.echo("\nAvailable workstations:")
+        for r in rows:
+            click.echo(f"  {r[0]}")
+        click.echo("\nUsage: nomad diag workstation <hostname>")
+        return
+    diag = diagnose_workstation(db_path, hostname, hours)
+
+    if not diag:
+        click.echo(f"Workstation {hostname} not found in database.", err=True)
+        raise SystemExit(1)
+
+    if output_json:
+        import json
+        from dataclasses import asdict
+        result = asdict(diag)
+        if result.get('last_seen'):
+            result['last_seen'] = str(result['last_seen'])
+        click.echo(json.dumps(result, indent=2, default=str))
+    else:
+        click.echo(format_diagnostic(diag))
+
+
+@diag.command('nas')
+@click.argument('hostname', required=False, default=None)
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', default=24, help='Hours of history to analyze (default: 24)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def diag_nas(ctx, hostname, db_path, hours, output_json):
+    """Diagnose a NAS/storage device.
+
+    Analyzes storage capacity, I/O throughput, NFS performance, and
+    mount issues to identify problems and suggest fixes.
+
+    Supports ZFS-specific diagnostics:
+    - Pool health (zpool status)
+    - Scrub status and errors
+    - ARC hit rates
+    - Snapshot usage
+    - Quota enforcement
+
+    Examples:
+        nomad diag nas storage-01
+        nomad diag nas zfs-home --hours 48
+        nomad diag nas nfs-server --json
+    """
+    from nomad.diag.storage import diagnose_storage, format_diagnostic
+
+    # Clear screen for clean output
+    if not output_json:
+        click.echo("\033[2J\033[H", nl=False)
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+
+    if not db_path:
+        click.echo("Error: No database found. Use --db or run 'nomad init'.", err=True)
+        raise SystemExit(1)
+
+    if not hostname:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT DISTINCT hostname FROM storage_state ORDER BY hostname").fetchall()
+        conn.close()
+        if not rows:
+            click.echo("No storage devices found in database.", err=True)
+            raise SystemExit(1)
+        click.echo("\nAvailable storage devices:")
+        for r in rows:
+            click.echo(f"  {r[0]}")
+        click.echo("\nUsage: nomad diag nas <hostname>")
+        return
+    diag = diagnose_storage(db_path, hostname, hours)
+
+    if not diag:
+        click.echo(f"Storage device {hostname} not found in database.", err=True)
+        raise SystemExit(1)
+
+    if output_json:
+        import json
+        from dataclasses import asdict
+        result = asdict(diag)
+        if result.get('last_seen'):
+            result['last_seen'] = str(result['last_seen'])
+        click.echo(json.dumps(result, indent=2, default=str))
+    else:
+        click.echo(format_diagnostic(diag))
+
+
+
+@diag.command('network')
+@click.option('--source', '-s', help='Source hostname (optional)')
+@click.option('--dest', '-d', help='Destination hostname (optional)')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', default=168, help='Hours of history to analyze (default: 168 = 1 week)')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def diag_network(ctx, source, dest, db_path, hours, output_json):
+    """Diagnose network performance."""
+    from nomad.diag.network import diagnose_network, format_diagnostic
+    if not output_json:
+        click.echo("\033[2J\033[H", nl=False)
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+    if not db_path:
+        click.echo("Error: No database found.", err=True)
+        raise SystemExit(1)
+    diag = diagnose_network(db_path, source, dest, hours)
+    if not diag:
+        click.echo("No network data found.", err=True)
+        raise SystemExit(1)
+    if output_json:
+        import json
+        from dataclasses import asdict
+        result = asdict(diag)
+        click.echo(json.dumps(result, indent=2, default=str))
+    else:
+        click.echo(format_diagnostic(diag))
+
+# =============================================================================
+# INSIGHT ENGINE COMMANDS
+# =============================================================================
+
+@cli.group()
+def insights():
+    """NØMAD Insight Engine — operational narratives and analysis."""
+    pass
+
+
+@insights.command('brief')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.pass_context
+def insights_brief(ctx, db_path, hours, cluster):
+    """Print a concise operational briefing."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        # Try demo DB
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found. Run 'nomad demo' first or specify --db.", err=True)
+            raise SystemExit(1)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    click.echo(engine.brief())
+
+
+@insights.command('detail')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.pass_context
+def insights_detail(ctx, db_path, hours, cluster):
+    """Print a detailed operational analysis."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found. Run 'nomad demo' first or specify --db.", err=True)
+            raise SystemExit(1)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    click.echo(engine.detail())
+
+
+@insights.command('json')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.pass_context
+def insights_json(ctx, db_path, hours, cluster):
+    """Output insights as JSON (for API/Console integration)."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found.", err=True)
+            raise SystemExit(1)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    click.echo(engine.to_json())
+
+
+@insights.command('slack')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.option('--webhook', help='Slack webhook URL (if provided, posts directly)')
+@click.pass_context
+def insights_slack(ctx, db_path, hours, cluster, webhook):
+    """Generate a Slack-formatted insight message."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found.", err=True)
+            raise SystemExit(1)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    message = engine.to_slack()
+
+    if webhook:
+        import urllib.request
+        import json as json_mod
+        req = urllib.request.Request(
+            webhook,
+            data=json_mod.dumps({"text": message}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            urllib.request.urlopen(req)
+            click.echo("Posted to Slack.")
+        except Exception as e:
+            click.echo(f"Failed to post: {e}", err=True)
+            click.echo(message)
+    else:
+        click.echo(message)
+
+
+@insights.command('digest')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--hours', type=int, default=24, help='Lookback window (hours)')
+@click.option('--cluster', default=None, help='Cluster name for display')
+@click.option('--period', type=click.Choice(['daily', 'weekly']), default='daily', help='Digest period')
+@click.option('--email', 'email_addr', help='Send via email (requires configured SMTP)')
+@click.pass_context
+def insights_digest(ctx, db_path, hours, cluster, period, email_addr):
+    """Generate an email digest of insights."""
+    from nomad.insights import InsightEngine
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = config.get('database', {}).get('path')
+        if not db_path:
+            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+
+    if not Path(db_path).exists():
+        demo_path = Path.home() / 'nomad_demo.db'
+        if demo_path.exists():
+            db_path = str(demo_path)
+        else:
+            click.echo("Error: No database found.", err=True)
+            raise SystemExit(1)
+
+    if period == 'weekly':
+        hours = max(hours, 168)
+
+    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
+    subject, body = engine.to_email(period=period)
+
+    if email_addr:
+        click.echo(f"Email delivery not yet configured. Subject and body below:")
+
+    click.echo(f"Subject: {subject}")
+    click.echo("")
+    click.echo(body)
+
 # =============================================================================
 # COMMUNITY COMMANDS
 # =============================================================================
@@ -2932,11 +3614,11 @@ def community():
 @click.option('--output', '-o', required=True, type=click.Path(), help='Output file (.parquet or .json)')
 @click.option('--salt-file', type=click.Path(exists=True), help='File containing institution salt')
 @click.option('--salt', help='Institution salt (use --salt-file for security)')
-@click.option('--institution-type', type=click.Choice(['academic', 'government', 'industry', 'nonprofit']), 
+@click.option('--institution-type', type=click.Choice(['academic', 'government', 'industry', 'nonprofit']),
               default='academic', help='Institution type')
 @click.option('--cluster-type', type=click.Choice([
     'cpu_small', 'cpu_medium', 'cpu_large',
-    'gpu_small', 'gpu_medium', 'gpu_large', 
+    'gpu_small', 'gpu_medium', 'gpu_large',
     'mixed_small', 'mixed_medium', 'mixed_large'
 ]), default='mixed_small', help='Cluster type')
 @click.option('--start-date', help='Start date (YYYY-MM-DD)')
@@ -2944,27 +3626,28 @@ def community():
 @click.pass_context
 def community_export(ctx, db_path, output, salt_file, salt, institution_type, cluster_type, start_date, end_date):
     """Export anonymized data for community dataset."""
-    from nomade.community import export_community_data
     from pathlib import Path
-    
+
+    from nomad.community import export_community_data
+
     if salt_file:
         with open(salt_file) as f:
             salt = f.read().strip()
     elif not salt:
         click.echo("Error: Either --salt or --salt-file is required", err=True)
         raise SystemExit(1)
-    
+
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
         db_path = config.get('database', {}).get('path')
         if not db_path:
-            default_db = Path.home() / '.config' / 'nomade' / 'nomade.db'
+            default_db = Path.home() / '.config' / 'nomad' / 'nomad.db'
             if default_db.exists():
                 db_path = str(default_db)
             else:
                 click.echo("Error: No database found. Use --db to specify path.", err=True)
                 raise SystemExit(1)
-    
+
     try:
         export_community_data(
             db_path=Path(db_path),
@@ -2977,15 +3660,16 @@ def community_export(ctx, db_path, output, salt_file, salt, institution_type, cl
         )
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 
 @community.command('verify')
 @click.argument('file_path', type=click.Path(exists=True))
 def community_verify(file_path):
     """Verify an export file meets community standards."""
-    from nomade.community import verify_export
     from pathlib import Path
+
+    from nomad.community import verify_export
     result = verify_export(Path(file_path))
     raise SystemExit(0 if result['valid'] else 1)
 
@@ -2995,8 +3679,9 @@ def community_verify(file_path):
 @click.option('-n', 'n_samples', default=5, help='Number of sample records')
 def community_preview(file_path, n_samples):
     """Preview an export file."""
-    from nomade.community import preview_export
     from pathlib import Path
+
+    from nomad.community import preview_export
     preview_export(Path(file_path), n_samples=n_samples)
 
 
@@ -3026,53 +3711,223 @@ def report_interactive(server_id, idle_hours, memory_threshold, max_idle, as_jso
     - Sessions consuming excessive memory (memory hogs)
     
     Examples:
-        nomade report-interactive              # Full report
-        nomade report-interactive --json       # JSON output
-        nomade report-interactive --quiet      # Only show alerts
+        nomad report-interactive              # Full report
+        nomad report-interactive --json       # JSON output
+        nomad report-interactive --quiet      # Only show alerts
     """
     import json as json_module
-    
+
     try:
-        from nomade.collectors.interactive import get_report, print_report
+        from nomad.collectors.interactive import get_report, print_report
     except (ImportError, SyntaxError):
         click.echo("Error: Interactive collector requires Python 3.7+", err=True)
-        raise SystemExit(1)
-    
+        raise SystemExit(1) from None
+
     data = get_report(
         server_id=server_id,
         idle_hours=idle_hours,
         memory_hog_mb=memory_threshold,
         max_idle=max_idle
     )
-    
+
     if as_json:
         click.echo(json_module.dumps(data, indent=2))
         return
-    
+
     if quiet:
         alerts = data.get('alerts', {})
         has_alerts = False
-        
+
         if alerts.get('idle_session_hogs'):
             has_alerts = True
             click.echo(f"[!] Users with >{max_idle} idle sessions:")
             for u in alerts['idle_session_hogs']:
                 click.echo(f"    {u['user']}: {u['idle']} idle ({u['rstudio']} RStudio, {u['jupyter']} Jupyter), {u['memory_mb']:.0f} MB")
-        
+
         if alerts.get('stale_sessions'):
             has_alerts = True
             click.echo(f"\n[!] Stale sessions (idle >{idle_hours}h): {len(alerts['stale_sessions'])}")
             for s in alerts['stale_sessions'][:10]:
                 click.echo(f"    {s['user']}: {s['session_type']}, {s['age_hours']:.0f}h old, {s['mem_mb']:.0f} MB")
-        
+
         if alerts.get('memory_hogs'):
             has_alerts = True
             click.echo(f"\n[!] Memory hogs (>{memory_threshold/1024:.0f}GB): {len(alerts['memory_hogs'])}")
             for s in alerts['memory_hogs'][:10]:
                 click.echo(f"    {s['user']}: {s['session_type']}, {s['mem_mb']/1024:.1f} GB")
-        
+
         if not has_alerts:
             click.echo("No alerts - all sessions within thresholds")
         return
-    
+
     print_report(data)
+
+
+# =============================================================================
+# CLOUD COMMANDS
+# =============================================================================
+@cli.group()
+@click.pass_context
+def cloud(ctx):
+    """Cloud provider monitoring commands.
+
+    Manage cloud metric collection from AWS, Azure, and GCP.
+    """
+    ctx.ensure_object(dict)
+
+
+@cloud.command('status')
+@click.pass_context
+def cloud_status(ctx):
+    """Check cloud collector connectivity and authentication."""
+    config = ctx.obj.get('config', {})
+    cloud_cfg = config.get('collectors', {}).get('cloud', {})
+
+    if not cloud_cfg:
+        click.echo("No cloud collectors configured in nomad.toml.")
+        click.echo("See: nomad/config/cloud_collectors.toml.example")
+        return
+
+    click.echo(f"{'Provider':<12} {'Enabled':<10} {'Auth':<12} {'Instances':<12}")
+    click.echo("-" * 46)
+
+    for name, pcfg in cloud_cfg.items():
+        if not isinstance(pcfg, dict):
+            continue
+
+        enabled = pcfg.get('enabled', False)
+        enabled_str = "yes" if enabled else "no"
+
+        if not enabled:
+            click.echo(f"{name:<12} {enabled_str:<10} {'--':<12} {'--':<12}")
+            continue
+
+        if name == 'aws':
+            if not HAS_AWS_COLLECTOR:
+                click.echo(
+                    f"{name:<12} {enabled_str:<10} "
+                    f"{'no SDK':<12} {'--':<12}"
+                )
+                click.echo("  Install with: pip install boto3")
+                continue
+            try:
+                db_path = get_db_path(config)
+                collector = AWSCollector(pcfg, db_path=str(db_path))
+                collector._ensure_authenticated()
+                instances = collector._list_instances()
+                click.echo(
+                    f"{name:<12} {enabled_str:<10} "
+                    f"{click.style('OK', fg='green'):<12} {len(instances):<12}"
+                )
+            except Exception as exc:
+                err = str(exc)[:30]
+                click.echo(
+                    f"{name:<12} {enabled_str:<10} "
+                    f"{click.style('FAIL', fg='red'):<12} {err}"
+                )
+        else:
+            click.echo(
+                f"{name:<12} {enabled_str:<10} "
+                f"{'planned':<12} {'--':<12}"
+            )
+
+
+@cloud.command('instances')
+@click.option('--provider', '-p', type=click.Choice(['aws']), help='Specific provider')
+@click.pass_context
+def cloud_instances(ctx, provider):
+    """List discovered cloud instances."""
+    config = ctx.obj.get('config', {})
+    cloud_cfg = config.get('collectors', {}).get('cloud', {})
+
+    if not cloud_cfg:
+        click.echo("No cloud collectors configured.")
+        return
+
+    providers = (
+        [(provider, cloud_cfg[provider])]
+        if provider and provider in cloud_cfg
+        else [
+            (n, c) for n, c in cloud_cfg.items()
+            if isinstance(c, dict) and c.get('enabled', False)
+        ]
+    )
+
+    for name, pcfg in providers:
+        if name == 'aws':
+            if not HAS_AWS_COLLECTOR:
+                click.echo(f"{name.upper()} -- boto3 not installed")
+                continue
+            try:
+                db_path = get_db_path(config)
+                collector = AWSCollector(pcfg, db_path=str(db_path))
+                collector._ensure_authenticated()
+                instances = collector._list_instances()
+
+                click.echo(f"\n{name.upper()} -- {len(instances)} instance(s)")
+                click.echo(f"{'Name':<30} {'Type':<16} {'AZ':<16} {'State':<10}")
+                click.echo("-" * 72)
+
+                for inst in instances:
+                    click.echo(
+                        f"{inst.get('name', inst['instance_id']):<30} "
+                        f"{inst.get('instance_type', '--'):<16} "
+                        f"{inst.get('availability_zone', '--'):<16} "
+                        f"{inst.get('state', '--'):<10}"
+                    )
+            except Exception as exc:
+                click.echo(f"\n{name.upper()} -- ERROR: {exc}")
+        else:
+            click.echo(f"\n{name.upper()} -- not yet implemented")
+
+
+@cloud.command('collect')
+@click.option('--provider', '-p', type=click.Choice(['aws']), help='Specific provider')
+@click.option('--db', type=click.Path(), help='Database path override')
+@click.pass_context
+def cloud_collect(ctx, provider, db):
+    """Run cloud collectors once."""
+    config = ctx.obj.get('config', {})
+    cloud_cfg = config.get('collectors', {}).get('cloud', {})
+
+    if db:
+        db_path = Path(db)
+    else:
+        db_path = get_db_path(config)
+
+    if not cloud_cfg:
+        click.echo("No cloud collectors configured.")
+        return
+
+    providers = (
+        [(provider, cloud_cfg[provider])]
+        if provider and provider in cloud_cfg
+        else [
+            (n, c) for n, c in cloud_cfg.items()
+            if isinstance(c, dict) and c.get('enabled', False)
+        ]
+    )
+
+    for name, pcfg in providers:
+        click.echo(f"Collecting from {name}... ", nl=False)
+        if name == 'aws':
+            if not HAS_AWS_COLLECTOR:
+                click.echo(click.style("MISSING boto3", fg='yellow'))
+                continue
+            try:
+                collector = AWSCollector(pcfg, db_path=str(db_path))
+                result = collector.run()
+                if result.success:
+                    click.echo(click.style(
+                        f"OK ({result.records_collected} metrics "
+                        f"in {result.duration_seconds:.1f}s)",
+                        fg='green',
+                    ))
+                else:
+                    click.echo(click.style(
+                        f"FAILED: {result.error_message}", fg='red'
+                    ))
+            except Exception as exc:
+                click.echo(click.style(f"ERROR: {exc}", fg='red'))
+        else:
+            click.echo(click.style("not yet implemented", fg='yellow'))
