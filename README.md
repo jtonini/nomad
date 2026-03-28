@@ -43,6 +43,8 @@ nomad dashboard               # Launch web interface
 | **Educational Analytics** | Track computational proficiency development | `nomad edu explain <job>` |
 | **Alerts** | Threshold + predictive alerts (email, Slack, webhook) | `nomad alerts` |
 | **ML Prediction** | Job failure prediction using similarity networks | `nomad predict` |
+| **Insight Engine** | Operational narratives from multi-signal analysis | `nomad insights brief` |
+| **Cloud Monitoring** | AWS/Azure/GCP metrics with cost and utilization analysis | `nomad cloud status` |
 | **Community Export** | Anonymized datasets for cross-institutional research | `nomad community export` |
 
 ---
@@ -56,6 +58,7 @@ nomad dashboard               # Launch web interface
 ├───────────────┼───────────────┼───────────────┼─────────────────────┤
 │ disk          │ derivatives   │ dashboard     │ thresholds          │
 │ iostat        │ similarity    │ network 3D    │ predictive          │
+│ nfs           │ community   │ insights    │ flapping            │
 │ slurm         │ ML ensemble   │ partitions    │ email/slack         │
 │ gpu           │ edu scoring   │ workstations  │ webhooks            │
 │ nfs           │ readiness     │ storage       │                     │

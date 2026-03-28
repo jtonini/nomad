@@ -756,6 +756,25 @@ def alerts(ctx: click.Context, db: str, unresolved: bool, severity: str) -> None
         'critical': 'red',
     }
 
+    # Enrich alerts with insight narratives
+    _stype_narr = {}
+    _stype_rec = {}
+    try:
+        from nomad.insights import InsightEngine
+        _eng = InsightEngine(db_path, hours=168)
+        for _s, _n in _eng.narratives:
+            _k = _s.signal_type.value
+            if _k not in _stype_narr:
+                _stype_narr[_k] = _n
+        for _ins in _eng.insights:
+            if _ins.recommendation:
+                for _s in _ins.source_signals:
+                    _k = _s.signal_type.value
+                    if _k not in _stype_rec:
+                        _stype_rec[_k] = _ins.recommendation
+    except Exception:
+        pass
+    _alert_src = {"disk": "disk", "memory": "memory", "gpu": "gpu", "job": "jobs", "slurm": "jobs", "network": "network", "cloud": "cloud"}
     for row in rows:
         color = severity_colors.get(row['severity'], 'white')
         resolved = '✓' if row['resolved'] else '○'
@@ -764,6 +783,14 @@ def alerts(ctx: click.Context, db: str, unresolved: bool, severity: str) -> None
         click.echo(f"    {row['message']}")
         if row['source']:
             click.echo(f"    Source: {row['source']}")
+        _src = row["source"] if "source" in row.keys() else None
+        _st = _alert_src.get(_src, _src) if _src else None
+        _narr = _stype_narr.get(_st) if _st else None
+        _rec = _stype_rec.get(_st) if _st else None
+        if _narr:
+            click.echo(click.style(f"    Insight: {_narr}", dim=True))
+        if _rec:
+            click.echo(click.style(f"    >> {_rec}", dim=True))
         click.echo()
 
 

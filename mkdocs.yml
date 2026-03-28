@@ -47,6 +47,7 @@ nav:
     - Interactive Sessions: interactive.md
     - Data Readiness: readiness.md
     - Diagnostics: diagnostics.md
+    - Insight Engine: insights.md
     - Infrastructure: infrastructure.md
   - Technical:
     - Architecture: ARCHITECTURE.md
