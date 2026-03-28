@@ -89,3 +89,5 @@ BUSINESS_NOTES.md
 *.synctex.gz
 *.bbl
 *.blg
+patch_dashboard_insights.py
+ruff-fixes.patch

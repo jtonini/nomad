@@ -50,7 +50,7 @@ def inject_stress_scenarios(db_path: str):
             (job_id, cluster, user_name, partition, state, submit_time, start_time,
              end_time, runtime_seconds, wait_time_seconds, req_cpus, req_gpus, req_mem_mb)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (900000 + i, "demo-cluster", f"mluser{i%3}", "gpu", "OUT_OF_MEMORY",
+            (f"stress-gpu-{i}", "demo-cluster", f"mluser{i%3}", "gpu", "OUT_OF_MEMORY",
              ts, ts, ts, 600, 300, 8, random.choice([1, 2]), 32000))
 
     # ── 3. Network latency spike ─────────────────────────────────────
@@ -81,7 +81,7 @@ def inject_stress_scenarios(db_path: str):
             (job_id, cluster, user_name, partition, state, submit_time, start_time,
              end_time, runtime_seconds, wait_time_seconds, req_cpus, req_gpus, req_mem_mb)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (910000 + i, "demo-cluster", f"gpuuser{i%5}", "gpu", "COMPLETED",
+            (f"stress-wait-{i}", "demo-cluster", f"gpuuser{i%5}", "gpu", "COMPLETED",
              ts, ts, ts, 3600, wait, 8, 1, 16000))
 
     # ── 5. Cloud: underutilized expensive instances ──────────────────

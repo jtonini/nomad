@@ -1325,6 +1325,12 @@ def run_demo(
     print(f"  Jobs:  {n_jobs}")
     print(f"  Success rate: {success/n_jobs*100:.1f}%")
     print(f"\nDatabase: {db_path}")
+    # Inject stress scenarios for Insight Engine
+    try:
+        from nomad.insights.inject_stress import inject_stress_scenarios
+        inject_stress_scenarios(str(db_path))
+    except Exception:
+        pass
 
     if launch_dashboard:
         from nomad.viz.server import serve_dashboard
