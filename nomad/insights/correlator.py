@@ -177,7 +177,7 @@ def _correlate_network_and_jobs(signals: list[Signal]) -> list[Insight]:
 
     if net_issues and job_fails:
         combined = net_issues + job_fails
-        paths = [s.metrics.get("path", "unknown") for s in net_issues]
+        paths = list(dict.fromkeys(s.metrics.get("path", "unknown") for s in net_issues))
 
         narrative = (
             f"Network degradation detected on {', '.join(paths)} "
@@ -246,9 +246,9 @@ def _correlate_workstation_and_alerts(signals: list[Signal]) -> list[Insight]:
         combined = overloaded + alerts
 
         narrative = (
-            f"Multiple workstations are under heavy load ({', '.join(hosts)}) "
+            f"Multiple interactive nodes are under heavy load ({', '.join(hosts)}) "
             f"and there are active alerts in the system. "
-            f"Interactive users on these machines are likely experiencing "
+            f"Users on these machines are likely experiencing "
             f"degraded performance."
         )
         insights.append(Insight(
@@ -257,8 +257,8 @@ def _correlate_workstation_and_alerts(signals: list[Signal]) -> list[Insight]:
             severity=_max_severity(combined),
             source_signals=combined,
             recommendation=(
-                "Identify runaway processes on affected workstations. "
-                "Consider notifying users or killing long-running background jobs "
+                "Identify runaway processes on the affected nodes. "
+                "Consider notifying users or killing long-running processes "
                 "that should have been submitted to the scheduler instead."
                 ),
             category="workstation",

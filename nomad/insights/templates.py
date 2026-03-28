@@ -135,10 +135,10 @@ def narrate_filesystem_usage(sig: Signal) -> str:
     avail = m.get("avail_gb") or m.get("free_gb", 0)
 
     if usage >= 90:
-        return f"{server} is at {usage:.0f}% capacity with only {avail:.1f} GB remaining. Immediate attention needed."
+        return f"{server} is at {usage:.0f}% capacity with only {avail:.0f} GB remaining. Immediate attention needed."
     if usage >= 80:
-        return f"{server} is at {usage:.0f}% capacity ({avail:.1f} GB remaining). Approaching critical threshold."
-    return f"{server} is at {usage:.0f}% ({avail:.1f} GB free). Above normal but not yet critical."
+        return f"{server} is at {usage:.0f}% capacity ({avail:.0f} GB remaining). Approaching critical threshold."
+    return f"{server} is at {usage:.0f}% ({avail:.0f} GB free). Above normal but not yet critical."
 
 
 def narrate_disk_fill_projection(sig: Signal) -> str:
@@ -288,8 +288,8 @@ def narrate_workstation_cpu(sig: Signal) -> str:
     host = m["hostname"]
     avg = m["avg_cpu"]
     return (
-        f"Workstation '{host}' is running at {avg:.0f}% average CPU. "
-        f"Users on this machine may experience degraded interactive performance."
+        f"'{host}' is running at {avg:.0f}% average CPU. "
+        f"Users on this node may experience degraded interactive performance."
     )
 
 
@@ -298,8 +298,8 @@ def narrate_workstation_memory(sig: Signal) -> str:
     host = m["hostname"]
     avg = m["avg_mem"]
     return (
-        f"Workstation '{host}' at {avg:.0f}% memory utilization. "
-        f"Risk of OOM kills for user processes. Check for runaway jobs."
+        f"'{host}' at {avg:.0f}% memory utilization. "
+        f"Risk of OOM kills for user processes. Check for runaway processes."
     )
 
 

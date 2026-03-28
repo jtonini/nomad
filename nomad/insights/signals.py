@@ -81,7 +81,7 @@ def read_job_signals(db_path: Path, hours: int = 24) -> list[Signal]:
                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed,
                    SUM(CASE WHEN state = 'TIMEOUT' THEN 1 ELSE 0 END) as timed_out,
                    SUM(CASE WHEN state = 'OUT_OF_MEMORY' THEN 1 ELSE 0 END) as oom
-            FROM jobs WHERE submit_time >= ?
+            FROM jobs WHERE end_time >= ?
         """, (cutoff,)).fetchone()
 
         if row and row["total"] > 0:
@@ -116,7 +116,7 @@ def read_job_signals(db_path: Path, hours: int = 24) -> list[Signal]:
             partitions = conn.execute("""
                 SELECT partition, COUNT(*) as cnt
                 FROM jobs
-                WHERE submit_time >= ? AND state IN ('FAILED', 'TIMEOUT', 'OUT_OF_MEMORY')
+                WHERE end_time >= ? AND state IN ('FAILED', 'TIMEOUT', 'OUT_OF_MEMORY')
                 GROUP BY partition ORDER BY cnt DESC LIMIT 3
             """, (cutoff,)).fetchall()
 
@@ -136,10 +136,10 @@ def read_job_signals(db_path: Path, hours: int = 24) -> list[Signal]:
             # OOM-specific signal
             if oom > 0:
                 oom_users = conn.execute("""
-                    SELECT username, COUNT(*) as cnt
+                    SELECT user_name as username, COUNT(*) as cnt
                     FROM jobs
-                    WHERE submit_time >= ? AND state = 'OUT_OF_MEMORY'
-                    GROUP BY username ORDER BY cnt DESC LIMIT 3
+                    WHERE end_time >= ? AND state = 'OUT_OF_MEMORY'
+                    GROUP BY user_name ORDER BY cnt DESC LIMIT 3
                 """, (cutoff,)).fetchall()
                 users = [f"{u['username']} ({u['cnt']})" for u in oom_users]
                 signals.append(Signal(
@@ -166,7 +166,7 @@ def read_job_signals(db_path: Path, hours: int = 24) -> list[Signal]:
         prev = conn.execute("""
             SELECT COUNT(*) as total,
                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed
-            FROM jobs WHERE submit_time >= ? AND submit_time < ?
+            FROM jobs WHERE end_time >= ? AND end_time < ?
         """, (prev_cutoff, cutoff)).fetchone()
 
         if prev and prev["total"] > 10 and row and row["total"] > 10:
@@ -303,9 +303,9 @@ def read_gpu_signals(db_path: Path, hours: int = 24) -> list[Signal]:
             SELECT COUNT(*) as total,
                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed,
                    SUM(CASE WHEN state = 'OUT_OF_MEMORY' THEN 1 ELSE 0 END) as oom,
-                   AVG(CAST(gpus AS REAL)) as avg_gpus
+                   AVG(CAST(req_gpus AS REAL)) as avg_gpus
             FROM jobs
-            WHERE submit_time >= ? AND gpus > 0
+            WHERE end_time >= ? AND req_gpus > 0
         """, (cutoff,)).fetchone()
 
         if gpu_jobs and gpu_jobs["total"] > 0:
@@ -381,9 +381,9 @@ def read_queue_signals(db_path: Path, hours: int = 6) -> list[Signal]:
 
         # Average wait time from jobs
         wait_rows = conn.execute("""
-            SELECT partition, AVG(wait_time) as avg_wait, MAX(wait_time) as max_wait
+            SELECT partition, AVG(wait_time_seconds) as avg_wait, MAX(wait_time_seconds) as max_wait
             FROM jobs
-            WHERE submit_time >= ? AND wait_time IS NOT NULL
+            WHERE end_time >= ? AND wait_time_seconds IS NOT NULL
             GROUP BY partition
         """, (cutoff,)).fetchall()
 

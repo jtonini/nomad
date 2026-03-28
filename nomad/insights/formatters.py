@@ -45,6 +45,37 @@ _SEVERITY_LABELS = {
 
 # ── CLI formatter ────────────────────────────────────────────────────────
 
+def _wrap(text: str, prefix_len: int = 0, indent: str = "        ", width: int = 68) -> str:
+    """Wrap text to fit within box, accounting for prefix on first line."""
+    import textwrap
+    first_width = width - prefix_len
+    rest_width = width
+    words = text.split()
+    if not words:
+        return ""
+    # Build first line
+    first_line = ""
+    remaining_words = list(words)
+    for w in words:
+        test = (first_line + " " + w).strip()
+        if len(test) <= first_width:
+            first_line = test
+            remaining_words.pop(0)
+        else:
+            break
+    if not remaining_words:
+        return first_line
+    # Build continuation lines
+    rest_text = " ".join(remaining_words)
+    rest_lines = textwrap.wrap(rest_text, width=rest_width,
+                               break_long_words=False,
+                               break_on_hyphens=False)
+    result = first_line
+    for line in rest_lines:
+        result += "\n" + indent + line
+    return result
+
+
 def format_cli_brief(
     narratives: list[tuple[Signal, str]],
     insights: list[Insight],
@@ -54,20 +85,23 @@ def format_cli_brief(
     Produce a concise CLI briefing (for `nomad insights brief`).
 
     Structure:
-      Header → overall health → correlated insights → individual signals
+      Header -> overall health -> correlated insights -> individual signals
     """
     lines: list[str] = []
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    W = 64  # box width
 
     # Header
     lines.append("")
-    lines.append(f"{_BOLD}  NOMAD Insight Brief — {cluster_name}{_RESET}")
-    lines.append(f"{_DIM}  {now}{_RESET}")
-    lines.append(f"  {'─' * 56}")
+    lines.append(f"  {'=' * W}")
+    lines.append(f"  {_BOLD}NOMAD Insight Brief{_RESET}")
+    lines.append(f"  {cluster_name}  {_DIM}|  {now}{_RESET}")
+    lines.append(f"  {'=' * W}")
 
     # Overall health assessment
     all_severities = [s.severity for s, _ in narratives] + [i.severity for i in insights]
     if not all_severities:
+        lines.append("")
         lines.append(f"  {_CLI_COLORS[Severity.INFO]}Cluster health: good. No notable signals.{_RESET}")
         lines.append("")
         return "\n".join(lines)
@@ -77,24 +111,26 @@ def format_cli_brief(
     health_text = {
         Severity.INFO: "good",
         Severity.NOTICE: "nominal with observations",
-        Severity.WARNING: "degraded — action recommended",
-        Severity.CRITICAL: "impaired — immediate attention needed",
+        Severity.WARNING: "degraded -- action recommended",
+        Severity.CRITICAL: "impaired -- immediate attention needed",
     }[worst]
 
+    lines.append("")
     lines.append(f"  Cluster health: {_CLI_COLORS[worst]}{_BOLD}{health_text}{_RESET}")
     lines.append("")
 
     # Correlated insights first (Level 2)
     if insights:
-        lines.append(f"  {_BOLD}Linked findings:{_RESET}")
-        lines.append("")
+        lines.append(f"  {_BOLD}Linked Findings{_RESET}")
+        lines.append(f"  {'-' * W}")
         for ins in sorted(insights, key=lambda i: [Severity.INFO, Severity.NOTICE, Severity.WARNING, Severity.CRITICAL].index(i.severity), reverse=True):
             color = _CLI_COLORS[ins.severity]
             label = _SEVERITY_LABELS[ins.severity]
-            lines.append(f"  {color}[{label}]{_RESET} {ins.narrative}")
-            if ins.recommendation:
-                lines.append(f"  {_DIM}       Recommendation: {ins.recommendation}{_RESET}")
             lines.append("")
+            lines.append(f"  {color}[{label}]{_RESET} {_wrap(ins.narrative, prefix_len=9, indent='        ')}")
+            if ins.recommendation:
+                lines.append(f"  {_DIM}    >> {_wrap(ins.recommendation, prefix_len=7, indent='       ')}{_RESET}")
+        lines.append("")
 
     # Individual signals (not already covered by insights)
     consumed_keys = set()
@@ -109,14 +145,15 @@ def format_cli_brief(
     remaining.sort(key=lambda x: sev_order.get(x[0].severity, 4))
 
     if remaining:
-        lines.append(f"  {_BOLD}Signals:{_RESET}")
-        lines.append("")
+        lines.append(f"  {_BOLD}Signals{_RESET}")
+        lines.append(f"  {'-' * W}")
         for sig, narr in remaining:
             color = _CLI_COLORS[sig.severity]
             label = _SEVERITY_LABELS[sig.severity]
-            lines.append(f"  {color}[{label}]{_RESET} {narr}")
+            lines.append(f"  {color}[{label}]{_RESET} {_wrap(narr, prefix_len=9, indent='        ')}")
         lines.append("")
 
+    lines.append(f"  {'=' * W}")
     lines.append(f"  {_DIM}Run 'nomad insights detail' for full analysis.{_RESET}")
     lines.append("")
 
