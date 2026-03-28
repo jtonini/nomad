@@ -49,7 +49,7 @@ class Signal:
     detail: str
     metrics: dict[str, Any] = field(default_factory=dict)
     affected_entities: list[str] = field(default_factory=list)
-    timestamp: Optional[datetime] = None
+    timestamp: datetime | None = None
     tags: dict[str, str] = field(default_factory=dict)
 
     @property

@@ -7,6 +7,7 @@ Connects to TOML config, NOMAD database, and falls back to demo data.
 """
 
 import http.server
+import urllib.parse
 import json
 import logging
 import math
@@ -3335,6 +3336,92 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 );
             };
 
+            // Insights Panel
+            const InsightsPanel = () => {
+                const [insights, setInsights] = useState(null);
+                const [loading, setLoading] = useState(true);
+                useEffect(() => {
+                    fetch('/api/insights?hours=168')
+                        .then(r => r.json())
+                        .then(d => { setInsights(d); setLoading(false); })
+                        .catch(() => { setInsights({signals: [], insights: [], overall_health: 'unknown'}); setLoading(false); });
+                }, []);
+                if (loading) return React.createElement("div", {style: {padding: "40px", textAlign: "center"}}, "Loading insights...");
+                if (!insights) return React.createElement("div", {style: {padding: "40px"}}, "No insight data available.");
+
+                const healthColors = {good: "#22c55e", nominal: "#06b6d4", degraded: "#f59e0b", impaired: "#ef4444", unknown: "#6b7280"};
+                const sevColors = {critical: "#ef4444", warning: "#f59e0b", notice: "#06b6d4", info: "#22c55e"};
+                const sevLabels = {critical: "CRIT", warning: "WARN", notice: "NOTE", info: "OK"};
+
+                const healthColor = healthColors[insights.overall_health] || "#6b7280";
+                const healthLabel = {good: "Good", nominal: "Nominal", degraded: "Degraded", impaired: "Impaired"}[insights.overall_health] || "Unknown";
+
+                return React.createElement("div", {style: {padding: "20px", maxWidth: "900px"}},
+                    // Health banner
+                    React.createElement("div", {style: {
+                        background: "var(--bg-secondary, #1e293b)", borderRadius: "12px", padding: "20px",
+                        marginBottom: "24px", borderLeft: `4px solid ${healthColor}`
+                    }},
+                        React.createElement("div", {style: {display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px"}},
+                            React.createElement("div", {style: {
+                                width: "12px", height: "12px", borderRadius: "50%", background: healthColor,
+                                boxShadow: `0 0 8px ${healthColor}40`
+                            }}),
+                            React.createElement("span", {style: {fontSize: "20px", fontWeight: 600}}, "Cluster Health: " + healthLabel)
+                        ),
+                        React.createElement("div", {style: {fontSize: "13px", opacity: 0.7}},
+                            insights.signal_count + " signals | " + insights.insight_count + " correlated findings"
+                        )
+                    ),
+                    // Correlated insights (Level 2)
+                    insights.insights && insights.insights.length > 0 && React.createElement("div", {style: {marginBottom: "24px"}},
+                        React.createElement("h3", {style: {fontSize: "16px", fontWeight: 600, marginBottom: "12px", opacity: 0.8}}, "Linked Findings"),
+                        insights.insights.map((ins, i) =>
+                            React.createElement("div", {key: i, style: {
+                                background: "var(--bg-secondary, #1e293b)", borderRadius: "8px", padding: "16px",
+                                marginBottom: "12px", borderLeft: `3px solid ${sevColors[ins.severity] || "#6b7280"}`
+                            }},
+                                React.createElement("div", {style: {display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px"}},
+                                    React.createElement("span", {style: {
+                                        fontSize: "11px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px",
+                                        background: (sevColors[ins.severity] || "#6b7280") + "20",
+                                        color: sevColors[ins.severity] || "#6b7280"
+                                    }}, sevLabels[ins.severity] || "?"),
+                                    React.createElement("span", {style: {fontSize: "13px", fontWeight: 600}},
+                                        ins.title.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                                    )
+                                ),
+                                React.createElement("p", {style: {fontSize: "13px", lineHeight: 1.5, margin: "0 0 8px 0"}}, ins.narrative),
+                                ins.recommendation && React.createElement("div", {style: {
+                                    fontSize: "12px", opacity: 0.7, borderTop: "1px solid var(--border-color, #334155)",
+                                    paddingTop: "8px", marginTop: "4px"
+                                }}, "Recommendation: " + ins.recommendation)
+                            )
+                        )
+                    ),
+                    // Individual signals
+                    React.createElement("h3", {style: {fontSize: "16px", fontWeight: 600, marginBottom: "12px", opacity: 0.8}},
+                        "Signals (" + insights.signal_count + ")"
+                    ),
+                    (insights.signals || []).map((sig, i) =>
+                        React.createElement("div", {key: i, style: {
+                            background: "var(--bg-secondary, #1e293b)", borderRadius: "8px", padding: "14px",
+                            marginBottom: "8px", borderLeft: `3px solid ${sevColors[sig.severity] || "#6b7280"}`
+                        }},
+                            React.createElement("div", {style: {display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px"}},
+                                React.createElement("span", {style: {
+                                    fontSize: "11px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px",
+                                    background: (sevColors[sig.severity] || "#6b7280") + "20",
+                                    color: sevColors[sig.severity] || "#6b7280"
+                                }}, sevLabels[sig.severity] || "?"),
+                                React.createElement("span", {style: {fontSize: "12px", fontWeight: 600, textTransform: "capitalize"}}, sig.type)
+                            ),
+                            React.createElement("p", {style: {fontSize: "13px", lineHeight: 1.5, margin: 0}}, sig.narrative)
+                        )
+                    )
+                );
+            };
+
             const CloudPanel = () => {
                 const [data, setData] = React.useState(null);
                 const [loading, setLoading] = React.useState(true);
@@ -3701,6 +3788,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             >
                                 Cloud
                             </div>
+                            <div
+                                className={`tab ${activeTab === 'insights' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('insights'); setSelectedNode(null); }}
+                            >
+                                Insights
+                            </div>
                         </nav>
                         
                         <div className="header-right">
@@ -3737,6 +3830,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <StoragePanel />
                         ) : activeTab === 'cloud' ? (
                             <CloudPanel />
+                        ) : activeTab === 'insights' ? (
+                            <InsightsPanel />
                         ) : (
                             <>
                                 <ClusterView
@@ -6260,6 +6355,21 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 devices, summary = [], {}
             self.wfile.write(json.dumps({'devices': devices, 'summary': summary}).encode())
 
+        elif parsed.path == '/api/insights':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            try:
+                from nomad.insights import InsightEngine
+                hours = int(dict(urllib.parse.parse_qsl(parsed.query)).get('hours', '168'))
+                cluster_name = dict(urllib.parse.parse_qsl(parsed.query)).get('cluster', 'cluster')
+                engine = InsightEngine(dm.db_path, hours=hours, cluster_name=cluster_name)
+                result = engine.to_dict()
+            except Exception as e:
+                result = {"error": str(e), "signals": [], "insights": [], "overall_health": "unknown", "signal_count": 0, "insight_count": 0}
+            self.wfile.write(json.dumps(result).encode())
         else:
             self.send_error(404)
 

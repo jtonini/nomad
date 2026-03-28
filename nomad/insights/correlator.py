@@ -22,7 +22,7 @@ class Insight:
     narrative: str
     severity: Severity
     source_signals: list[Signal] = field(default_factory=list)
-    recommendation: Optional[str] = None
+    recommendation: str | None = None
     category: str = "general"
 
     @property

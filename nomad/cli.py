@@ -681,8 +681,8 @@ def status(ctx: click.Context, db: str) -> None:
                     "  {:<18} {:<14} [{}] CPU: {}  Mem: {}  ${:.2f}/day".format(
                         inst['node_name'], inst['instance_type'],
                         click.style(cpu_bar, fg=cpu_color),
-                        click.style("{:.0f}%".format(cpu_val), fg=cpu_color),
-                        click.style("{:.0f}%".format(mem_val), fg=mem_color),
+                        click.style(f"{cpu_val:.0f}%", fg=cpu_color),
+                        click.style(f"{mem_val:.0f}%", fg=mem_color),
                         cost_val))
             total_cost = conn.execute(
                 "SELECT SUM(value) as total FROM cloud_metrics "
@@ -3285,11 +3285,16 @@ def edu_cloud(ctx, db_path, instance_name, days, output_json):
         daily_cost = cost_row['daily'] if cost_row and cost_row['daily'] else 0
         itype = itype_row['instance_type'] if itype_row else 'unknown'
         def score_util(avg):
-            if avg <= 0: return 0
-            if 60 <= avg <= 85: return min(100, 90 + (avg - 60) * 0.4)
-            if avg > 85: return 85 - (avg - 85) * 0.5
-            if avg >= 40: return 50 + (avg - 40) * 2.0
-            if avg >= 20: return 20 + (avg - 20) * 1.5
+            if avg <= 0:
+                return 0
+            if 60 <= avg <= 85:
+                return min(100, 90 + (avg - 60) * 0.4)
+            if avg > 85:
+                return 85 - (avg - 85) * 0.5
+            if avg >= 40:
+                return 50 + (avg - 40) * 2.0
+            if avg >= 20:
+                return 20 + (avg - 20) * 1.5
             return avg
         cpu_score = round(score_util(cpu_avg), 1)
         mem_score = round(score_util(mem_avg), 1)
@@ -3300,9 +3305,12 @@ def edu_cloud(ctx, db_path, instance_name, days, output_json):
             overall = cpu_score * 0.35 + mem_score * 0.30 + 50 * 0.35
         overall = round(overall, 1)
         def level(s):
-            if s >= 90: return 'Excellent'
-            if s >= 70: return 'Good'
-            if s >= 50: return 'Developing'
+            if s >= 90:
+                return 'Excellent'
+            if s >= 70:
+                return 'Good'
+            if s >= 50:
+                return 'Developing'
             return 'Needs Work'
         results.append({'instance': name, 'type': itype, 'cpu_avg': round(cpu_avg, 1), 'mem_avg': round(mem_avg, 1),
             'gpu_avg': round(gpu_avg, 1) if gpu_avg else None, 'cpu_score': cpu_score, 'mem_score': mem_score,
@@ -3316,7 +3324,7 @@ def edu_cloud(ctx, db_path, instance_name, days, output_json):
     hline = chr(9472) * 56
     click.echo()
     click.echo(click.style("  NOMAD Cloud Proficiency Report", bold=True))
-    click.echo("  Analysis period: {} days".format(days))
+    click.echo(f"  Analysis period: {days} days")
     click.echo("  " + hline)
     click.echo()
     for r in sorted(results, key=lambda x: x['overall_score']):
@@ -3327,7 +3335,7 @@ def edu_cloud(ctx, db_path, instance_name, days, output_json):
             color = 'green' if score >= 70 else 'yellow' if score >= 50 else 'red'
             bar_len = int(val / 5)
             bar = chr(9608) * bar_len + chr(9617) * (20 - bar_len)
-            click.echo("    {:<10} [{}] Util: {:.0f}%  Score: {:.0f}%".format(dim, click.style(bar, fg=color), val, score))
+            click.echo(f"    {dim:<10} [{click.style(bar, fg=color)}] Util: {val:.0f}%  Score: {score:.0f}%")
         if r.get('gpu_avg') is not None and r.get('gpu_score') is not None:
             color = 'green' if r['gpu_score'] >= 70 else 'yellow' if r['gpu_score'] >= 50 else 'red'
             bar_len = int(r['gpu_avg'] / 5)
@@ -3340,8 +3348,8 @@ def edu_cloud(ctx, db_path, instance_name, days, output_json):
     needs_work = [r for r in results if r['overall_score'] < 50]
     lc = 'green' if avg_overall >= 70 else 'yellow' if avg_overall >= 50 else 'red'
     click.echo("  " + hline)
-    click.echo("  Average Score: {}".format(click.style("{:.1f}%".format(avg_overall), fg=lc, bold=True)))
-    click.echo("  Total Cost ({}d): ${:.2f}".format(days, total_cost_all))
+    click.echo("  Average Score: {}".format(click.style(f"{avg_overall:.1f}%", fg=lc, bold=True)))
+    click.echo(f"  Total Cost ({days}d): ${total_cost_all:.2f}")
     if needs_work:
         names = ', '.join(r['instance'] for r in needs_work)
         click.echo(click.style("  Needs attention: " + names, fg='yellow'))
@@ -3769,7 +3777,7 @@ def insights_digest(ctx, db_path, hours, cluster, period, email_addr):
     subject, body = engine.to_email(period=period)
 
     if email_addr:
-        click.echo(f"Email delivery not yet configured. Subject and body below:")
+        click.echo("Email delivery not yet configured. Subject and body below:")
 
     click.echo(f"Subject: {subject}")
     click.echo("")
@@ -3957,14 +3965,15 @@ def diag_cloud(ctx, instance_name, db_path, days, output_json):
     cutoff_dt = (datetime.now() - timedelta(days=days)).isoformat()
     check = conn.execute('SELECT COUNT(*) as n FROM cloud_metrics WHERE node_name = ? AND timestamp > ?', (instance_name, cutoff_dt)).fetchone()
     if not check or check['n'] == 0:
-        click.echo('No data for {}'.format(instance_name)); conn.close(); return
+        click.echo(f'No data for {instance_name}'); conn.close(); return
     info = conn.execute("SELECT DISTINCT instance_type, availability_zone FROM cloud_metrics WHERE (node_name = ? OR node_name = 'EC2/' || ?) AND instance_type IS NOT NULL LIMIT 1", (instance_name, instance_name)).fetchone()
     itype = info['instance_type'] if info else 'unknown'
     az = info['availability_zone'] if info else 'unknown'
     metrics = {}
     for m in ['cpu_util','mem_util','gpu_util','gpu_mem_util']:
         row = conn.execute('SELECT AVG(value) as avg, MIN(value) as mn, MAX(value) as mx, COUNT(*) as n FROM cloud_metrics WHERE node_name = ? AND metric_name = ? AND timestamp > ?', (instance_name, m, cutoff_dt)).fetchone()
-        if row and row['n'] > 0: metrics[m] = {'avg':row['avg'],'min':row['mn'],'max':row['mx'],'n':row['n']}
+        if row and row['n'] > 0:
+            metrics[m] = {'avg':row['avg'],'min':row['mn'],'max':row['mx'],'n':row['n']}
     cost_row = conn.execute("SELECT SUM(value) as total, AVG(value) as daily FROM cloud_metrics WHERE (node_name = ? OR node_name = 'EC2/' || ?) AND metric_name = 'daily_cost_usd' AND timestamp > ?", (instance_name, instance_name, cutoff_dt)).fetchone()
     total_cost = cost_row['total'] if cost_row and cost_row['total'] else 0
     daily_avg = cost_row['daily'] if cost_row and cost_row['daily'] else 0
@@ -3973,30 +3982,40 @@ def diag_cloud(ctx, instance_name, db_path, days, output_json):
         import json; click.echo(json.dumps({'instance':instance_name,'type':itype,'zone':az,'days':days,'metrics':{k:{kk:round(vv,2) for kk,vv in v.items()} for k,v in metrics.items()},'total_cost':round(total_cost,2),'daily_avg':round(daily_avg,2)},indent=2)); return
     hl = chr(9472)*56
     click.echo()
-    click.echo(click.style('  NOMAD Cloud Diagnostic -- {}'.format(instance_name), bold=True))
-    click.echo('  Instance type: {}'.format(itype))
-    click.echo('  Availability zone: {}'.format(az))
+    click.echo(click.style(f'  NOMAD Cloud Diagnostic -- {instance_name}', bold=True))
+    click.echo(f'  Instance type: {itype}')
+    click.echo(f'  Availability zone: {az}')
     click.echo('  '+hl); click.echo()
     click.echo(click.style('  Utilization Summary', bold=True)); click.echo('  '+hl)
     for mn,lb in [('cpu_util','CPU'),('mem_util','Memory'),('gpu_util','GPU Compute'),('gpu_mem_util','GPU Memory')]:
-        if mn not in metrics: continue
+        if mn not in metrics:
+            continue
         v = metrics[mn]; a = v['avg']
         c = 'green' if a < 50 else 'yellow' if a < 80 else 'red'
         bl = int(a/5); b = chr(9608)*bl + chr(9617)*(20-bl)
-        click.echo('    {:<16} [{}] {}'.format(lb, click.style(b,fg=c), click.style('{:.1f}%'.format(a),fg=c)))
+        click.echo('    {:<16} [{}] {}'.format(lb, click.style(b,fg=c), click.style(f'{a:.1f}%',fg=c)))
         click.echo('                   Min: {:.1f}%  Max: {:.1f}%  ({} samples)'.format(v['min'],v['max'],v['n']))
     click.echo(); click.echo(click.style('  Cost Analysis', bold=True)); click.echo('  '+hl)
-    click.echo('    Daily average:     ${:.2f}'.format(daily_avg))
-    click.echo('    {}-day total:      ${:.2f}'.format(days, total_cost))
-    click.echo('    30-day projection: ${:.2f}'.format(daily_avg*30))
+    click.echo(f'    Daily average:     ${daily_avg:.2f}')
+    click.echo(f'    {days}-day total:      ${total_cost:.2f}')
+    click.echo(f'    30-day projection: ${daily_avg*30:.2f}')
     click.echo(); click.echo(click.style('  Recommendations', bold=True)); click.echo('  '+hl)
     ca = metrics.get('cpu_util',{}).get('avg',0); ma = metrics.get('mem_util',{}).get('avg',0); ga = metrics.get('gpu_util',{}).get('avg',0)
     hr = False
-    if ca < 20: click.echo(click.style('    [HIGH] ',fg='red')+'CPU averages {:.0f}% -- over-provisioned'.format(ca)); hr=True
-    elif ca < 40: click.echo(click.style('    [MEDIUM] ',fg='yellow')+'CPU averages {:.0f}% -- consider downsizing'.format(ca)); hr=True
-    if ma < 20: click.echo(click.style('    [HIGH] ',fg='red')+'Memory averages {:.0f}% -- over-provisioned'.format(ma)); hr=True
-    if 'gpu_util' in metrics and ga < 20: click.echo(click.style('    [HIGH] ',fg='red')+'GPU averages {:.0f}% -- batch or use CPU'.format(ga)); hr=True
-    if not hr: click.echo(click.style('    [OK] ',fg='green')+'Instance is well-utilized')
+    if ca < 20:
+        click.echo(click.style('    [HIGH] ',fg='red')+f'CPU averages {ca:.0f}% -- over-provisioned')
+        hr=True
+    elif ca < 40:
+        click.echo(click.style('    [MEDIUM] ',fg='yellow')+f'CPU averages {ca:.0f}% -- consider downsizing')
+        hr=True
+    if ma < 20:
+        click.echo(click.style('    [HIGH] ',fg='red')+f'Memory averages {ma:.0f}% -- over-provisioned')
+        hr=True
+    if 'gpu_util' in metrics and ga < 20:
+        click.echo(click.style('    [HIGH] ',fg='red')+f'GPU averages {ga:.0f}% -- batch or use CPU')
+        hr=True
+    if not hr:
+        click.echo(click.style('    [OK] ',fg='green')+'Instance is well-utilized')
     click.echo()
 
 # =============================================================================
