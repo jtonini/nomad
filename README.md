@@ -118,6 +118,17 @@ nomad alerts                  # View alerts
 nomad alerts --unresolved     # Unresolved only
 ```
 
+
+### System Dynamics
+```bash
+nomad dyn summary             # Full dynamics narrative
+nomad dyn diversity           # Workload diversity indices
+nomad dyn diversity --by partition  # By partition
+nomad dyn niche               # Resource overlap between groups
+nomad dyn capacity            # Carrying capacity, binding constraint
+nomad dyn resilience          # Recovery time after disturbances
+nomad dyn externality         # Inter-group impact scoring
+```
 ---
 
 ## Dashboard Views
