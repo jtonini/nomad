@@ -305,7 +305,91 @@ def narrate_workstation_memory(sig: Signal) -> str:
 
 # ── Template dispatch ────────────────────────────────────────────────────
 
+# ── Dynamics templates ───────────────────────────────────────────────
+
+def narrate_diversity_fragility(sig: Signal) -> str:
+    m = sig.metrics
+    return (
+        f"Workload diversity warning: '{m['dominant']}' accounts for "
+        f"{m['dominant_proportion']:.0%} of all jobs (H'={m['shannon_h']:.3f}). "
+        f"This concentration creates fragility — loss of this group "
+        f"would significantly reduce cluster utilization."
+    )
+
+
+def narrate_diversity_declining(sig: Signal) -> str:
+    m = sig.metrics
+    return (
+        f"Workload diversity is declining (H'={m['shannon_h']:.3f}, "
+        f"slope: {m['slope']:.4f}/window). Investigate whether user "
+        f"communities are being lost or workload is consolidating."
+    )
+
+
+def narrate_capacity_binding(sig: Signal) -> str:
+    m = sig.metrics
+    sat = ""
+    if m.get("hours_to_saturation"):
+        sat = f" Projected saturation in {m['hours_to_saturation']:.0f} hours."
+    return (
+        f"{m['label']} is the binding constraint at "
+        f"{m['utilization']:.0%} utilization "
+        f"(overall pressure: {m['pressure']}).{sat}"
+    )
+
+
+def narrate_capacity_saturation(sig: Signal) -> str:
+    m = sig.metrics
+    return (
+        f"Saturation imminent: {m['dimension']} projected to reach "
+        f"full capacity in {m['hours_to_saturation']:.0f} hours "
+        f"at current growth rate. Immediate action recommended."
+    )
+
+
+def narrate_niche_contention(sig: Signal) -> str:
+    m = sig.metrics
+    return (
+        f"{m['high_overlap_count']} group pair(s) with high resource overlap "
+        f"detected. Highest overlap: {m['top_pair_a']} and {m['top_pair_b']} "
+        f"(O={m['top_overlap']:.2f}). These groups compete for the same "
+        f"resources and may experience contention."
+    )
+
+
+def narrate_resilience_low(sig: Signal) -> str:
+    m = sig.metrics
+    rec = ""
+    if m.get("mean_recovery_hours"):
+        rec = f" Mean recovery time: {m['mean_recovery_hours']:.1f} hours."
+    return (
+        f"Cluster resilience is low ({m['score']:.0f}/100, "
+        f"trend: {m['trend']}).{rec} "
+        f"The system is slow to recover from disturbances."
+    )
+
+
+def narrate_resilience_degrading(sig: Signal) -> str:
+    m = sig.metrics
+    return (
+        f"Cluster resilience is degrading — recovery times are "
+        f"increasing over successive disturbance events. "
+        f"Current score: {m['score']:.0f}/100."
+    )
+
+
+def narrate_externality_detected(sig: Signal) -> str:
+    m = sig.metrics
+    imposers = ", ".join(m.get("top_imposers", []))
+    return (
+        f"{m['edge_count']} inter-group impact relationship(s) detected. "
+        f"Top imposer(s): {imposers}. These groups' resource usage "
+        f"correlates with increased failure rates in other groups."
+    )
+
+
 _TEMPLATE_MAP: dict[str, callable] = {
+
     "job_success_rate": narrate_job_success_rate,
     "partition_failure_concentration": narrate_partition_failures,
     "oom_failures": narrate_oom,
@@ -325,6 +409,14 @@ _TEMPLATE_MAP: dict[str, callable] = {
     "underutilized_cloud_instance": narrate_underutilized_instance,
     "workstation_high_cpu": narrate_workstation_cpu,
     "workstation_high_memory": narrate_workstation_memory,
+    "diversity_fragility": narrate_diversity_fragility,
+    "diversity_declining": narrate_diversity_declining,
+    "capacity_binding_constraint": narrate_capacity_binding,
+    "capacity_saturation_imminent": narrate_capacity_saturation,
+    "niche_contention_risk": narrate_niche_contention,
+    "resilience_low": narrate_resilience_low,
+    "resilience_degrading": narrate_resilience_degrading,
+    "externality_detected": narrate_externality_detected,
 }
 
 

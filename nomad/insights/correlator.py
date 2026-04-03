@@ -269,13 +269,81 @@ def _correlate_workstation_and_alerts(signals: list[Signal]) -> list[Insight]:
 
 # ── Master correlator ────────────────────────────────────────────────────
 
+def _correlate_capacity_and_niche(signals: list[Signal]) -> list[Insight]:
+    """Capacity critical + high niche overlap = compounding contention crisis."""
+    capacity_signals = [s for s in signals if s.title == "capacity_binding_constraint"
+                        and s.metrics.get("utilization", 0) >= 0.75]
+    niche_signals = [s for s in signals if s.title == "niche_contention_risk"]
+
+    if not capacity_signals or not niche_signals:
+        return []
+
+    cap = capacity_signals[0]
+    niche = niche_signals[0]
+
+    return [Insight(
+        title="Contention Crisis",
+        severity=Severity.CRITICAL if cap.metrics["utilization"] >= 0.9 else Severity.WARNING,
+        narrative=(
+            f"The binding resource ({cap.metrics['label']}) is at "
+            f"{cap.metrics['utilization']:.0%} utilization while "
+            f"{niche.metrics['high_overlap_count']} group pair(s) compete "
+            f"for the same resources. This combination amplifies contention — "
+            f"groups with overlapping resource profiles will experience "
+            f"disproportionate degradation as the binding constraint tightens."
+        ),
+        contributing_signals=[cap, niche],
+        recommendation=(
+            f"Consider staggering workloads for high-overlap groups, "
+            f"adding capacity to the binding dimension "
+            f"({cap.metrics['label']}), or implementing fair-share "
+            f"scheduling policies."
+        ),
+    )]
+
+
+def _correlate_externality_and_failures(signals: list[Signal]) -> list[Insight]:
+    """Externalities detected + job failure rate elevated = invisible costs."""
+    ext_signals = [s for s in signals if s.title == "externality_detected"]
+    job_signals = [s for s in signals if s.title == "job_success_rate"
+                   and s.severity in (Severity.WARNING, Severity.CRITICAL)]
+
+    if not ext_signals or not job_signals:
+        return []
+
+    ext = ext_signals[0]
+    job = job_signals[0]
+
+    imposers = ", ".join(ext.metrics.get("top_imposers", [])[:2])
+    return [Insight(
+        title="Hidden Externality Costs",
+        severity=Severity.WARNING,
+        narrative=(
+            f"Job failure rates are elevated while inter-group externalities "
+            f"are active. Groups {imposers} are imposing measurable costs "
+            f"on other users' jobs. Some of the observed failures may be "
+            f"caused by cross-group resource contention rather than "
+            f"job-level issues."
+        ),
+        contributing_signals=[ext, job],
+        recommendation=(
+            f"Review resource usage patterns of {imposers} and consider "
+            f"I/O quotas, partition isolation, or scheduling policies to "
+            f"reduce cross-group interference."
+        ),
+    )]
+
+
 _CORRELATORS = [
+
     _correlate_disk_and_jobs,
     _correlate_gpu_oom_and_partition,
     _correlate_queue_and_wait,
     _correlate_network_and_jobs,
     _correlate_cloud_cost_and_utilization,
     _correlate_workstation_and_alerts,
+    _correlate_capacity_and_niche,
+    _correlate_externality_and_failures,
 ]
 
 

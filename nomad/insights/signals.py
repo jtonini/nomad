@@ -30,6 +30,7 @@ class SignalType(Enum):
     ALERT = "alert"
     CLOUD = "cloud"
     INTERACTIVE = "interactive"
+    DYNAMICS = "dynamics"
 
 
 class Severity(Enum):
@@ -628,6 +629,184 @@ def read_workstation_signals(db_path: Path, hours: int = 6) -> list[Signal]:
 
 # ── Master reader ────────────────────────────────────────────────────────
 
+
+def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
+    """Read system dynamics metrics and convert notable findings to signals."""
+    signals: list[Signal] = []
+
+    try:
+        from nomad.dynamics.diversity import compute_diversity
+        div = compute_diversity(db_path, dimension="group", hours=hours)
+
+        # Fragility warning
+        if div.fragility_warning:
+            signals.append(Signal(
+                signal_type=SignalType.DYNAMICS,
+                severity=Severity.WARNING,
+                title="diversity_fragility",
+                detail=div.fragility_detail,
+                metrics={
+                    "shannon_h": div.current.shannon_h,
+                    "dominant": div.current.dominant_category,
+                    "dominant_proportion": div.current.dominant_proportion,
+                    "trend": div.trend_direction,
+                },
+            ))
+
+        # Diversity declining
+        if div.trend_direction == "decreasing" and abs(div.trend_slope) > 0.01:
+            signals.append(Signal(
+                signal_type=SignalType.DYNAMICS,
+                severity=Severity.NOTICE,
+                title="diversity_declining",
+                detail=(
+                    f"Workload diversity is declining "
+                    f"(slope: {div.trend_slope:.4f}/window). "
+                    f"Current H'={div.current.shannon_h:.3f}."
+                ),
+                metrics={
+                    "shannon_h": div.current.shannon_h,
+                    "slope": div.trend_slope,
+                },
+            ))
+    except Exception:
+        pass
+
+    try:
+        from nomad.dynamics.capacity import compute_capacity
+        cap = compute_capacity(db_path, hours=hours)
+
+        if cap.binding_constraint:
+            bc = cap.binding_constraint
+            sev = Severity.CRITICAL if bc.current_utilization >= 0.9 else \
+                  Severity.WARNING if bc.current_utilization >= 0.75 else \
+                  Severity.NOTICE
+
+            signals.append(Signal(
+                signal_type=SignalType.DYNAMICS,
+                severity=sev,
+                title="capacity_binding_constraint",
+                detail=(
+                    f"{bc.label} is the binding constraint at "
+                    f"{bc.current_utilization:.0%} utilization."
+                ),
+                metrics={
+                    "dimension": bc.dimension,
+                    "label": bc.label,
+                    "utilization": bc.current_utilization,
+                    "pressure": cap.overall_pressure,
+                    "hours_to_saturation": bc.hours_to_saturation,
+                },
+            ))
+
+            # Saturation warning
+            if bc.hours_to_saturation and bc.hours_to_saturation < 48:
+                signals.append(Signal(
+                    signal_type=SignalType.DYNAMICS,
+                    severity=Severity.CRITICAL,
+                    title="capacity_saturation_imminent",
+                    detail=(
+                        f"{bc.label} projected to reach saturation "
+                        f"in {bc.hours_to_saturation:.0f} hours "
+                        f"at current growth rate."
+                    ),
+                    metrics={
+                        "dimension": bc.dimension,
+                        "hours_to_saturation": bc.hours_to_saturation,
+                    },
+                ))
+    except Exception:
+        pass
+
+    try:
+        from nomad.dynamics.niche import compute_niche_overlap
+        niche = compute_niche_overlap(db_path, hours=hours)
+
+        if niche.high_overlap_pairs:
+            high_count = len([p for p in niche.high_overlap_pairs if p.contention_risk == "high"])
+            if high_count > 0:
+                top = niche.high_overlap_pairs[0]
+                signals.append(Signal(
+                    signal_type=SignalType.DYNAMICS,
+                    severity=Severity.WARNING if high_count >= 3 else Severity.NOTICE,
+                    title="niche_contention_risk",
+                    detail=(
+                        f"{high_count} high-overlap group pair(s) detected. "
+                        f"Highest: {top.group_a} <-> {top.group_b} "
+                        f"(O={top.overlap:.2f})."
+                    ),
+                    metrics={
+                        "high_overlap_count": high_count,
+                        "top_pair_a": top.group_a,
+                        "top_pair_b": top.group_b,
+                        "top_overlap": top.overlap,
+                    },
+                ))
+    except Exception:
+        pass
+
+    try:
+        from nomad.dynamics.resilience import compute_resilience
+        res = compute_resilience(db_path, hours=max(hours, 720))
+
+        if res.resilience_score < 50:
+            signals.append(Signal(
+                signal_type=SignalType.DYNAMICS,
+                severity=Severity.WARNING,
+                title="resilience_low",
+                detail=(
+                    f"Cluster resilience score is {res.resilience_score:.0f}/100. "
+                    f"{res.summary}"
+                ),
+                metrics={
+                    "score": res.resilience_score,
+                    "trend": res.resilience_trend,
+                    "mean_recovery_hours": res.mean_recovery_hours,
+                },
+            ))
+
+        if res.resilience_trend == "degrading":
+            signals.append(Signal(
+                signal_type=SignalType.DYNAMICS,
+                severity=Severity.NOTICE,
+                title="resilience_degrading",
+                detail=(
+                    f"Cluster resilience is degrading — recovery times "
+                    f"are increasing over time. Score: {res.resilience_score:.0f}/100."
+                ),
+                metrics={
+                    "score": res.resilience_score,
+                    "trend": "degrading",
+                },
+            ))
+    except Exception:
+        pass
+
+    try:
+        from nomad.dynamics.externality import compute_externalities
+        ext = compute_externalities(db_path, hours=hours)
+
+        if ext.top_imposers:
+            signals.append(Signal(
+                signal_type=SignalType.DYNAMICS,
+                severity=Severity.NOTICE,
+                title="externality_detected",
+                detail=(
+                    f"{len(ext.edges)} inter-group impact relationship(s). "
+                    f"Top imposer(s): {', '.join(ext.top_imposers[:2])}."
+                ),
+                metrics={
+                    "edge_count": len(ext.edges),
+                    "top_imposers": ext.top_imposers[:3],
+                    "top_receivers": ext.top_receivers[:3],
+                },
+            ))
+    except Exception:
+        pass
+
+    return signals
+
+# ── Master reader ────────────────────────────────────────────────────────
 def read_all_signals(db_path: Path, hours: int = 24) -> list[Signal]:
     """Run all signal readers and return combined results."""
     all_signals: list[Signal] = []
@@ -641,6 +820,7 @@ def read_all_signals(db_path: Path, hours: int = 24) -> list[Signal]:
         (read_alert_signals, {"hours": hours}),
         (read_cloud_signals, {"hours": hours}),
         (read_workstation_signals, {"hours": min(hours, 12)}),
+        (read_dynamics_signals, {"hours": hours}),
     ]
 
     for reader, kwargs in readers:
