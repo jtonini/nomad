@@ -3336,6 +3336,152 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 );
             };
 
+            // Dynamics Panel
+            const DynamicsPanel = () => {
+                const [dynData, setDynData] = useState(null);
+                const [dynLoading, setDynLoading] = useState(true);
+                useEffect(() => {
+                    fetch('/api/dynamics?hours=168')
+                        .then(r => r.json())
+                        .then(d => { setDynData(d); setDynLoading(false); })
+                        .catch(() => { setDynData({error: 'Failed to load'}); setDynLoading(false); });
+                }, []);
+                if (dynLoading) return React.createElement('div', {style: {padding: 20, color: '#94a3b8'}}, 'Loading dynamics...');
+                if (!dynData || dynData.error) return React.createElement('div', {style: {padding: 20, color: '#ef4444'}}, 'Error: ' + (dynData?.error || 'unknown'));
+                const div = dynData.diversity || {};
+                const cap = dynData.capacity || {};
+                const res = dynData.resilience || {};
+                const niche = dynData.niche || {};
+                const ext = dynData.externality || {};
+                const cur = div.current || {};
+                const pressCol = {low: '#22c55e', moderate: '#f59e0b', high: '#B64326', critical: '#ef4444'};
+                const scoreCol = (res.resilience_score || 0) >= 80 ? '#22c55e' : (res.resilience_score || 0) >= 50 ? '#f59e0b' : '#ef4444';
+                // Executive strip
+                const strip = React.createElement('div', {style: {display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16}},
+                    React.createElement('div', {className: 'card', style: {padding: 12}},
+                        React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4}}, "Diversity (H')"),
+                        React.createElement('div', {style: {fontSize: 24, fontWeight: 700}}, (cur.shannon_h || 0).toFixed(3)),
+                        React.createElement('div', {style: {fontSize: 11, color: '#64748b'}}, div.trend_direction || 'stable')
+                    ),
+                    React.createElement('div', {className: 'card', style: {padding: 12}},
+                        React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4}}, 'Capacity'),
+                        React.createElement('div', {style: {fontSize: 24, fontWeight: 700, color: pressCol[cap.overall_pressure] || '#94a3b8'}}, (cap.overall_pressure || '—').toUpperCase()),
+                        React.createElement('div', {style: {fontSize: 11, color: '#64748b'}}, 'Binding: ' + (cap.binding_constraint || 'none'))
+                    ),
+                    React.createElement('div', {className: 'card', style: {padding: 12}},
+                        React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4}}, 'Resilience'),
+                        React.createElement('div', {style: {fontSize: 24, fontWeight: 700, color: scoreCol}}, (res.resilience_score || 0).toFixed(0) + '/100'),
+                        React.createElement('div', {style: {fontSize: 11, color: '#64748b'}}, res.resilience_trend || 'stable')
+                    ),
+                    React.createElement('div', {className: 'card', style: {padding: 12}},
+                        React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4}}, 'Niche Risk'),
+                        React.createElement('div', {style: {fontSize: 24, fontWeight: 700}}, (niche.high_overlap_pairs || []).length),
+                        React.createElement('div', {style: {fontSize: 11, color: '#64748b'}}, 'high-overlap pairs')
+                    ),
+                    React.createElement('div', {className: 'card', style: {padding: 12}},
+                        React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4}}, 'Externalities'),
+                        React.createElement('div', {style: {fontSize: 24, fontWeight: 700}}, (ext.edges || []).length),
+                        React.createElement('div', {style: {fontSize: 11, color: '#64748b'}}, (ext.top_imposers || []).length ? 'Top: ' + ext.top_imposers.slice(0,2).join(', ') : 'No impacts')
+                    )
+                );
+                // Diversity distribution bars
+                const cats = Object.entries(cur.category_counts || {}).sort((a,b) => b[1]-a[1]);
+                const maxCount = cats.length ? cats[0][1] : 1;
+                const colors = ['#00BACF','#3b82f6','#8b5cf6','#B64326','#22c55e','#f59e0b','#ef4444','#64748b'];
+                const divBars = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'Workload Composition'),
+                    ...cats.map(([name, count], i) => React.createElement('div', {key: name, style: {display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6}},
+                        React.createElement('span', {style: {width: 80, fontSize: 12, color: '#94a3b8', textAlign: 'right', flexShrink: 0}}, name),
+                        React.createElement('div', {style: {flex: 1, height: 18, background: '#1e293b', borderRadius: 4, overflow: 'hidden'}},
+                            React.createElement('div', {style: {width: (count/maxCount*100)+'%', height: '100%', background: colors[i%colors.length], borderRadius: 4, opacity: 0.8}})
+                        ),
+                        React.createElement('span', {style: {width: 50, fontSize: 11, color: '#64748b', textAlign: 'right'}}, count + ' jobs')
+                    ))
+                );
+                // Capacity bars
+                const dims = (cap.dimensions || []).sort((a,b) => b.current_utilization - a.current_utilization);
+                const capBars = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'Carrying Capacity — ' + (cap.overall_pressure || '').toUpperCase()),
+                    ...dims.map(d => {
+                        const pct = (d.current_utilization * 100).toFixed(1);
+                        const col = d.is_binding ? '#ef4444' : d.current_utilization > 0.75 ? '#f59e0b' : '#00BACF';
+                        return React.createElement('div', {key: d.dimension, style: {display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6}},
+                            React.createElement('span', {style: {width: 100, fontSize: 12, color: '#94a3b8', textAlign: 'right', flexShrink: 0}}, d.label + (d.is_binding ? ' ←' : '')),
+                            React.createElement('div', {style: {flex: 1, height: 18, background: '#1e293b', borderRadius: 4, overflow: 'hidden'}},
+                                React.createElement('div', {style: {width: pct+'%', height: '100%', background: col, borderRadius: 4, opacity: 0.8}})
+                            ),
+                            React.createElement('span', {style: {width: 45, fontSize: 11, color: col, textAlign: 'right', fontFamily: 'monospace'}}, pct + '%')
+                        );
+                    })
+                );
+                // Niche overlap matrix
+                const names = (niche.profiles || []).map(p => p.name);
+                const matrix = niche.overlap_matrix || {};
+                const nicheTable = names.length > 0 ? React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16, overflowX: 'auto'}},
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'Niche Overlap Matrix'),
+                    React.createElement('table', {style: {fontSize: 11, borderCollapse: 'collapse', width: '100%'}},
+                        React.createElement('thead', null,
+                            React.createElement('tr', null,
+                                React.createElement('th', {style: {padding: '4px 8px', color: '#64748b'}}, ''),
+                                ...names.map(n => React.createElement('th', {key: n, style: {padding: '4px 6px', color: '#94a3b8', fontWeight: 400, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis'}}, n.slice(0,10)))
+                            )
+                        ),
+                        React.createElement('tbody', null,
+                            ...names.map(row => React.createElement('tr', {key: row},
+                                React.createElement('td', {style: {padding: '4px 8px', color: '#94a3b8'}}, row.slice(0,10)),
+                                ...names.map(col => {
+                                    if (row === col) return React.createElement('td', {key: col, style: {padding: '4px 6px', textAlign: 'center', color: '#334155'}}, '—');
+                                    const val = matrix[row+'|'+col];
+                                    const bg = val >= 0.8 ? 'rgba(239,68,68,0.25)' : val >= 0.6 ? 'rgba(245,158,11,0.15)' : 'transparent';
+                                    return React.createElement('td', {key: col, style: {padding: '4px 6px', textAlign: 'center', fontFamily: 'monospace', background: bg}}, val !== undefined ? val.toFixed(2) : '—');
+                                })
+                            ))
+                        )
+                    )
+                ) : null;
+                // Resilience
+                const resCard = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'System Resilience'),
+                    React.createElement('div', {style: {display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12}},
+                        React.createElement('div', null,
+                            React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase'}}, 'Score'),
+                            React.createElement('div', {style: {fontSize: 22, fontWeight: 700, color: scoreCol}}, (res.resilience_score||0).toFixed(0) + '/100')
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase'}}, 'Mean Recovery'),
+                            React.createElement('div', {style: {fontSize: 22, fontWeight: 700}}, res.mean_recovery_hours ? res.mean_recovery_hours.toFixed(1) + 'h' : '—')
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase'}}, 'Disturbances'),
+                            React.createElement('div', {style: {fontSize: 22, fontWeight: 700}}, (res.disturbances||[]).length)
+                        )
+                    )
+                );
+                // Externality edges
+                const extCard = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'Inter-Group Externalities'),
+                    React.createElement('div', {style: {fontSize: 12, color: '#94a3b8', marginBottom: 8}}, ext.summary || 'No data'),
+                    ...(ext.edges || []).slice(0, 8).map((e, i) => React.createElement('div', {key: i, style: {display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b'}},
+                        React.createElement('span', {style: {fontSize: 12}},
+                            React.createElement('span', {style: {color: '#ef4444'}}, e.source_group),
+                            ' → ',
+                            React.createElement('span', {style: {color: '#3b82f6'}}, e.target_group)
+                        ),
+                        React.createElement('span', {style: {fontSize: 11, fontFamily: 'monospace', color: '#f59e0b'}}, 'r=' + e.impact_score.toFixed(2))
+                    ))
+                );
+                return React.createElement('div', {style: {padding: 16, maxWidth: 900}},
+                    React.createElement('h2', {style: {fontSize: 18, fontWeight: 700, marginBottom: 4}}, 'System Dynamics'),
+                    React.createElement('p', {style: {fontSize: 12, color: '#64748b', marginBottom: 16}}, 'Ecological and economic frameworks applied to cluster usage patterns'),
+                    strip,
+                    divBars,
+                    capBars,
+                    nicheTable,
+                    resCard,
+                    extCard
+                );
+            };
+
             // Insights Panel
             const InsightsPanel = () => {
                 const [insights, setInsights] = useState(null);
@@ -3794,6 +3940,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             >
                                 Insights
                             </div>
+                            <div
+                                className={`tab ${activeTab === 'dynamics' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('dynamics'); setSelectedNode(null); }}
+                            >
+                                Dynamics
+                            </div>
                         </nav>
                         
                         <div className="header-right">
@@ -3832,6 +3984,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <CloudPanel />
                         ) : activeTab === 'insights' ? (
                             <InsightsPanel />
+                        ) : activeTab === 'dynamics' ? (
+                            <DynamicsPanel />
                         ) : (
                             <>
                                 <ClusterView
@@ -6370,6 +6524,21 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 result = {"error": str(e), "signals": [], "insights": [], "overall_health": "unknown", "signal_count": 0, "insight_count": 0}
             self.wfile.write(json.dumps(result).encode())
+        elif parsed.path == '/api/dynamics':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            try:
+                from nomad.dynamics.engine import DynamicsEngine
+                hours = int(dict(urllib.parse.parse_qsl(parsed.query)).get('hours', '168'))
+                cluster_name = dict(urllib.parse.parse_qsl(parsed.query)).get('cluster', 'cluster')
+                engine = DynamicsEngine(dm.db_path, hours=hours, cluster_name=cluster_name)
+                result = engine.to_dict()
+            except Exception as e:
+                result = {"error": str(e)}
+            self.wfile.write(json.dumps(result, default=str).encode())
         else:
             self.send_error(404)
 
