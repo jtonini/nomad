@@ -37,17 +37,29 @@ def demo_db(tmp_path):
     c = conn.cursor()
     now = datetime.now()
 
-    # Jobs table
+    # Jobs table — matches real nomad demo schema
     c.execute("""CREATE TABLE jobs (
-        job_id INTEGER PRIMARY KEY,
-        username TEXT,
+        job_id TEXT NOT NULL,
+        cluster TEXT NOT NULL,
+        user_name TEXT,
         partition TEXT,
+        node_list TEXT,
+        job_name TEXT,
         state TEXT,
-        submit_time TEXT,
-        wait_time REAL,
-        gpus INTEGER DEFAULT 0
+        exit_code INTEGER,
+        exit_signal INTEGER,
+        failure_reason INTEGER,
+        submit_time DATETIME,
+        start_time DATETIME,
+        end_time DATETIME,
+        req_cpus INTEGER,
+        req_mem_mb INTEGER,
+        req_gpus INTEGER,
+        req_time_seconds INTEGER,
+        runtime_seconds INTEGER,
+        wait_time_seconds INTEGER,
+        PRIMARY KEY (job_id, cluster)
     )""")
-
     # Generate jobs with mixed outcomes
     states = (
         ['COMPLETED'] * 80 +
@@ -56,15 +68,16 @@ def demo_db(tmp_path):
         ['OUT_OF_MEMORY'] * 5
     )
     for i, state in enumerate(states):
-        submit = (now - timedelta(hours=12, minutes=i * 5)).isoformat()
+        submit = (now - timedelta(hours=12, minutes=i * 5))
+        start = submit + timedelta(minutes=30)
+        end = start + timedelta(hours=1)
         partition = 'gpu' if i % 5 == 0 else 'compute'
         gpus = 1 if partition == 'gpu' else 0
         user = f"user{i % 5}"
         c.execute(
-            "INSERT INTO jobs (job_id, username, partition, state, submit_time, wait_time, gpus) VALUES (?,?,?,?,?,?,?)",
-            (i, user, partition, state, submit, 1800 + i * 60, gpus),
+            "INSERT INTO jobs (job_id, cluster, user_name, partition, state, submit_time, start_time, end_time, req_gpus, wait_time_seconds, runtime_seconds) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (str(i), "demo", user, partition, state, submit.isoformat(), start.isoformat(), end.isoformat(), gpus, 1800 + i * 60, 3600),
         )
-
     # Storage table
     c.execute("""CREATE TABLE storage_state (
         id INTEGER PRIMARY KEY,
