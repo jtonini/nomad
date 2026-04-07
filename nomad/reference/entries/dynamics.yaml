@@ -1,0 +1,237 @@
+entries:
+  dyn:
+    title: "System Dynamics"
+    summary: "Ecological and economic analysis framework for cluster resource dynamics."
+    description: >
+      The dyn command family applies quantitative frameworks from ecology and
+      economics to research computing resource usage. It computes diversity
+      indices, niche overlap, carrying capacity, resilience metrics, and
+      externality scores — providing a systems-level understanding of how
+      the cluster is being used and where intervention may be needed.
+      All metrics are computed from existing SLURM and collector data;
+      no additional data collection is required.
+    source_files:
+      - nomad/dynamics/__init__.py
+      - nomad/dynamics/engine.py
+    config_section: "dynamics"
+    related:
+      - nomad dyn diversity
+      - nomad dyn niche
+      - nomad dyn capacity
+      - nomad dyn resilience
+      - nomad dyn externality
+    examples:
+      - "nomad dyn --db nomad.db  # full dynamics narrative"
+      - "nomad dyn --db nomad.db --format json"
+    see_also:
+      - dyn.diversity
+      - dyn.niche
+      - dyn.capacity
+      - dyn.resilience
+      - dyn.externality
+    tags:
+      - dynamics
+      - ecology
+      - economics
+      - systems
+      - analysis
+    category: commands
+
+  dyn.diversity:
+    title: "Workload Diversity Index"
+    summary: "Compute Simpson's and Shannon diversity over job types, groups, or partitions."
+    description: >
+      Measures how evenly distributed workload is across categories
+      (job types, research groups, partitions). High diversity indicates
+      a healthy mix of workloads; low diversity signals over-reliance on
+      a single user group or job type, which creates fragility. Trends
+      over time reveal whether the cluster is becoming more or less
+      diverse in its usage patterns.
+    source_files:
+      - nomad/dynamics/diversity.py
+    config_section: "dynamics.diversity"
+    config_keys:
+      - "window — Time window for analysis (e.g., 30d, 7d)"
+      - "by — Grouping dimension: group, partition, job_type"
+      - "min_jobs — Minimum job count to include a category"
+    related:
+      - nomad dyn niche
+      - nomad dyn capacity
+    math: |
+      Simpson's D = 1 - sum(p_i^2)
+        Range: [0, 1]. Higher = more diverse.
+        p_i = proportion of jobs in category i.
+
+      Shannon H' = -sum(p_i * ln(p_i))
+        Range: [0, ln(S)]. Higher = more diverse.
+        S = number of categories.
+
+      Pielou's Evenness J = H' / ln(S)
+        Range: [0, 1]. How evenly distributed across categories.
+    examples:
+      - "nomad dyn diversity --db nomad.db --window 30d --by group"
+      - "nomad dyn diversity --by partition --format json"
+      - "nomad dyn diversity --by job_type --window 7d"
+    see_also:
+      - dyn.niche
+      - concepts.diversity
+    tags:
+      - diversity
+      - simpson
+      - shannon
+      - evenness
+      - workload
+    category: commands
+
+  dyn.niche:
+    title: "Niche Overlap Analysis"
+    summary: "Measure resource usage overlap between user communities."
+    description: >
+      Computes pairwise overlap in resource usage patterns between user
+      groups or research communities using Pianka's niche overlap index.
+      High overlap between two groups means they compete for the same
+      resources — a potential contention risk. The output is a matrix
+      of overlap values, with high-overlap pairs flagged for attention.
+    source_files:
+      - nomad/dynamics/niche.py
+    config_section: "dynamics.niche"
+    config_keys:
+      - "window — Time window for analysis"
+      - "overlap_threshold — Threshold for flagging high overlap (default: 0.7)"
+      - "dimensions — Resource dimensions to include (cpu, memory, gpu, storage)"
+    related:
+      - nomad dyn diversity
+      - nomad dyn externality
+    math: |
+      Pianka's O_jk = sum(p_ij * p_ik) / sqrt(sum(p_ij^2) * sum(p_ik^2))
+        Range: [0, 1]. Higher = more overlap.
+        p_ij = proportion of resource i used by group j.
+    examples:
+      - "nomad dyn niche --db nomad.db --window 30d"
+      - "nomad dyn niche --format json --window 7d"
+    see_also:
+      - dyn.diversity
+      - dyn.externality
+    tags:
+      - niche
+      - overlap
+      - contention
+      - pianka
+      - competition
+    category: commands
+
+  dyn.capacity:
+    title: "Carrying Capacity Utilization"
+    summary: "Multi-dimensional capacity analysis with binding constraint identification."
+    description: >
+      Evaluates cluster utilization across all resource dimensions (CPU,
+      memory, I/O, GPU, scheduler queue depth) and identifies which
+      dimension is the binding constraint — the resource that will be
+      exhausted first. Projects time to saturation using derivative
+      analysis. Helps administrators plan capacity expansions and
+      understand which resources limit cluster throughput.
+    source_files:
+      - nomad/dynamics/capacity.py
+      - nomad/analysis/derivatives.py
+    config_section: "dynamics.capacity"
+    config_keys:
+      - "dimensions — Resource dimensions to analyze"
+      - "saturation_threshold — Utilization level considered saturated (default: 0.9)"
+      - "projection_window — How far ahead to project (default: 90d)"
+    related:
+      - nomad dyn resilience
+      - nomad status
+    math: |
+      Utilization ratio: U_d = current_usage_d / max_capacity_d
+      Binding constraint: d* = argmax_d(U_d)
+      Time to saturation: T_d = (capacity_d - current_d) / rate_d
+        where rate_d is the first derivative of usage over time.
+    examples:
+      - "nomad dyn capacity --db nomad.db"
+      - "nomad dyn capacity --format json"
+    see_also:
+      - dyn.resilience
+      - concepts.capacity
+    tags:
+      - capacity
+      - utilization
+      - binding
+      - saturation
+      - projection
+    category: commands
+
+  dyn.resilience:
+    title: "Cluster Resilience Metrics"
+    summary: "Recovery time after disturbance events and resilience trend analysis."
+    description: >
+      Measures how quickly the cluster recovers from disturbance events
+      (node failures, storage outages, network issues, semester transitions).
+      Computes mean time to recovery (MTTR) and tracks whether the cluster
+      is becoming more or less resilient over time. Requires historical
+      data — at least 30 days recommended for meaningful analysis.
+    source_files:
+      - nomad/dynamics/resilience.py
+    config_section: "dynamics.resilience"
+    config_keys:
+      - "min_history — Minimum days of history required (default: 30)"
+      - "disturbance_threshold — Deviation from baseline to count as disturbance"
+      - "recovery_threshold — Percentage of baseline to count as recovered (default: 0.95)"
+    related:
+      - nomad dyn capacity
+      - nomad alerts
+    math: |
+      MTTR = mean(recovery_times) across detected disturbance events.
+      Resilience trend: linear regression slope of MTTR over time.
+        Negative slope = improving resilience.
+        Positive slope = degrading resilience.
+    examples:
+      - "nomad dyn resilience --db nomad.db"
+      - "nomad dyn resilience --window 90d --format json"
+    see_also:
+      - dyn.capacity
+      - concepts.resilience
+    tags:
+      - resilience
+      - recovery
+      - disturbance
+      - mttr
+      - stability
+    category: commands
+
+  dyn.externality:
+    title: "Inter-User Externality Scoring"
+    summary: "Quantify how each user's resource-intensive behavior impacts other users."
+    description: >
+      Correlates each user's or group's resource-intensive behavior with
+      other users' job failure rates, wait times, and throughput. Answers
+      the question: "whose jobs are hurting other people's jobs?" Produces
+      a directed impact graph showing causal relationships. Uses correlation
+      analysis — not causation claims, but strong correlations warrant
+      investigation.
+    source_files:
+      - nomad/dynamics/externality.py
+    config_section: "dynamics.externality"
+    config_keys:
+      - "window — Time window for analysis"
+      - "correlation_threshold — Minimum correlation to report (default: 0.5)"
+      - "min_jobs — Minimum job count to include a user/group"
+    related:
+      - nomad dyn niche
+      - nomad dyn diversity
+    math: |
+      Externality score E_ij = corr(resource_usage_i, failure_rate_j)
+        Range: [-1, 1]. Positive = i's usage correlates with j's failures.
+      Aggregate impact: A_i = mean(E_ij) for all j != i.
+    examples:
+      - "nomad dyn externality --db nomad.db --window 30d"
+      - "nomad dyn externality --format json --by group"
+    see_also:
+      - dyn.niche
+      - concepts.externality
+    tags:
+      - externality
+      - impact
+      - correlation
+      - fairness
+      - users
+    category: commands

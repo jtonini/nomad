@@ -1,0 +1,261 @@
+entries:
+  concepts.tessera:
+    title: "TESSERA Methodology"
+    summary: "Topological Entity Similarity Structure for Emergent Response Analysis."
+    description: >
+      TESSERA is a domain-general framework for regime detection based on
+      the principle that similarity network topology carries predictive
+      information that direct classifiers miss. The workflow constructs
+      entity similarity networks from cross-sectional data, extracts
+      topological features via community detection, and identifies regime
+      boundaries as a continuous divergence landscape. In NOMAD, TESSERA
+      powers predictive analytics — detecting emerging regime shifts in
+      cluster behavior before they manifest as failures.
+    source_files:
+      - "External: github.com/jtonini/tessera"
+      - "NOMAD bridge: nomad/analysis/similarity.py"
+    related:
+      - nomad dyn
+      - nomad insights
+    math: |
+      6-step workflow:
+        1. Characterize — adaptive fusion similarity across multiple measures
+        2. Discover — community detection (Leiden, spectral, neighbor-joining)
+        3. Quantify — regime divergence RD = |R_i - R_j| / sqrt(sigma_i^2 + sigma_j^2)
+        4. Predict — GNN + LSTM + Autoencoder + Ensemble meta-learner
+        5. Test — discovered vs a priori domain boundaries
+        6. Generalize — temporal cross-validation
+
+      Three failure geometries:
+        - Boundary-concentrated: failures cluster at regime edges
+        - Isolated cluster: a community drifts from normal operation
+        - Diffuse: failures spread across topology without localization
+    see_also:
+      - concepts.regime_divergence
+      - concepts.similarity
+      - concepts.community_detection
+    tags:
+      - tessera
+      - regime
+      - topology
+      - similarity
+      - prediction
+      - methodology
+    category: concepts
+
+  concepts.regime_divergence:
+    title: "Regime Divergence"
+    summary: "Quantitative measure of difference between detected regimes."
+    description: >
+      Regime divergence (RD) measures how different two detected regimes
+      are in terms of their response variable distributions. It is
+      computed at community boundaries in the similarity network,
+      producing a continuous divergence landscape rather than binary
+      classifications. Higher RD values indicate sharper regime
+      boundaries — more distinct operational states.
+    math: |
+      RD = |R_i - R_j| / sqrt(sigma_i^2 + sigma_j^2)
+        R_i, R_j = mean response in communities i, j
+        sigma_i, sigma_j = standard deviation of response in each community
+      This is a standardized effect size (similar to Cohen's d).
+    see_also:
+      - concepts.tessera
+      - concepts.community_detection
+    tags:
+      - regime
+      - divergence
+      - boundary
+      - ecotone
+      - effect size
+    category: concepts
+
+  concepts.similarity:
+    title: "Similarity Measures"
+    summary: "Seven measures for quantifying entity similarity in TESSERA."
+    description: >
+      TESSERA uses multiple similarity measures to construct entity networks,
+      then adaptively combines them. Each measure captures different aspects
+      of similarity. The adaptive fusion learns optimal weights per domain.
+    math: |
+      Seven measures:
+        Simpson    — shared presence relative to smaller set
+        Cosine     — angular similarity in feature space
+        Bray-Curtis — compositional dissimilarity (ecology standard)
+        Jaccard    — set intersection over union
+        Pearson    — linear correlation
+        Euclidean  — geometric distance (inverted to similarity)
+        Mahalanobis — correlation-aware distance (inverted)
+
+      Adaptive fusion: S_fused = sum(w_m * S_m) where sum(w_m) = 1
+        Weights learned via convex combination or multi-relational GNN.
+    see_also:
+      - concepts.tessera
+      - dyn.niche
+    tags:
+      - similarity
+      - cosine
+      - jaccard
+      - bray-curtis
+      - mahalanobis
+      - measures
+    category: concepts
+
+  concepts.community_detection:
+    title: "Community Detection"
+    summary: "Identifying groups of similar entities in the similarity network."
+    description: >
+      Community detection partitions the similarity network into groups
+      of entities that are more similar to each other than to entities
+      in other groups. TESSERA uses three complementary algorithms:
+      Leiden (primary, modularity-based), spectral clustering (robustness
+      check), and neighbor-joining (phylogenetic bridge to biogeography).
+      Communities correspond to operational regimes in the cluster.
+    math: |
+      Leiden algorithm: maximize modularity Q = (1/2m) * sum[(A_ij - k_i*k_j/(2m)) * delta(c_i, c_j)]
+      Spectral: eigendecomposition of graph Laplacian L = D - A
+      Neighbor-joining: iterative tree construction minimizing total branch length
+    see_also:
+      - concepts.tessera
+      - concepts.regime_divergence
+    tags:
+      - community
+      - leiden
+      - spectral
+      - clustering
+      - modularity
+      - network
+    category: concepts
+
+  concepts.diversity:
+    title: "Diversity Indices in Research Computing"
+    summary: "Ecological diversity metrics applied to workload composition."
+    description: >
+      Diversity indices from ecology quantify how evenly resources or
+      activities are distributed across categories. In research computing,
+      low diversity (domination by a single group or job type) creates
+      fragility — if that group's funding changes or their workload
+      shifts, the cluster loses its primary use case. The mathematical
+      frameworks are borrowed for their formal properties, not as
+      ontological claims about users being organisms.
+    math: |
+      Simpson's D = 1 - sum(p_i^2)
+        Probability that two randomly chosen jobs belong to different categories.
+
+      Shannon H' = -sum(p_i * ln(p_i))
+        Information-theoretic uncertainty about category membership.
+
+      Pielou's J = H' / H'_max = H' / ln(S)
+        How close the distribution is to perfectly even.
+
+      Berger-Parker d = N_max / N_total
+        Dominance of the most common category.
+    see_also:
+      - dyn.diversity
+    tags:
+      - diversity
+      - ecology
+      - simpson
+      - shannon
+      - evenness
+      - fragility
+    category: concepts
+
+  concepts.capacity:
+    title: "Carrying Capacity in Research Computing"
+    summary: "Multi-dimensional resource limits and binding constraint analysis."
+    description: >
+      Carrying capacity in ecology is the maximum population an
+      environment can sustain. In research computing, it is the
+      maximum workload the cluster can handle across multiple resource
+      dimensions simultaneously. The binding constraint is whichever
+      dimension reaches its limit first — just as a population may be
+      limited by water rather than food.
+    math: |
+      Per-dimension utilization: U_d = usage_d / capacity_d
+      Binding constraint: d* = argmax_d(U_d)
+      Effective capacity: C_eff = min_d(capacity_d / demand_d)
+      Saturation time: T_d = (capacity_d - usage_d) / (d(usage_d)/dt)
+    see_also:
+      - dyn.capacity
+    tags:
+      - capacity
+      - binding
+      - saturation
+      - resources
+      - ecology
+    category: concepts
+
+  concepts.resilience:
+    title: "Resilience in Research Computing"
+    summary: "System recovery characteristics after disturbance events."
+    description: >
+      Resilience measures how quickly and completely a system recovers
+      from disturbance. In ecology, resilient ecosystems bounce back
+      from droughts or fires. In research computing, resilient clusters
+      recover quickly from node failures, storage outages, or sudden
+      workload spikes. Tracking resilience over time reveals whether
+      infrastructure investments are improving system robustness.
+    math: |
+      Recovery time: T_r = t_recovered - t_disturbance
+      Recovery completeness: R_c = metric_recovered / metric_baseline
+      MTTR: mean(T_r) across all detected disturbances
+      Resilience trend: slope of MTTR over time (negative = improving)
+    see_also:
+      - dyn.resilience
+    tags:
+      - resilience
+      - recovery
+      - disturbance
+      - robustness
+      - ecology
+    category: concepts
+
+  concepts.externality:
+    title: "Externalities in Research Computing"
+    summary: "When one user's actions impose costs on other users."
+    description: >
+      An externality in economics occurs when one party's actions impose
+      costs or benefits on others who did not choose to incur them. In
+      shared computing, a user running memory-intensive jobs that cause
+      swapping affects all other users on the same node — a negative
+      externality. Quantifying externalities enables fair resource
+      governance and informed policy decisions.
+    math: |
+      Externality E_ij = corr(resource_usage_i, impact_metric_j)
+        where impact_metric can be: failure rate, wait time, throughput
+      Aggregate: A_i = mean(E_ij) for all j != i
+      Marginal externality: partial derivative of community impact w.r.t. user i's usage
+    see_also:
+      - dyn.externality
+      - concepts.governance
+    tags:
+      - externality
+      - economics
+      - fairness
+      - impact
+      - governance
+    category: concepts
+
+  concepts.governance:
+    title: "Commons Governance (Ostrom)"
+    summary: "Elinor Ostrom's principles for managing shared resources."
+    description: >
+      Elinor Ostrom's framework for governing common-pool resources
+      provides design principles for sustainable shared resource
+      management. Research computing clusters are common-pool resources
+      — rivalrous (my CPU use reduces yours) but non-excludable within
+      the institution. Ostrom's eight principles (clear boundaries,
+      proportional costs/benefits, collective-choice arrangements,
+      monitoring, graduated sanctions, conflict resolution, local
+      autonomy, nested enterprises) map directly to cluster governance
+      policies.
+    see_also:
+      - concepts.externality
+      - dyn.externality
+    tags:
+      - ostrom
+      - governance
+      - commons
+      - policy
+      - institutions
+    category: concepts

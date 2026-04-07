@@ -1,0 +1,146 @@
+entries:
+  status:
+    title: "Cluster Status Overview"
+    summary: "Display cluster health, node states, job summary, and storage status."
+    description: >
+      The status command provides a comprehensive snapshot of the cluster's
+      current state. It queries SLURM for node and job information, checks
+      storage utilization, and runs derivative analysis on disk fill rates
+      to provide early warnings. This is typically the first command an
+      administrator runs to assess cluster health.
+    source_files:
+      - nomad/cli.py (status function)
+      - nomad/collectors/slurm.py
+      - nomad/collectors/disk.py
+      - nomad/analysis/derivatives.py
+    config_section: "general"
+    config_keys:
+      - "db_path — Path to the SQLite database"
+      - "cluster_name — Display name for the cluster"
+    related:
+      - nomad diag
+      - nomad alerts
+    examples:
+      - "nomad status --db /path/to/nomad.db"
+      - "nomad status  # uses default db from nomad.toml"
+    tags:
+      - status
+      - health
+      - overview
+      - dashboard
+    category: commands
+
+  demo:
+    title: "Demo Data Generator"
+    summary: "Generate realistic synthetic HPC cluster data for testing and demos."
+    description: >
+      Creates a SQLite database populated with synthetic but realistic
+      cluster data — jobs, node states, storage metrics, I/O statistics,
+      and more. Useful for testing NOMAD features without access to a
+      real cluster. The generated data includes temporal patterns like
+      semester cycles, diurnal usage, and storage fill trends.
+    source_files:
+      - nomad/demo.py
+    config_section: ""
+    examples:
+      - "nomad demo  # creates nomad_demo.db in current directory"
+      - "nomad demo --output /tmp/test.db"
+    tags:
+      - demo
+      - synthetic
+      - testing
+      - database
+    category: commands
+
+  collect:
+    title: "Data Collection"
+    summary: "Run all configured collectors to gather cluster metrics."
+    description: >
+      Executes the full collection cycle — SLURM job data, node states,
+      disk usage, I/O statistics (iostat, mpstat, vmstat), GPU metrics,
+      NFS stats, and any enabled cloud collectors. Each collector writes
+      to the SQLite database. Collection is typically run on a cron
+      schedule (every 5-15 minutes).
+    source_files:
+      - nomad/cli.py (collect function)
+      - nomad/collectors/base.py
+      - nomad/collectors/slurm.py
+      - nomad/collectors/disk.py
+      - nomad/collectors/gpu.py
+      - nomad/collectors/iostat.py
+      - nomad/collectors/mpstat.py
+      - nomad/collectors/vmstat.py
+      - nomad/collectors/nfs.py
+      - nomad/collectors/node_state.py
+    config_section: "collectors"
+    config_keys:
+      - "collectors.slurm.enabled — Enable SLURM job collection"
+      - "collectors.disk.enabled — Enable disk usage collection"
+      - "collectors.disk.paths — Filesystem paths to monitor"
+      - "collectors.gpu.enabled — Enable GPU metric collection"
+      - "collectors.iostat.enabled — Enable I/O statistics"
+      - "collectors.cloud.enabled — Enable cloud provider metrics"
+    related:
+      - nomad status
+      - nomad alerts
+    examples:
+      - "nomad collect --db /path/to/nomad.db"
+      - "nomad collect --collectors slurm,disk  # run specific collectors"
+    tags:
+      - collect
+      - collection
+      - metrics
+      - slurm
+      - disk
+      - gpu
+      - cron
+    category: commands
+
+  test-alerts:
+    title: "Test Alert Configuration"
+    summary: "Validate alert rules and delivery without waiting for real triggers."
+    description: >
+      Sends test alerts through all configured backends (email, Slack,
+      webhook) to verify that alert delivery is working correctly. Also
+      validates alert threshold configurations. Run this after changing
+      alert settings in nomad.toml.
+    source_files:
+      - nomad/cli.py (test_alerts function)
+      - nomad/alerts/dispatcher.py
+      - nomad/alerts/backends.py
+    config_section: "alerts"
+    related:
+      - nomad ref alerts
+    examples:
+      - "nomad test-alerts --db /path/to/nomad.db"
+    tags:
+      - alerts
+      - test
+      - email
+      - slack
+      - webhook
+    category: commands
+
+  report-interactive:
+    title: "Interactive Report Generator"
+    summary: "Generate an interactive HTML dashboard report for a time period."
+    description: >
+      Produces a standalone HTML file containing an interactive dashboard
+      with charts and tables summarizing cluster activity over a specified
+      time period. The report is self-contained (no external dependencies)
+      and can be shared via email or posted to a web server. Includes
+      job summaries, resource utilization, storage trends, and user
+      activity breakdowns.
+    source_files:
+      - nomad/cli.py (report_interactive function)
+      - nomad/viz/
+    config_section: "reporting"
+    examples:
+      - "nomad report-interactive --db nomad.db --days 30 --output report.html"
+      - "nomad report-interactive --start 2025-01-01 --end 2025-01-31"
+    tags:
+      - report
+      - html
+      - dashboard
+      - visualization
+    category: commands

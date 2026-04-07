@@ -1,0 +1,644 @@
+entries:
+  insights:
+    title: "Insight Engine"
+    summary: "Template-based narrative intelligence for cluster events and metrics."
+    description: >
+      The Insight Engine transforms raw metrics and alerts into
+      human-readable narratives. Level 1 uses template-based signal
+      readers that detect patterns (disk filling, GPU idle, queue
+      buildup) and select appropriate narrative templates. Level 2
+      adds a correlation layer that links related signals into
+      coherent multi-signal stories. The engine enriches alert
+      notifications with context — not just "disk is 95% full" but
+      "disk /scratch has been filling at 2GB/day for the past week,
+      projected full in 3 days, primarily driven by user X's output
+      files."
+    source_files:
+      - nomad/insights/__init__.py
+      - nomad/insights/engine.py
+      - nomad/insights/signals.py
+      - nomad/insights/templates.py
+      - nomad/insights/correlator.py
+      - nomad/insights/formatters.py
+    config_section: "insights"
+    related:
+      - nomad alerts
+      - nomad dyn
+    examples:
+      - "nomad insights brief --db nomad.db"
+      - "nomad insights full --db nomad.db"
+      - "nomad insights signals --db nomad.db --format json"
+      - "nomad insights correlations --db nomad.db"
+      - "nomad insights enrich --db nomad.db"
+    see_also:
+      - insights.brief
+      - insights.full
+      - insights.signals
+      - insights.correlations
+      - insights.enrich
+      - alerts
+      - dyn
+    tags:
+      - insights
+      - narratives
+      - intelligence
+      - natural language
+      - signals
+      - correlation
+    category: commands
+
+  insights.brief:
+    title: "Brief Insight Summary"
+    summary: "One-paragraph executive summary of cluster state and notable signals."
+    description: >
+      Generates a concise narrative summarizing the most important
+      signals detected across all monitored dimensions. Designed
+      for a quick check — the kind of summary an administrator
+      would want first thing in the morning.
+    source_files:
+      - nomad/insights/engine.py
+      - nomad/insights/formatters.py
+    related:
+      - nomad insights full
+    examples:
+      - "nomad insights brief --db nomad.db"
+      - "nomad insights brief --db nomad.db --format json"
+    tags:
+      - insights
+      - brief
+      - summary
+      - executive
+    category: commands
+
+  insights.full:
+    title: "Full Insight Report"
+    summary: "Comprehensive narrative report covering all detected signals and correlations."
+    description: >
+      Generates a detailed multi-section report with signal-by-signal
+      analysis, cross-signal correlations, trend narratives, and
+      prioritized recommendations. The full report is what you read
+      when you need to understand what is happening on the cluster
+      and why.
+    source_files:
+      - nomad/insights/engine.py
+      - nomad/insights/correlator.py
+      - nomad/insights/formatters.py
+    related:
+      - nomad insights brief
+      - nomad insights correlations
+    examples:
+      - "nomad insights full --db nomad.db"
+      - "nomad insights full --db nomad.db --format json"
+    tags:
+      - insights
+      - full
+      - report
+      - comprehensive
+    category: commands
+
+  insights.signals:
+    title: "Raw Signal Detection"
+    summary: "List all detected signals with severity, source, and raw values."
+    description: >
+      Shows every signal the Insight Engine has detected without
+      narrative wrapping. Useful for debugging the insight system
+      itself, or when you want the raw data rather than the
+      interpreted story. Each signal includes its type, severity
+      level, source metric, and current value.
+    source_files:
+      - nomad/insights/signals.py
+    examples:
+      - "nomad insights signals --db nomad.db"
+      - "nomad insights signals --db nomad.db --format json"
+      - "nomad insights signals --db nomad.db --severity critical"
+    tags:
+      - insights
+      - signals
+      - raw
+      - detection
+    category: commands
+
+  insights.correlations:
+    title: "Cross-Signal Correlations"
+    summary: "Show detected correlations between related signals."
+    description: >
+      The correlation layer (Level 2) links related signals into
+      coherent stories. For example, if disk fill rate is accelerating
+      on /scratch AND a specific user's job count has spiked AND
+      that user's jobs write to /scratch, the correlator links these
+      into a single integrated insight rather than three separate
+      alerts.
+    source_files:
+      - nomad/insights/correlator.py
+    related:
+      - nomad insights signals
+      - nomad insights full
+    examples:
+      - "nomad insights correlations --db nomad.db"
+      - "nomad insights correlations --db nomad.db --format json"
+    tags:
+      - insights
+      - correlations
+      - cross-signal
+      - context
+    category: commands
+
+  insights.enrich:
+    title: "Alert Enrichment"
+    summary: "Show current alerts enriched with insight narratives."
+    description: >
+      Takes the current set of active alerts and enriches each one
+      with contextual narrative from the Insight Engine. The enriched
+      view shows not just what triggered the alert, but why it matters
+      and what the administrator should do about it. This is the
+      integration point between the alert system and the insight engine.
+    source_files:
+      - nomad/insights/engine.py
+      - nomad/alerts/dispatcher.py
+    related:
+      - nomad alerts
+      - nomad insights full
+    examples:
+      - "nomad insights enrich --db nomad.db"
+      - "nomad insights enrich --db nomad.db --format json"
+    tags:
+      - insights
+      - enrich
+      - alerts
+      - context
+      - narrative
+    category: commands
+
+  edu:
+    title: "Education and User Development"
+    summary: "Help users improve their HPC job efficiency and resource usage."
+    description: >
+      The edu command group provides personalized feedback to cluster
+      users about their job submission practices. It analyzes job
+      history to identify inefficiencies (over-requesting resources,
+      poor parallelization, suboptimal partition selection) and
+      generates actionable recommendations. Scores jobs across five
+      dimensions of computational proficiency and tracks user
+      improvement over time.
+    source_files:
+      - nomad/edu/__init__.py
+      - nomad/edu/scoring.py
+      - nomad/edu/explain.py
+      - nomad/edu/progress.py
+    config_section: "edu"
+    related:
+      - nomad dyn
+      - nomad insights
+    see_also:
+      - edu.explain
+      - edu.trajectory
+      - edu.report
+    tags:
+      - education
+      - users
+      - efficiency
+      - feedback
+      - trajectory
+      - proficiency
+    category: commands
+
+  edu.explain:
+    title: "Job Explanation"
+    summary: "Analyze a completed job with proficiency scores and plain-language feedback."
+    description: >
+      Takes a completed job ID and produces a detailed educational
+      analysis across five dimensions: CPU efficiency, memory sizing,
+      time estimation, I/O awareness, and GPU utilization. Each
+      dimension gets a 0-100 score with specific, actionable
+      recommendations. Compares the job against the user's recent
+      history to show whether they are improving.
+    source_files:
+      - nomad/edu/explain.py
+      - nomad/edu/scoring.py
+    config_section: "edu"
+    math: |
+      Proficiency dimensions (each 0-100):
+        CPU efficiency    = actual_cpu_time / (allocated_cores * wall_time)
+        Memory sizing     = peak_memory / requested_memory
+        Time estimation   = actual_wall_time / requested_time_limit
+        I/O awareness     = f(read_bytes, write_bytes, io_wait_pct)
+        GPU utilization   = gpu_compute_time / (gpu_count * wall_time)
+
+      Overall score = weighted mean of dimension scores
+    related:
+      - nomad edu trajectory
+    examples:
+      - "nomad edu explain 12345 --db nomad.db"
+      - "nomad edu explain 12345 --db nomad.db --cluster arachne"
+      - "nomad edu explain 12345 --json"
+      - "nomad edu explain 12345 --no-progress"
+    tags:
+      - edu
+      - explain
+      - job
+      - proficiency
+      - scoring
+      - feedback
+    category: commands
+
+  edu.trajectory:
+    title: "User Proficiency Trajectory"
+    summary: "Track a user's HPC skill development over time."
+    description: >
+      Analyzes a user's job submission history over a configurable
+      time window and shows how their proficiency scores have evolved.
+      Identifies improving, stable, and declining dimensions. Useful
+      for instructors monitoring student progress or for users
+      tracking their own development.
+    source_files:
+      - nomad/edu/progress.py
+    config_section: "edu"
+    related:
+      - nomad edu explain
+      - nomad edu report
+    examples:
+      - "nomad edu trajectory student01 --db nomad.db"
+      - "nomad edu trajectory student01 --days 30"
+      - "nomad edu trajectory jsmith --json"
+    tags:
+      - edu
+      - trajectory
+      - progress
+      - user
+      - improvement
+      - trend
+    category: commands
+
+  edu.report:
+    title: "Group Proficiency Report"
+    summary: "Aggregate proficiency report for a course, lab, or research group."
+    description: >
+      Generates a group-level summary showing aggregate proficiency
+      scores, per-student breakdown, weakest and strongest dimensions,
+      and improvement trends. Designed for instructors and PIs who
+      need to assess their group's computational skill development.
+      Uses Linux groups for membership — any group the system
+      recognizes can be reported on.
+    source_files:
+      - nomad/edu/progress.py
+    config_section: "edu"
+    related:
+      - nomad edu trajectory
+      - nomad dyn diversity
+    examples:
+      - "nomad edu report cs101 --db nomad.db"
+      - "nomad edu report physics_group --days 60"
+      - "nomad edu report bio301 --json"
+    tags:
+      - edu
+      - report
+      - group
+      - course
+      - aggregate
+      - instructor
+    category: commands
+
+  diag:
+    title: "Diagnostics"
+    summary: "Infrastructure troubleshooting and diagnostic analysis."
+    description: >
+      The diag command group provides diagnostic tools for investigating
+      infrastructure issues. Analyzes node health, network connectivity,
+      storage performance, and workstation status. Designed for
+      administrators dealing with active issues — each subcommand
+      checks multiple dimensions and provides prioritized
+      recommendations. Exit codes support scripting (0=OK, 1=warning,
+      2=critical, 3=error).
+    source_files:
+      - nomad/diag/__init__.py
+      - nomad/diag/base.py
+    config_section: "diag"
+    related:
+      - nomad status
+      - nomad alerts
+    see_also:
+      - diag.node
+      - diag.network
+      - diag.storage
+      - diag.nas
+      - diag.workstation
+    tags:
+      - diagnostics
+      - troubleshooting
+      - infrastructure
+      - debugging
+    category: commands
+
+  diag.node:
+    title: "Node Diagnostics"
+    summary: "Drill into a specific compute node's health, resources, and job history."
+    description: >
+      Provides comprehensive diagnostics for a single compute node.
+      Checks SLURM state and drain reason, CPU/memory/GPU utilization,
+      I/O wait, swap activity, recent job history, failure patterns,
+      and temperature. Integrates with derivative analysis for trend
+      detection.
+    source_files:
+      - nomad/diag/node.py
+      - nomad/analysis/derivatives.py
+    related:
+      - nomad status
+      - nomad diag network
+    examples:
+      - "nomad diag node demo node01 --db nomad.db"
+      - "nomad diag node arachne gpu-03 --db nomad.db"
+      - "nomad diag node demo node01 --json"
+    tags:
+      - diag
+      - node
+      - health
+      - cpu
+      - memory
+      - gpu
+      - troubleshooting
+    category: commands
+
+  diag.network:
+    title: "Network Diagnostics"
+    summary: "Check inter-node network connectivity, latency, and packet loss."
+    description: >
+      Tests network paths between cluster nodes and identifies
+      degraded connections. Reports latency, throughput, and packet
+      loss for each path. Useful for diagnosing MPI communication
+      problems, slow NFS mounts, or switch issues.
+    source_files:
+      - nomad/diag/network.py
+      - nomad/collectors/network.py
+    related:
+      - nomad diag node
+      - nomad diag nas
+    examples:
+      - "nomad diag network --db nomad.db"
+      - "nomad diag network --db nomad.db --json"
+    tags:
+      - diag
+      - network
+      - latency
+      - connectivity
+      - mpi
+      - switches
+    category: commands
+
+  diag.storage:
+    title: "Storage Diagnostics"
+    summary: "Examine storage health, I/O patterns, and filesystem performance."
+    description: >
+      Analyzes storage subsystem performance across all monitored
+      filesystems. Checks capacity, inode usage, read/write throughput,
+      latency, and queue depth. Integrates with derivative analysis
+      to detect accelerating fill rates and I/O degradation trends.
+    source_files:
+      - nomad/diag/storage.py
+      - nomad/collectors/disk.py
+      - nomad/collectors/iostat.py
+    related:
+      - nomad diag nas
+      - nomad dyn capacity
+    examples:
+      - "nomad diag storage --db nomad.db"
+      - "nomad diag storage --path /scratch --detailed"
+    tags:
+      - diag
+      - storage
+      - disk
+      - filesystem
+      - throughput
+      - latency
+      - inode
+    category: commands
+
+  diag.nas:
+    title: "NAS Diagnostics"
+    summary: "Diagnose NAS/storage server health including ZFS-specific checks."
+    description: >
+      Deep diagnostics for a specific NAS or storage server. Includes
+      ZFS-specific checks (zpool status, scrub results, ARC hit rate,
+      snapshot usage) alongside general storage metrics. Designed for
+      environments where NAS health directly impacts cluster
+      performance.
+    source_files:
+      - nomad/diag/nas.py
+      - nomad/collectors/nfs.py
+    related:
+      - nomad diag storage
+      - nomad diag network
+    examples:
+      - "nomad diag nas storage-01 --db nomad.db"
+      - "nomad diag nas storage-01 --json"
+    tags:
+      - diag
+      - nas
+      - zfs
+      - zpool
+      - scrub
+      - arc
+      - nfs
+    category: commands
+
+  diag.workstation:
+    title: "Workstation Diagnostics"
+    summary: "Check workstation status, resource usage, and active sessions."
+    description: >
+      Diagnostics for individual workstations (non-cluster machines
+      like lab computers, research workstations). Shows system status,
+      resource utilization, active user sessions, department
+      information, and recent issues.
+    source_files:
+      - nomad/diag/workstation.py
+    related:
+      - nomad diag node
+    examples:
+      - "nomad diag workstation ws-physics-01 --db nomad.db"
+      - "nomad diag workstation ws-physics-01 --json"
+    tags:
+      - diag
+      - workstation
+      - desktop
+      - department
+      - sessions
+    category: commands
+
+  cloud:
+    title: "Cloud Provider Commands"
+    summary: "Manage and monitor cloud compute resources (AWS, Azure, GCP)."
+    description: >
+      The cloud command group provides management and monitoring for
+      hybrid cloud resources. Integrates with AWS, Azure, and GCP
+      to track cloud instance metrics alongside on-premises cluster
+      data. Enables unified monitoring across hybrid environments.
+    source_files:
+      - nomad/collectors/cloud/
+    config_section: "collectors.cloud"
+    related:
+      - nomad collect
+      - nomad dyn capacity
+    see_also:
+      - cloud.status
+      - cloud.instances
+      - collectors.cloud
+    tags:
+      - cloud
+      - aws
+      - azure
+      - gcp
+      - hybrid
+    category: commands
+
+  cloud.status:
+    title: "Cloud Collector Status"
+    summary: "Check cloud provider connectivity and authentication status."
+    description: >
+      Shows the configuration and connectivity status for each
+      enabled cloud provider. Reports whether authentication is
+      working, which regions are configured, and how many instances
+      are being monitored. Run this to verify cloud integration
+      after initial setup or when troubleshooting collection issues.
+    source_files:
+      - nomad/cli.py (cloud_status function)
+    config_section: "collectors.cloud"
+    examples:
+      - "nomad cloud status"
+    tags:
+      - cloud
+      - status
+      - connectivity
+      - authentication
+    category: commands
+
+  cloud.instances:
+    title: "Cloud Instance List"
+    summary: "List discovered cloud instances with current status and metrics."
+    description: >
+      Lists all cloud instances discovered by the configured cloud
+      collectors. Shows instance ID, type, state, and basic metrics.
+      Can be filtered by provider.
+    source_files:
+      - nomad/cli.py (cloud_instances function)
+    config_section: "collectors.cloud"
+    examples:
+      - "nomad cloud instances"
+      - "nomad cloud instances --provider aws"
+      - "nomad cloud instances --provider gcp"
+    tags:
+      - cloud
+      - instances
+      - list
+      - discovery
+    category: commands
+
+  community:
+    title: "Community Dataset"
+    summary: "Export anonymized cluster data for the NOMAD community dataset."
+    description: >
+      The community command group handles data export for NOMAD's
+      federated community dataset initiative. Exports are anonymized
+      (salted hashes for usernames, normalized metrics) and can be
+      contributed to a shared dataset that enables cross-institutional
+      research on HPC usage patterns.
+    source_files:
+      - nomad/community.py
+    config_section: "community"
+    related:
+      - nomad dyn
+    see_also:
+      - community.export
+    tags:
+      - community
+      - dataset
+      - anonymization
+      - export
+      - federation
+    category: commands
+
+  community.export:
+    title: "Community Data Export"
+    summary: "Export anonymized cluster metrics to Parquet or JSON for community sharing."
+    description: >
+      Exports cluster usage data in a privacy-preserving format.
+      Usernames are replaced with salted hashes, institution-specific
+      identifiers are removed, and metrics are normalized. Output
+      format is Parquet (for efficient analysis) or JSON (for
+      inspection). The salt ensures consistent anonymization across
+      exports without exposing real identities.
+    source_files:
+      - nomad/community.py
+    config_section: "community"
+    config_keys:
+      - "community.salt_file — Path to file containing institution salt"
+      - "community.institution_type — academic, government, industry, nonprofit"
+      - "community.include_gpu — Include GPU metrics in export"
+    examples:
+      - "nomad community export --db nomad.db --output export.parquet --salt-file /etc/nomad/salt"
+      - "nomad community export --db nomad.db --output export.json --institution-type academic"
+    tags:
+      - community
+      - export
+      - parquet
+      - json
+      - anonymization
+      - salt
+      - privacy
+    category: commands
+
+  analysis.derivatives:
+    title: "Derivative Analysis Engine"
+    summary: "First and second derivative analysis for trend detection and early warning."
+    description: >
+      Analyzes time series data using calculus-based techniques to
+      detect trends, inflection points, and acceleration. The key
+      insight is that second derivatives catch exponential growth
+      BEFORE the system reaches critical levels — a disk filling
+      at an accelerating rate is more urgent than one filling at
+      a constant rate, even if the constant-rate disk is currently
+      more full.
+    source_files:
+      - nomad/analysis/derivatives.py
+    math: |
+      First derivative (rate of change):
+        dM/dt = (M_t - M_{t-1}) / delta_t
+
+      Second derivative (acceleration):
+        d2M/dt2 = (dM/dt_t - dM/dt_{t-1}) / delta_t
+
+      Alert levels:
+        - Positive 2nd derivative = accelerating growth (early warning)
+        - Large 1st derivative = rapid change (immediate concern)
+        - Inflection point (2nd derivative sign change) = regime shift
+    related:
+      - nomad alerts
+      - nomad dyn capacity
+    tags:
+      - derivatives
+      - calculus
+      - trends
+      - acceleration
+      - early warning
+      - time series
+    category: concepts
+
+  analysis.similarity:
+    title: "Similarity Analysis"
+    summary: "Entity similarity computation used by TESSERA and niche overlap analysis."
+    description: >
+      Computes pairwise similarity between entities (users, jobs, nodes)
+      using multiple measures. Shared infrastructure between TESSERA's
+      regime detection and NOMAD's niche overlap analysis. Supports
+      sparse computation for large datasets.
+    source_files:
+      - nomad/analysis/similarity.py
+    related:
+      - nomad dyn niche
+      - concepts.tessera
+      - concepts.similarity
+    tags:
+      - similarity
+      - analysis
+      - tessera
+      - niche
+      - sparse
+    category: concepts

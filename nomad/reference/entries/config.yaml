@@ -1,0 +1,176 @@
+entries:
+  config:
+    title: "NOMAD Configuration (nomad.toml)"
+    summary: "Complete configuration reference for nomad.toml."
+    description: >
+      NOMAD is configured via a TOML file (nomad.toml) in the working
+      directory or at a path specified by the NOMAD_CONFIG environment
+      variable. The configuration file controls database location,
+      collector settings, alert thresholds, delivery backends,
+      dynamics analysis parameters, and Console integration.
+    source_files:
+      - nomad/config/
+      - nomad.toml (user-created)
+    examples:
+      - "nomad --config /etc/nomad/nomad.toml status"
+      - "export NOMAD_CONFIG=/etc/nomad/nomad.toml"
+    see_also:
+      - config.general
+      - config.collectors
+      - config.alerts
+      - config.dynamics
+    tags:
+      - config
+      - configuration
+      - toml
+      - settings
+    category: config
+
+  config.general:
+    title: "General Configuration"
+    summary: "Top-level settings: database path, cluster name, logging."
+    description: >
+      The [general] section of nomad.toml controls core settings that
+      affect all NOMAD operations.
+    config_section: "general"
+    config_keys:
+      - "db_path — Path to the SQLite database file"
+      - "cluster_name — Human-readable cluster name for reports and alerts"
+      - "log_level — Logging verbosity: debug, info, warning, error"
+      - "log_file — Path to log file (optional, defaults to stderr)"
+    examples:
+      - |
+        [general]
+        db_path = "/var/lib/nomad/cluster.db"
+        cluster_name = "Arachne GPU Cluster"
+        log_level = "info"
+    tags:
+      - general
+      - database
+      - logging
+      - cluster
+    category: config
+
+  config.collectors:
+    title: "Collector Configuration"
+    summary: "Enable and configure data collectors for each metric source."
+    description: >
+      The [collectors] section contains sub-sections for each collector
+      module. Each collector can be independently enabled/disabled and
+      configured with its own parameters.
+    config_section: "collectors"
+    config_keys:
+      - "collectors.slurm.enabled — Enable SLURM job data collection"
+      - "collectors.disk.enabled — Enable disk usage monitoring"
+      - "collectors.disk.paths — Filesystem paths to monitor"
+      - "collectors.gpu.enabled — Enable GPU metric collection"
+      - "collectors.iostat.enabled — Enable I/O statistics"
+      - "collectors.mpstat.enabled — Enable CPU statistics"
+      - "collectors.vmstat.enabled — Enable memory statistics"
+      - "collectors.nfs.enabled — Enable NFS monitoring"
+      - "collectors.cloud.<provider>.enabled — Enable cloud provider"
+    see_also:
+      - collectors
+    examples:
+      - |
+        [collectors.slurm]
+        enabled = true
+        partitions = ["gpu", "compute", "himem"]
+
+        [collectors.disk]
+        enabled = true
+        paths = ["/home", "/scratch", "/data"]
+
+        [collectors.gpu]
+        enabled = true
+    tags:
+      - collectors
+      - configuration
+      - slurm
+      - disk
+      - gpu
+    category: config
+
+  config.alerts:
+    title: "Alert Configuration"
+    summary: "Configure alert thresholds, delivery backends, and policies."
+    description: >
+      The [alerts] section controls when and how NOMAD sends
+      notifications. Thresholds define conditions, backends define
+      delivery channels, and policies control escalation and
+      deduplication.
+    config_section: "alerts"
+    see_also:
+      - alerts
+      - alerts.thresholds
+      - alerts.backends
+    examples:
+      - |
+        [alerts]
+        enabled = true
+        check_interval = 300  # seconds
+        quiet_hours = "22:00-07:00"
+
+        [alerts.thresholds.disk_warning]
+        metric = "disk_usage_percent"
+        operator = "gte"
+        value = 85
+        severity = "warning"
+
+        [alerts.backends.slack]
+        enabled = true
+        webhook_url = "https://hooks.slack.com/services/..."
+    tags:
+      - alerts
+      - configuration
+      - thresholds
+      - backends
+    category: config
+
+  config.dynamics:
+    title: "Dynamics Configuration"
+    summary: "Configure system dynamics analysis parameters."
+    description: >
+      The [dynamics] section controls parameters for the ecological and
+      economic analysis framework. Each subcommand (diversity, niche,
+      capacity, resilience, externality) has its own configuration
+      subsection.
+    config_section: "dynamics"
+    see_also:
+      - dyn
+      - dyn.diversity
+      - dyn.niche
+      - dyn.capacity
+      - dyn.resilience
+      - dyn.externality
+    examples:
+      - |
+        [dynamics]
+        default_window = "30d"
+
+        [dynamics.diversity]
+        by = "group"
+        min_jobs = 10
+
+        [dynamics.niche]
+        overlap_threshold = 0.7
+        dimensions = ["cpu", "memory", "gpu"]
+
+        [dynamics.capacity]
+        saturation_threshold = 0.9
+        projection_window = "90d"
+
+        [dynamics.resilience]
+        min_history = 30
+        recovery_threshold = 0.95
+
+        [dynamics.externality]
+        correlation_threshold = 0.5
+        min_jobs = 20
+    tags:
+      - dynamics
+      - configuration
+      - diversity
+      - niche
+      - capacity
+    category: config

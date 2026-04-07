@@ -1,0 +1,247 @@
+entries:
+  collectors:
+    title: "Data Collectors"
+    summary: "Modular data collection system for cluster metrics."
+    description: >
+      NOMAD's collectors gather metrics from various sources — SLURM,
+      filesystems, GPU devices, I/O statistics, network, and cloud
+      providers. Each collector is a Python module that implements a
+      common interface defined in base.py. Collectors are configured
+      in nomad.toml and run via 'nomad collect'.
+    source_files:
+      - nomad/collectors/__init__.py
+      - nomad/collectors/base.py
+    config_section: "collectors"
+    see_also:
+      - collectors.slurm
+      - collectors.disk
+      - collectors.gpu
+      - collectors.iostat
+      - collectors.cloud
+    tags:
+      - collectors
+      - collection
+      - metrics
+      - architecture
+    category: collectors
+
+  collectors.slurm:
+    title: "SLURM Job Collector"
+    summary: "Collect job accounting, queue state, and node information from SLURM."
+    description: >
+      Interfaces with SLURM's sacct, squeue, and sinfo commands to
+      gather job completion records, current queue state, and node
+      availability. Handles SLURM's various output formats and
+      normalizes data into the NOMAD schema. Supports both modern
+      SLURM (20+) and legacy versions via slurm_legacy.py.
+    source_files:
+      - nomad/collectors/slurm.py
+      - nomad/collectors/slurm_legacy.py
+    config_section: "collectors.slurm"
+    config_keys:
+      - "enabled — Enable SLURM collection (default: true)"
+      - "sacct_path — Path to sacct binary"
+      - "squeue_path — Path to squeue binary"
+      - "sinfo_path — Path to sinfo binary"
+      - "partitions — List of partitions to monitor"
+    related:
+      - nomad collect
+      - nomad status
+    examples:
+      - "nomad collect --collectors slurm --db nomad.db"
+    tags:
+      - slurm
+      - jobs
+      - queue
+      - scheduler
+      - sacct
+      - squeue
+    category: collectors
+
+  collectors.disk:
+    title: "Disk Usage Collector"
+    summary: "Monitor filesystem usage, quotas, and fill rates with derivative analysis."
+    description: >
+      Monitors specified filesystem paths for usage, capacity, and
+      inode consumption. Integrates with the derivative analysis engine
+      to compute fill rates and project time to exhaustion. Supports
+      quota monitoring where available. Storage alerts are driven by
+      both threshold levels and fill rate acceleration (second derivative).
+    source_files:
+      - nomad/collectors/disk.py
+      - nomad/analysis/derivatives.py
+    config_section: "collectors.disk"
+    config_keys:
+      - "enabled — Enable disk collection"
+      - "paths — List of filesystem paths to monitor"
+      - "interval — Collection interval in seconds"
+      - "quota_command — Command to check quotas (optional)"
+    related:
+      - nomad status
+      - nomad alerts
+    math: |
+      Fill rate (1st derivative): dU/dt = (U_t - U_{t-1}) / delta_t
+      Acceleration (2nd derivative): d2U/dt2 = (dU/dt_t - dU/dt_{t-1}) / delta_t
+      Time to full: T = (capacity - current) / fill_rate
+        Alert when T < threshold or when 2nd derivative > 0 (accelerating fill).
+    examples:
+      - "nomad collect --collectors disk --db nomad.db"
+    tags:
+      - disk
+      - storage
+      - filesystem
+      - quota
+      - fill rate
+      - derivative
+    category: collectors
+
+  collectors.gpu:
+    title: "GPU Metrics Collector"
+    summary: "Collect GPU utilization, memory, temperature, and power from NVIDIA devices."
+    description: >
+      Uses nvidia-smi to gather per-GPU metrics including compute
+      utilization, memory usage, temperature, power draw, and
+      running processes. Supports multi-GPU nodes. Data feeds into
+      capacity analysis and GPU-specific alerting.
+    source_files:
+      - nomad/collectors/gpu.py
+    config_section: "collectors.gpu"
+    config_keys:
+      - "enabled — Enable GPU collection"
+      - "nvidia_smi_path — Path to nvidia-smi binary"
+      - "metrics — List of metrics to collect (utilization, memory, temperature, power)"
+    related:
+      - nomad dyn capacity
+    examples:
+      - "nomad collect --collectors gpu --db nomad.db"
+    tags:
+      - gpu
+      - nvidia
+      - cuda
+      - utilization
+      - memory
+      - temperature
+    category: collectors
+
+  collectors.iostat:
+    title: "I/O Statistics Collector"
+    summary: "Collect disk I/O throughput, latency, and queue depth via iostat."
+    description: >
+      Runs iostat to capture per-device I/O metrics including reads/writes
+      per second, throughput (MB/s), average latency, and I/O queue depth.
+      Critical for identifying I/O bottlenecks and correlating storage
+      performance with job behavior.
+    source_files:
+      - nomad/collectors/iostat.py
+    config_section: "collectors.iostat"
+    config_keys:
+      - "enabled — Enable iostat collection"
+      - "devices — List of devices to monitor (or 'all')"
+      - "interval — Sampling interval"
+    related:
+      - nomad dyn capacity
+      - nomad diag
+    tags:
+      - iostat
+      - io
+      - throughput
+      - latency
+      - disk
+      - performance
+    category: collectors
+
+  collectors.mpstat:
+    title: "CPU Statistics Collector"
+    summary: "Collect per-CPU utilization breakdown via mpstat."
+    description: >
+      Uses mpstat to gather per-CPU metrics including user time, system
+      time, I/O wait, soft/hard IRQ, and idle percentage. Helps identify
+      CPU imbalance across cores and I/O-bound vs compute-bound patterns.
+    source_files:
+      - nomad/collectors/mpstat.py
+    config_section: "collectors.mpstat"
+    config_keys:
+      - "enabled — Enable mpstat collection"
+      - "interval — Sampling interval"
+      - "per_cpu — Collect per-CPU or aggregate only"
+    tags:
+      - mpstat
+      - cpu
+      - utilization
+      - iowait
+      - performance
+    category: collectors
+
+  collectors.vmstat:
+    title: "Virtual Memory Statistics Collector"
+    summary: "Collect memory, swap, and process scheduling stats via vmstat."
+    description: >
+      Gathers system-level memory statistics including free/used memory,
+      swap activity, process context switches, and interrupts. Swap
+      activity is a critical signal — sustained swapping indicates
+      memory pressure that degrades cluster performance.
+    source_files:
+      - nomad/collectors/vmstat.py
+    config_section: "collectors.vmstat"
+    config_keys:
+      - "enabled — Enable vmstat collection"
+      - "interval — Sampling interval"
+    tags:
+      - vmstat
+      - memory
+      - swap
+      - processes
+      - performance
+    category: collectors
+
+  collectors.nfs:
+    title: "NFS Statistics Collector"
+    summary: "Monitor NFS client performance and mount availability."
+    description: >
+      Collects NFS client statistics including RPC operations, retransmits,
+      timeouts, and mount status. NFS problems are a common source of
+      cluster-wide issues — a single slow NFS server can impact all nodes.
+    source_files:
+      - nomad/collectors/nfs.py
+    config_section: "collectors.nfs"
+    config_keys:
+      - "enabled — Enable NFS collection"
+      - "mounts — List of NFS mount points to monitor"
+    tags:
+      - nfs
+      - network
+      - filesystem
+      - rpc
+      - mounts
+    category: collectors
+
+  collectors.cloud:
+    title: "Cloud Provider Collectors"
+    summary: "Collect metrics from AWS, Azure, and GCP cloud instances."
+    description: >
+      Modular cloud metric collection supporting AWS CloudWatch, Azure
+      Monitor, and GCP Monitoring. Each provider is a separate module
+      that authenticates using standard cloud SDKs and gathers instance
+      metrics (CPU, memory, network, disk) alongside any cloud-specific
+      metrics (spot instance pricing, preemption events, etc.).
+    source_files:
+      - nomad/collectors/cloud/
+    config_section: "collectors.cloud"
+    config_keys:
+      - "cloud.<provider>.enabled — Enable a cloud provider"
+      - "cloud.<provider>.region — Cloud region"
+      - "cloud.<provider>.credentials — Authentication method"
+      - "cloud.<provider>.instances — Instance filter"
+    related:
+      - nomad cloud status
+      - nomad cloud instances
+    examples:
+      - "nomad cloud status"
+      - "nomad cloud instances --provider aws"
+    tags:
+      - cloud
+      - aws
+      - azure
+      - gcp
+      - hybrid
+    category: collectors

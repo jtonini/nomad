@@ -1,0 +1,110 @@
+entries:
+  alerts:
+    title: "Alert System"
+    summary: "Threshold-based alerting with multi-backend delivery and insight enrichment."
+    description: >
+      NOMAD's alert system monitors cluster metrics against configurable
+      thresholds and dispatches notifications through multiple backends.
+      Alerts are enriched by the Insight Engine, which adds narrative
+      context explaining why an alert fired and what it means. The
+      system supports escalation policies, quiet hours, and deduplication.
+    source_files:
+      - nomad/alerts/__init__.py
+      - nomad/alerts/thresholds.py
+      - nomad/alerts/dispatcher.py
+      - nomad/alerts/backends.py
+    config_section: "alerts"
+    config_keys:
+      - "alerts.enabled — Enable alerting globally"
+      - "alerts.check_interval — How often to evaluate thresholds"
+      - "alerts.quiet_hours — Time window to suppress non-critical alerts"
+      - "alerts.dedup_window — Window for deduplicating repeated alerts"
+    related:
+      - nomad test-alerts
+      - nomad insights
+    see_also:
+      - alerts.thresholds
+      - alerts.backends
+      - insights
+    tags:
+      - alerts
+      - monitoring
+      - thresholds
+      - notifications
+    category: alerts
+
+  alerts.thresholds:
+    title: "Alert Thresholds"
+    summary: "Configure metric thresholds that trigger alerts."
+    description: >
+      Thresholds define conditions under which alerts fire. Each threshold
+      specifies a metric, a comparison operator, a value, and a severity
+      level. Thresholds can be static (fixed value) or dynamic (based on
+      derivative analysis — e.g., fire when disk fill rate accelerates).
+      Multiple thresholds can be combined with AND/OR logic.
+    source_files:
+      - nomad/alerts/thresholds.py
+    config_section: "alerts.thresholds"
+    config_keys:
+      - "alerts.thresholds.<name>.metric — Metric to monitor"
+      - "alerts.thresholds.<name>.operator — Comparison: gt, lt, gte, lte, eq"
+      - "alerts.thresholds.<name>.value — Threshold value"
+      - "alerts.thresholds.<name>.severity — info, warning, critical"
+      - "alerts.thresholds.<name>.derivative — Use derivative analysis (optional)"
+    examples:
+      - |
+        # In nomad.toml:
+        [alerts.thresholds.disk_critical]
+        metric = "disk_usage_percent"
+        operator = "gte"
+        value = 95
+        severity = "critical"
+      - |
+        [alerts.thresholds.disk_filling_fast]
+        metric = "disk_fill_rate"
+        derivative = true
+        operator = "gte"
+        value = 0.5
+        severity = "warning"
+    tags:
+      - thresholds
+      - configuration
+      - metrics
+      - severity
+    category: alerts
+
+  alerts.backends:
+    title: "Alert Delivery Backends"
+    summary: "Configure where alerts are sent: email, Slack, webhooks."
+    description: >
+      Alert backends handle the delivery of notifications. NOMAD supports
+      email (SMTP), Slack (webhook or API), and generic webhooks (for
+      PagerDuty, Teams, custom integrations). Each backend can be
+      configured independently with its own severity filter — e.g.,
+      send all alerts to Slack but only critical alerts to email.
+    source_files:
+      - nomad/alerts/backends.py
+    config_section: "alerts.backends"
+    config_keys:
+      - "alerts.backends.email.enabled — Enable email delivery"
+      - "alerts.backends.email.smtp_host — SMTP server hostname"
+      - "alerts.backends.email.recipients — List of email addresses"
+      - "alerts.backends.slack.enabled — Enable Slack delivery"
+      - "alerts.backends.slack.webhook_url — Slack incoming webhook URL"
+      - "alerts.backends.webhook.enabled — Enable generic webhook"
+      - "alerts.backends.webhook.url — Webhook endpoint URL"
+      - "alerts.backends.webhook.method — HTTP method (POST, PUT)"
+    examples:
+      - |
+        [alerts.backends.slack]
+        enabled = true
+        webhook_url = "https://hooks.slack.com/services/..."
+        severity_filter = ["warning", "critical"]
+    tags:
+      - backends
+      - email
+      - slack
+      - webhook
+      - pagerduty
+      - delivery
+    category: alerts
