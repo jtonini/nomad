@@ -46,6 +46,8 @@ nomad dashboard               # Launch web interface
 | **Insight Engine** | Operational narratives from multi-signal analysis | `nomad insights brief` |
 | **Cloud Monitoring** | AWS/Azure/GCP metrics with cost and utilization analysis | `nomad cloud status` |
 | **Community Export** | Anonymized datasets for cross-institutional research | `nomad community export` |
+| **System Dynamics** | Ecological and economic metrics for resource analysis | `nomad dyn` |
+| **Reference** | Built-in documentation, code navigation, and search | `nomad ref` |
 
 ---
 
@@ -54,17 +56,17 @@ nomad dashboard               # Launch web interface
 ┌─────────────────────────────────────────────────────────────────────┐
 │                              NØMAD                                  │
 ├───────────────┬───────────────┬───────────────┬─────────────────────┤
-│  Collectors   │   Analysis    │     Viz       │      Alerts         │
-├───────────────┼───────────────┼───────────────┼─────────────────────┤
-│ disk          │ derivatives   │ dashboard     │ thresholds          │
-│ iostat        │ similarity    │ network 3D    │ predictive          │
-│ nfs           │ community   │ insights    │ flapping            │
-│ slurm         │ ML ensemble   │ partitions    │ email/slack         │
-│ gpu           │ edu scoring   │ workstations  │ webhooks            │
-│ nfs           │ readiness     │ storage       │                     │
-│ workstation   │ diagnostics   │ interactive   │                     │
-│ storage       │               │               │                     │
-└───────────────┴───────────────┴───────────────┴─────────────────────┘
+│  Collectors   │   Analysis    │     Viz       │  Alerts   │  Intelligence  │
+├───────────────┼───────────────┼───────────────┼───────────┼────────────────┤
+│ disk          │ derivatives   │ dashboard     │ thresholds│ insights       │
+│ iostat        │ similarity    │ network 3D    │ predictive│ dynamics       │
+│ nfs           │ community     │ partitions    │ flapping  │ reference      │
+│ slurm         │ ML ensemble   │ workstations  │ email     │ edu scoring    │
+│ gpu           │ readiness     │ storage       │ slack     │                │
+│ workstation   │ diagnostics   │ interactive   │ webhooks  │                │
+│ storage       │               │               │           │                │
+│ cloud         │               │               │           │                │
+└───────────────┴───────────────┴───────────────┴───────────┴────────────────┘
                                 │
                       ┌─────────┴─────────┐
                       │  SQLite Database  │
@@ -128,6 +130,24 @@ nomad dyn niche               # Resource overlap between groups
 nomad dyn capacity            # Carrying capacity, binding constraint
 nomad dyn resilience          # Recovery time after disturbances
 nomad dyn externality         # Inter-group impact scoring
+```
+
+### Insight Engine
+```bash
+nomad insights brief          # Executive summary
+nomad insights full           # Comprehensive report
+nomad insights signals        # Raw signal detection
+nomad insights correlations   # Cross-signal analysis
+nomad insights enrich         # Alert enrichment with context
+```
+
+### Reference
+```bash
+nomad ref                     # Browse all 60 topics
+nomad ref dyn diversity       # Look up any topic
+nomad ref search "regime"     # Search across documentation
+nomad ref alerts thresholds   # Alert threshold reference
+nomad ref config              # Configuration reference
 ```
 ---
 

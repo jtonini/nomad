@@ -48,6 +48,8 @@ nav:
     - Data Readiness: readiness.md
     - Diagnostics: diagnostics.md
     - Insight Engine: insights.md
+    - System Dynamics: dynamics.md
+    - Cloud Monitoring: cloud.md
     - Infrastructure: infrastructure.md
   - Technical:
     - Architecture: ARCHITECTURE.md
@@ -55,6 +57,7 @@ nav:
     - ML Framework: ml.md
     - Proficiency Scoring: proficiency.md
     - CLI Reference: cli.md
+    - Reference System: reference.md
   - Development:
     - Contributing: CONTRIBUTING.md
     - Extending NØMAD: extending.md
