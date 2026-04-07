@@ -6,7 +6,7 @@ sections, indentation, and visual structure.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from nomad.reference.knowledge_base import ReferenceEntry
 
@@ -45,7 +45,7 @@ class ReferenceFormatter:
 
     def format_entry(self, entry: ReferenceEntry) -> str:
         """Format a full reference entry for terminal display."""
-        lines: List[str] = []
+        lines: list[str] = []
 
         # Title and underline
         lines.append("")
@@ -111,11 +111,11 @@ class ReferenceFormatter:
 
     def format_topic_list(
         self,
-        entries: List[ReferenceEntry],
-        heading: Optional[str] = None,
+        entries: list[ReferenceEntry],
+        heading: str | None = None,
     ) -> str:
         """Format a list of topics for browsing."""
-        lines: List[str] = []
+        lines: list[str] = []
 
         if heading:
             lines.append("")
@@ -131,10 +131,10 @@ class ReferenceFormatter:
         return "\n".join(lines)
 
     def format_search_results(
-        self, query: str, results: List[ReferenceEntry]
+        self, query: str, results: list[ReferenceEntry]
     ) -> str:
         """Format search results."""
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append("")
 
         if not results:
@@ -165,7 +165,7 @@ class ReferenceFormatter:
 
     def format_index(self, categories: dict) -> str:
         """Format the top-level index (nomad ref with no arguments)."""
-        lines: List[str] = []
+        lines: list[str] = []
 
         lines.append("")
         lines.append(self._bold("NOMAD Reference"))

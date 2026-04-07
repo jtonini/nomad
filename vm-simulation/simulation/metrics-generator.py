@@ -162,7 +162,7 @@ class MetricsGenerator:
         self.current_time = datetime.now()
         self.jobs: list[SimulatedJob] = []
         self.job_counter = 0
-        self.node_local_usage: dict[str, float] = {n: 0 for n in self.nodes}
+        self.node_local_usage: dict[str, float] = dict.fromkeys(self.nodes, 0)
         self.storage_usage: dict[str, float] = {}
         
         # Initialize storage with baseline
@@ -172,7 +172,7 @@ class MetricsGenerator:
         logger.info(f"Initialized '{config}' cluster: {len(self.nodes)} nodes, "
                    f"{len(self.storage)} filesystems")
     
-    def _get_node_spec(self, node: str) -> Optional[NodeSpec]:
+    def _get_node_spec(self, node: str) -> NodeSpec | None:
         """Get the spec for a node."""
         for spec in self.config['nodes']:
             if node.startswith(spec.prefix):
@@ -292,7 +292,7 @@ class MetricsGenerator:
             spawn_prob -= 1
     
     def run(self, duration_sec: int = 3600, interval_sec: int = 5,
-            output_file: Optional[Path] = None, realtime: bool = False):
+            output_file: Path | None = None, realtime: bool = False):
         """Run simulation for specified duration."""
         
         logger.info(f"Running simulation for {duration_sec}s ({duration_sec/3600:.1f}h)")
@@ -414,7 +414,7 @@ def main():
             print(f"  {spec.prefix}[01-{spec.count:02d}]: {spec.cores}c, "
                   f"{spec.mem_gb}GB RAM, {spec.local_storage_gb}GB local{gpu_str}")
         
-        print(f"\nShared Storage:")
+        print("\nShared Storage:")
         for spec in generator.config['storage']:
             print(f"  {spec.path:15} {spec.total_tb:>8.0f} TB  "
                   f"(~{spec.baseline_used_pct*100:.0f}% typical)")

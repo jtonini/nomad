@@ -7,7 +7,6 @@ adds semantic search via embeddings for the Console.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
 
 from nomad.reference.knowledge_base import KnowledgeBase, ReferenceEntry
 
@@ -24,7 +23,7 @@ class SearchEngine:
 
     def __init__(self, kb: KnowledgeBase):
         self.kb = kb
-        self._index: Dict[str, List[str]] = {}  # token -> [entry keys]
+        self._index: dict[str, list[str]] = {}  # token -> [entry keys]
         self._indexed = False
 
     def _ensure_indexed(self) -> None:
@@ -46,7 +45,7 @@ class SearchEngine:
 
     def search(
         self, query: str, max_results: int = 10
-    ) -> List[Tuple[ReferenceEntry, float]]:
+    ) -> list[tuple[ReferenceEntry, float]]:
         """Search with relevance scoring.
 
         Returns list of (entry, score) tuples, sorted by score descending.
@@ -56,7 +55,7 @@ class SearchEngine:
         if not tokens:
             return []
 
-        scores: Dict[str, float] = {}
+        scores: dict[str, float] = {}
 
         for token in tokens:
             # Exact index matches

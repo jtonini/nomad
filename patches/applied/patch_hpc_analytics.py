@@ -127,7 +127,7 @@ def patch_server(nomad_dir):
     """Add API endpoints and React tabs to viz/server.py."""
     path = nomad_dir / 'viz' / 'server.py'
     if not path.exists():
-        print(f"  ! viz/server.py not found")
+        print("  ! viz/server.py not found")
         return False
 
     content = path.read_text()

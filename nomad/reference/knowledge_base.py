@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 try:
     import yaml
@@ -25,18 +25,18 @@ class ReferenceEntry:
     title: str
     summary: str
     description: str = ""
-    source_files: List[str] = field(default_factory=list)
+    source_files: list[str] = field(default_factory=list)
     config_section: str = ""
-    config_keys: List[str] = field(default_factory=list)
-    related: List[str] = field(default_factory=list)
-    examples: List[str] = field(default_factory=list)
+    config_keys: list[str] = field(default_factory=list)
+    related: list[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
     math: str = ""
-    see_also: List[str] = field(default_factory=list)
-    tags: List[str] = field(default_factory=list)
+    see_also: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     category: str = ""  # commands, concepts, config, collectors, etc.
 
     @classmethod
-    def from_dict(cls, key: str, data: Dict[str, Any]) -> "ReferenceEntry":
+    def from_dict(cls, key: str, data: dict[str, Any]) -> ReferenceEntry:
         """Create a ReferenceEntry from a YAML dictionary."""
         return cls(
             key=key,
@@ -84,8 +84,8 @@ class KnowledgeBase:
         results = kb.search("simpson diversity")
     """
 
-    def __init__(self, entries_dir: Optional[str] = None):
-        self._entries: Dict[str, ReferenceEntry] = {}
+    def __init__(self, entries_dir: str | None = None):
+        self._entries: dict[str, ReferenceEntry] = {}
         self._loaded = False
 
         if entries_dir is None:
@@ -119,7 +119,7 @@ class KnowledgeBase:
         if yaml is None:
             return
 
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
 
         if not isinstance(data, dict):
@@ -151,7 +151,7 @@ class KnowledgeBase:
             tags=["help", "documentation", "reference"],
         )
 
-    def get(self, key: str) -> Optional[ReferenceEntry]:
+    def get(self, key: str) -> ReferenceEntry | None:
         """Look up a reference entry by key.
 
         Supports dot-separated paths (e.g., "dyn.diversity") and
@@ -171,7 +171,7 @@ class KnowledgeBase:
 
         return None
 
-    def get_children(self, prefix: str) -> List[ReferenceEntry]:
+    def get_children(self, prefix: str) -> list[ReferenceEntry]:
         """Get all entries whose key starts with the given prefix."""
         self._ensure_loaded()
         prefix_dot = prefix if prefix.endswith(".") else prefix + "."
@@ -181,7 +181,7 @@ class KnowledgeBase:
             if key.startswith(prefix_dot)
         ]
 
-    def list_topics(self, category: Optional[str] = None) -> List[ReferenceEntry]:
+    def list_topics(self, category: str | None = None) -> list[ReferenceEntry]:
         """List all available topics, optionally filtered by category."""
         self._ensure_loaded()
         entries = list(self._entries.values())
@@ -189,13 +189,13 @@ class KnowledgeBase:
             entries = [e for e in entries if e.category == category]
         return sorted(entries, key=lambda e: e.key)
 
-    def categories(self) -> List[str]:
+    def categories(self) -> list[str]:
         """List all unique categories."""
         self._ensure_loaded()
         cats = set(e.category for e in self._entries.values() if e.category)
         return sorted(cats)
 
-    def search(self, query: str, max_results: int = 10) -> List[ReferenceEntry]:
+    def search(self, query: str, max_results: int = 10) -> list[ReferenceEntry]:
         """Full-text search across all entries.
 
         Uses simple token matching with scoring. Returns entries
@@ -206,7 +206,7 @@ class KnowledgeBase:
         if not tokens:
             return []
 
-        scored: List[tuple] = []
+        scored: list[tuple] = []
         for entry in self._entries.values():
             text = entry.searchable_text()
             score = sum(1 for t in tokens if t in text)

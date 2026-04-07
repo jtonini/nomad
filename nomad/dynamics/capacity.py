@@ -30,7 +30,7 @@ class DimensionUtilization:
     used: float  # absolute usage
     unit: str
     trend_slope: float = 0.0  # change per hour
-    hours_to_saturation: Optional[float] = None  # projected
+    hours_to_saturation: float | None = None  # projected
     is_binding: bool = False
     history: list[tuple[datetime, float]] = field(default_factory=list)
 
@@ -39,7 +39,7 @@ class DimensionUtilization:
 class CapacityResult:
     """Complete carrying capacity analysis."""
     dimensions: list[DimensionUtilization]
-    binding_constraint: Optional[DimensionUtilization] = None
+    binding_constraint: DimensionUtilization | None = None
     overall_pressure: str = "low"  # "low", "moderate", "high", "critical"
     summary: str = ""
 
@@ -70,7 +70,7 @@ def _compute_trend_slope(values: list[tuple[datetime, float]]) -> float:
     return num / den
 
 
-def _project_saturation(current: float, slope: float) -> Optional[float]:
+def _project_saturation(current: float, slope: float) -> float | None:
     """Project hours until utilization reaches 1.0.
 
     Returns None if slope is non-positive or saturation is > 720h (30 days).

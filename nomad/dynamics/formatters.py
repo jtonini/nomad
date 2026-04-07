@@ -59,7 +59,7 @@ def format_diversity_cli(result: DiversityResult) -> str:
     lines.append(f"  Dominant:              {c.dominant_category} ({c.dominant_proportion:.0%})")
 
     # Category breakdown
-    lines.append(f"\n  Distribution:")
+    lines.append("\n  Distribution:")
     total = sum(c.category_counts.values())
     for cat, count in sorted(c.category_counts.items(), key=lambda x: -x[1]):
         prop = count / total if total else 0
@@ -72,7 +72,7 @@ def format_diversity_cli(result: DiversityResult) -> str:
         lines.append(f"\n  Trend: {result.trend_direction} ({arrow}) "
                      f"(slope: {result.trend_slope:+.4f}/window)")
 
-        lines.append(f"\n  H' over time:")
+        lines.append("\n  H' over time:")
         for snap in result.trend[-6:]:  # show last 6 windows
             date = snap.window_end.strftime("%Y-%m-%d")
             lines.append(f"    {date}  H'={snap.shannon_h:.3f}  "
@@ -140,7 +140,7 @@ def format_niche_cli(result: NicheResult) -> str:
     # Overlap matrix (top triangle)
     names = [p.name for p in result.profiles]
     if len(names) <= 10:
-        lines.append(f"\n  Overlap matrix (Pianka's O):")
+        lines.append("\n  Overlap matrix (Pianka's O):")
         # Header row
         max_name_len = min(max(len(n) for n in names), 12)
         header = f"    {'':>{max_name_len}s}"
@@ -163,7 +163,7 @@ def format_niche_cli(result: NicheResult) -> str:
 
     # High-overlap pairs
     if result.high_overlap_pairs:
-        lines.append(f"\n  High-overlap pairs (contention risk):")
+        lines.append("\n  High-overlap pairs (contention risk):")
         for pair in result.high_overlap_pairs:
             risk_icon = _SEVERITY_ICONS.get(pair.contention_risk, "  ")
             dims = ", ".join(pair.shared_dimensions) if pair.shared_dimensions else "general"
@@ -173,7 +173,7 @@ def format_niche_cli(result: NicheResult) -> str:
                 f"(shared: {dims})"
             )
     else:
-        lines.append(f"\n  No high-overlap pairs detected (threshold: 0.6).")
+        lines.append("\n  No high-overlap pairs detected (threshold: 0.6).")
 
     return "\n".join(lines)
 
@@ -220,7 +220,7 @@ def format_capacity_cli(result: CapacityResult) -> str:
     lines.append(f"\n  Overall pressure: {result.overall_pressure.upper()}")
     lines.append(f"  {result.summary}")
 
-    lines.append(f"\n  Resource dimensions:")
+    lines.append("\n  Resource dimensions:")
     for d in sorted(result.dimensions, key=lambda x: -x.current_utilization):
         binding = " <-- BINDING" if d.is_binding else ""
         bar = _bar(d.current_utilization, 25)
@@ -276,7 +276,7 @@ def format_resilience_cli(result: ResilienceResult) -> str:
     lines.append(f"  {result.summary}")
 
     if result.mean_recovery_hours is not None:
-        lines.append(f"\n  Recovery statistics:")
+        lines.append("\n  Recovery statistics:")
         lines.append(f"    Mean recovery time:   {result.mean_recovery_hours:.1f} hours")
         lines.append(f"    Median recovery time: {result.median_recovery_hours:.1f} hours")
 
@@ -325,7 +325,7 @@ def format_externality_cli(result: ExternalityResult) -> str:
     lines.append(f"\n  {result.summary}")
 
     if result.group_profiles:
-        lines.append(f"\n  Group externality profiles:")
+        lines.append("\n  Group externality profiles:")
         lines.append(f"    {'Group':<20s} {'Imposed':>8s} {'Received':>9s} {'Net':>8s}  Role")
         lines.append(f"    {'-' * 58}")
         for p in result.group_profiles:
@@ -397,7 +397,7 @@ def format_full_summary_cli(
     lines.append(f"{'#' * 60}")
 
     # Executive summary
-    lines.append(f"\n  Executive Summary")
+    lines.append("\n  Executive Summary")
     lines.append(f"  {'-' * 40}")
 
     # Diversity headline
@@ -428,7 +428,7 @@ def format_full_summary_cli(
             f"top imposer(s): {', '.join(externality.top_imposers)}"
         )
     else:
-        lines.append(f"  Externalities: no significant inter-group impacts")
+        lines.append("  Externalities: no significant inter-group impacts")
 
     # Niche headline
     n_high = len(niche.high_overlap_pairs)
@@ -438,7 +438,7 @@ def format_full_summary_cli(
             f"— contention risk detected"
         )
     else:
-        lines.append(f"  Niche overlap: no high-overlap pairs")
+        lines.append("  Niche overlap: no high-overlap pairs")
 
     # Detailed sections
     lines.append(format_diversity_cli(diversity))

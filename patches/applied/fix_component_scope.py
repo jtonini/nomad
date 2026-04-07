@@ -31,7 +31,7 @@ for i, line in enumerate(lines):
                 break
 
 if not all([edu_start, app_line, activity_end]):
-    print(f"Could not find markers:")
+    print("Could not find markers:")
     print(f"  function App(): line {app_line}")
     print(f"  const eduStyles: line {edu_start}")
     print(f"  ActivityPanel end: line {activity_end}")

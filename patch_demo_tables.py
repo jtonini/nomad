@@ -5,7 +5,7 @@ Run from /home/cazuza/nomad/
 """
 
 # Read demo.py
-with open("nomad/demo.py", "r") as f:
+with open("nomad/demo.py") as f:
     content = f.read()
 
 # ────────────────────────────────────────────────

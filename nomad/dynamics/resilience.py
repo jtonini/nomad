@@ -26,8 +26,8 @@ class Disturbance:
     """A detected disturbance event."""
     event_type: str  # "node_failure", "performance_drop", "job_spike_failure"
     onset: datetime
-    recovered: Optional[datetime] = None
-    recovery_hours: Optional[float] = None
+    recovered: datetime | None = None
+    recovery_hours: float | None = None
     severity: str = "minor"  # "minor", "moderate", "major"
     detail: str = ""
     metric_at_onset: float = 0.0
@@ -39,8 +39,8 @@ class Disturbance:
 class ResilienceResult:
     """Complete resilience analysis."""
     disturbances: list[Disturbance]
-    mean_recovery_hours: Optional[float] = None
-    median_recovery_hours: Optional[float] = None
+    mean_recovery_hours: float | None = None
+    median_recovery_hours: float | None = None
     resilience_trend: str = "stable"  # "improving", "degrading", "stable"
     resilience_score: float = 0.0  # 0-100, higher = more resilient
     summary: str = ""

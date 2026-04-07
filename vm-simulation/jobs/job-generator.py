@@ -638,7 +638,7 @@ class JobGenerator:
         
         return "\n".join(script_lines)
     
-    def submit_job(self, job: dict) -> Optional[int]:
+    def submit_job(self, job: dict) -> int | None:
         """Submit a job to SLURM."""
         script = self.create_job_script(job)
         

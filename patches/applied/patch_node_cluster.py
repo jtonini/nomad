@@ -362,11 +362,11 @@ def migrate_db(db_path, cluster_name='default'):
     # Check if column exists
     cols = [r[1] for r in c.execute("PRAGMA table_info(node_state)").fetchall()]
     if 'cluster' in cols:
-        print(f"  = node_state.cluster already exists")
+        print("  = node_state.cluster already exists")
         conn.close()
         return True
 
-    print(f"  Adding cluster column to node_state...")
+    print("  Adding cluster column to node_state...")
     c.execute(f"ALTER TABLE node_state ADD COLUMN cluster TEXT DEFAULT '{cluster_name}'")
     c.execute("CREATE INDEX IF NOT EXISTS idx_node_state_cluster ON node_state(cluster, timestamp)")
 

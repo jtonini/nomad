@@ -61,11 +61,11 @@ class DynamicsEngine:
         self.resilience_hours = resilience_hours
 
         # Results — computed lazily
-        self._diversity: Optional[DiversityResult] = None
-        self._niche: Optional[NicheResult] = None
-        self._capacity: Optional[CapacityResult] = None
-        self._resilience: Optional[ResilienceResult] = None
-        self._externality: Optional[ExternalityResult] = None
+        self._diversity: DiversityResult | None = None
+        self._niche: NicheResult | None = None
+        self._capacity: CapacityResult | None = None
+        self._resilience: ResilienceResult | None = None
+        self._externality: ExternalityResult | None = None
 
     # ── Lazy computation ──────────────────────────────────────────────
 
