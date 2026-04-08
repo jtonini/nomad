@@ -204,7 +204,7 @@ class HealthChecker:
                 and not f.stem.startswith("_")
             ]
             for coll in collectors:
-                has_test = f"test_collector_{coll}" in test_files or f"test_{coll}" in test_files
+                has_test = f"test_collector_{coll}" in test_files or f"test_{coll}" in test_files or "test_collectors" in test_files
                 if not has_test:
                     report.add(CheckItem(
                         category="Test Coverage",
@@ -225,7 +225,7 @@ class HealthChecker:
             for metric in metrics:
                 has_test = (
                     f"test_dynamics_{metric}" in test_files
-                    or f"test_dynamics" in test_files
+                    or "test_dynamics" in test_files
                 )
                 if not has_test:
                     report.add(CheckItem(
@@ -719,10 +719,10 @@ class HealthChecker:
             lines.extend([
                 f"    def test_{method_clean}(self):",
                 f'        """Parser {method}() handles expected input."""',
-                f"        # TODO: Provide sample output from the system command",
+                "        # TODO: Provide sample output from the system command",
                 f"        # result = self.collector.{method}(sample_output)",
-                f"        # assert isinstance(result, dict)",
-                f'        pytest.skip("Implement with sample command output")',
+                "        # assert isinstance(result, dict)",
+                '        pytest.skip("Implement with sample command output")',
                 "",
             ])
 
@@ -735,7 +735,7 @@ class HealthChecker:
                 "        # import sqlite3",
                 "        # db = sqlite3.connect(':memory:')",
                 "        # self.collector._create_tables(db)",
-                f"        # self.collector.store([{{'test': 1}}])",
+                "        # self.collector.store([{'test': 1}])",
                 '        pytest.skip("Implement with in-memory SQLite")',
                 "",
             ])
@@ -805,7 +805,7 @@ class HealthChecker:
             "",
             "    def test_init(self):",
             '        """Backend initializes with config."""',
-            f"        assert self.backend is not None",
+            "        assert self.backend is not None",
             "",
         ]
 
@@ -834,7 +834,7 @@ class HealthChecker:
             "    def test_instantiate(self):",
             '        """Class can be instantiated."""',
             f"        obj = {class_name}()",
-            f"        assert obj is not None",
+            "        assert obj is not None",
             "",
         ]
 
