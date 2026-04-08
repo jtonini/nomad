@@ -1,0 +1,41 @@
+name: Issue Acknowledgment
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  acknowledge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acknowledge new issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name);
+
+            // Detect component from labels or body
+            const componentMatch = issue.body?.match(/\*\*Component:\*\*\s*(\w+)/);
+            const component = componentMatch ? componentMatch[1] : '';
+            const refHint = component
+              ? `\nIn the meantime, try \`nomad ref ${component}\` for documentation on this component.`
+              : '\nIn the meantime, try `nomad ref` for built-in documentation.';
+
+            const body = [
+              'Thanks for reporting this! We typically triage new issues within 5 business days.',
+              '',
+              'If this is urgent and your institution has a NØMAD Console license,',
+              'you can reach us directly via the Console\'s "Contact Support" feature.',
+              refHint,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: body,
+            });

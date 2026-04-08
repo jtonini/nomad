@@ -1,0 +1,161 @@
+entries:
+  issue:
+    title: "NØMAD Issue — Integrated Issue Reporting"
+    summary: "Submit bug reports, feature requests, and questions from any NØMAD interface."
+    description: >
+      The issue reporting system provides structured issue submission
+      directly to the NØMAD GitHub repository. Available across all
+      interfaces (CLI, dashboard, Console) with auto-populated system
+      information. When a GitHub token is configured in nomad.toml,
+      issues are submitted directly via API with auto-labeling.
+      Without a token, opens a pre-filled GitHub issue form in the
+      browser. Includes duplicate detection to reduce noise.
+    source_files:
+      - nomad/issue/__init__.py
+      - nomad/issue/collector.py
+      - nomad/issue/github_api.py
+      - nomad/issue/formatter.py
+      - nomad/issue/cli_commands.py
+    examples:
+      - "nomad issue report"
+      - "nomad issue report -c bug -m alerts"
+      - "nomad issue report --email"
+      - "nomad issue info --db /var/lib/nomad/cluster.db"
+      - "nomad issue search disk collector"
+    see_also:
+      - issue.report
+      - issue.search
+      - issue.info
+      - config.issue_reporting
+    tags:
+      - issue
+      - report
+      - bug
+      - feature
+      - github
+      - support
+    category: commands
+
+  issue.report:
+    title: "nomad issue report"
+    summary: "Submit a bug report, feature request, or question."
+    description: >
+      Interactive form that walks through structured fields based on
+      the selected category (bug, feature, question). Auto-collects
+      system information, checks for duplicate issues, and submits
+      via GitHub API (if token configured) or opens a pre-filled
+      browser link. Supports --email fallback for users without
+      GitHub accounts.
+    source_files:
+      - nomad/issue/cli_commands.py
+    examples:
+      - "nomad issue report"
+      - "nomad issue report -c bug -m collectors"
+      - "nomad issue report -c feature -t 'Add Prometheus export'"
+      - "nomad issue report --email"
+      - "nomad issue report --json"
+      - "nomad issue report --no-duplicate-check"
+    options:
+      - "-c, --category    Category: bug, feature, question"
+      - "-m, --component   Affected component"
+      - "-t, --title       Issue title"
+      - "--db              Database path for system info"
+      - "--email           Send via email instead of GitHub"
+      - "--json            Output formatted issue as JSON"
+      - "--no-duplicate-check  Skip duplicate search"
+    see_also:
+      - issue
+      - issue.search
+      - issue.info
+    tags:
+      - issue
+      - report
+      - submit
+    category: commands
+
+  issue.search:
+    title: "nomad issue search"
+    summary: "Search existing GitHub issues for a topic."
+    description: >
+      Searches open issues in the NØMAD repository using keyword
+      matching via the GitHub search API. Useful for checking if
+      a problem has already been reported before creating a new issue.
+    source_files:
+      - nomad/issue/cli_commands.py
+    examples:
+      - "nomad issue search disk collector"
+      - "nomad issue search gpu memory --max 10"
+      - "nomad issue search 'alert threshold'"
+    options:
+      - "KEYWORDS  One or more search keywords (required)"
+      - "--max     Maximum results to show (default: 5)"
+    see_also:
+      - issue
+      - issue.report
+    tags:
+      - issue
+      - search
+      - github
+    category: commands
+
+  issue.info:
+    title: "nomad issue info"
+    summary: "Show system information included in reports."
+    description: >
+      Displays the auto-collected system information that would be
+      appended to any issue report. Useful for verifying what data
+      is being shared and for manually including in external reports.
+    source_files:
+      - nomad/issue/collector.py
+      - nomad/issue/cli_commands.py
+    examples:
+      - "nomad issue info"
+      - "nomad issue info --db /var/lib/nomad/cluster.db"
+      - "nomad issue info --json"
+    options:
+      - "--db    Database path"
+      - "--json  Output as JSON"
+    see_also:
+      - issue
+      - issue.report
+    tags:
+      - issue
+      - system
+      - info
+      - diagnostics
+    category: commands
+
+  config.issue_reporting:
+    title: "Issue Reporting Configuration"
+    summary: "Configure GitHub token, institution name, and support email."
+    description: >
+      The [issue_reporting] section of nomad.toml enables direct API
+      submission to GitHub and configures institutional metadata for
+      auto-labeling. The GitHub token should be a fine-grained
+      Personal Access Token scoped only to issue creation on the
+      jtonini/nomad-hpc repository.
+    config_section: "issue_reporting"
+    config_keys:
+      - "enabled — Enable/disable issue reporting (default: true)"
+      - "github_token — Fine-grained GitHub PAT for API submission"
+      - "institution_name — Institution name for issue labels"
+      - "contact_email — Default submitter email"
+      - "support_email — Direct support email (Console tier)"
+    examples:
+      - |
+        [issue_reporting]
+        enabled = true
+        github_token = "ghp_xxxxxxxxxxxx"
+        institution_name = "University of Richmond"
+        contact_email = "hpc-team@richmond.edu"
+        support_email = "nomad-support@richmond.edu"
+    see_also:
+      - issue
+      - issue.report
+    tags:
+      - config
+      - issue
+      - github
+      - token
+      - institution
+    category: config

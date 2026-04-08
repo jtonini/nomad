@@ -3482,6 +3482,178 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 );
             };
 
+
+            // Report Issue Panel
+            const ReportIssuePanel = () => {
+                const [category, setCategory] = useState('bug');
+                const [component, setComponent] = useState('other');
+                const [title, setTitle] = useState('');
+                const [description, setDescription] = useState('');
+                const [steps, setSteps] = useState('');
+                const [expected, setExpected] = useState('');
+                const [actual, setActual] = useState('');
+                const [sysInfo, setSysInfo] = useState(null);
+                const [duplicates, setDuplicates] = useState([]);
+                const [submitting, setSubmitting] = useState(false);
+                const [result, setResult] = useState(null);
+                const components = ['collectors','alerts','dashboard','tessera','cli','console','dynamics','insights','reference','other'];
+                const categories = [{v:'bug',l:'Bug Report',d:'Something is broken'},{v:'feature',l:'Feature Request',d:'Suggest improvement'},{v:'question',l:'Question',d:'Ask about usage'}];
+
+                React.useEffect(() => {
+                    fetch('/api/issue/info').then(r=>r.json()).then(setSysInfo).catch(()=>{});
+                }, []);
+
+                const searchDuplicates = () => {
+                    if (!title || title.length < 3) return;
+                    fetch('/api/issue/search?q=' + encodeURIComponent(component + ' ' + title))
+                        .then(r=>r.json()).then(setDuplicates).catch(()=>setDuplicates([]));
+                };
+
+                const handleSubmit = () => {
+                    setSubmitting(true);
+                    const data = {category, component, title, description, steps, expected, actual,
+                        problem: description, question: description};
+                    fetch('/api/issue/submit', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(data)
+                    }).then(r => r.json()).then(r => {
+                        setResult(r);
+                        setSubmitting(false);
+                        if (r.method === 'browser' && r.url) window.open(r.url, '_blank');
+                    }).catch(e => {
+                        setResult({success: false, error: String(e)});
+                        setSubmitting(false);
+                    });
+                };
+
+                const openBrowser = () => {
+                    const p = new URLSearchParams({category, component, title, description, steps, expected, actual});
+                    fetch('/api/issue/url?' + p.toString())
+                        .then(r=>r.json()).then(r => { if(r.url) window.open(r.url, '_blank'); })
+                        .catch(()=>{});
+                };
+
+                const cs = {
+                    card: {background:'#0f172a', border:'1px solid #1e293b', borderRadius:8, padding:16, marginBottom:12},
+                    label: {fontSize:12, color:'#94a3b8', marginBottom:4, display:'block'},
+                    input: {width:'100%', padding:'8px 12px', background:'#1e293b', border:'1px solid #334155',
+                            borderRadius:6, color:'#e2e8f0', fontSize:13, fontFamily:'inherit', boxSizing:'border-box'},
+                    textarea: {width:'100%', padding:'8px 12px', background:'#1e293b', border:'1px solid #334155',
+                               borderRadius:6, color:'#e2e8f0', fontSize:13, fontFamily:'inherit',
+                               minHeight:80, resize:'vertical', boxSizing:'border-box'},
+                    select: {padding:'8px 12px', background:'#1e293b', border:'1px solid #334155',
+                             borderRadius:6, color:'#e2e8f0', fontSize:13},
+                    btn: {padding:'8px 16px', borderRadius:6, border:'none', cursor:'pointer', fontSize:13, fontWeight:600},
+                    catBtn: (active) => ({padding:'10px 16px', borderRadius:6, border: active ? '2px solid #3b82f6' : '1px solid #334155',
+                        background: active ? '#1e3a5f' : '#0f172a', color: active ? '#93c5fd' : '#94a3b8',
+                        cursor:'pointer', fontSize:13, flex:1, textAlign:'center'}),
+                };
+
+                if (result && result.success) {
+                    return React.createElement('div', {style:{padding:16, maxWidth:700}},
+                        React.createElement('div', {style:{...cs.card, borderColor:'#22c55e', textAlign:'center', padding:32}},
+                            React.createElement('div', {style:{fontSize:32, marginBottom:8}}, '\u2713'),
+                            React.createElement('h3', {style:{color:'#22c55e', marginBottom:8}}, 'Issue #' + result.number + ' Created'),
+                            React.createElement('a', {href:result.url, target:'_blank', style:{color:'#93c5fd', fontSize:13}}, result.url),
+                            React.createElement('div', {style:{marginTop:16}},
+                                React.createElement('button', {onClick:()=>{setResult(null);setTitle('');setDescription('');setSteps('');setExpected('');setActual('');setDuplicates([]);},
+                                    style:{...cs.btn, background:'#1e293b', color:'#e2e8f0'}}, 'Report Another Issue')
+                            )
+                        )
+                    );
+                }
+
+                return React.createElement('div', {style:{padding:16, maxWidth:700}},
+                    React.createElement('h2', {style:{fontSize:18, fontWeight:700, marginBottom:4}}, 'Report Issue'),
+                    React.createElement('p', {style:{fontSize:12, color:'#64748b', marginBottom:16}}, 'Submit bug reports, feature requests, or questions directly to the NOMAD GitHub repository'),
+
+                    // Category selection
+                    React.createElement('div', {style:{display:'flex', gap:8, marginBottom:16}},
+                        ...categories.map(c => React.createElement('button', {key:c.v, onClick:()=>setCategory(c.v), style:cs.catBtn(category===c.v)},
+                            React.createElement('div', {style:{fontWeight:600}}, c.l),
+                            React.createElement('div', {style:{fontSize:11, marginTop:2, opacity:0.7}}, c.d)
+                        ))
+                    ),
+
+                    // Component + Title
+                    React.createElement('div', {style:cs.card},
+                        React.createElement('label', {style:cs.label}, 'Affected Component'),
+                        React.createElement('select', {value:component, onChange:e=>setComponent(e.target.value), style:{...cs.select, width:'100%', marginBottom:12}},
+                            ...components.map(c => React.createElement('option', {key:c, value:c}, c))
+                        ),
+                        React.createElement('label', {style:cs.label}, 'Title'),
+                        React.createElement('input', {value:title, onChange:e=>setTitle(e.target.value),
+                            onBlur:searchDuplicates, placeholder:'Brief description of the issue', style:cs.input})
+                    ),
+
+                    // Duplicates
+                    duplicates.length > 0 ? React.createElement('div', {style:{...cs.card, borderColor:'#f59e0b'}},
+                        React.createElement('div', {style:{fontSize:13, fontWeight:600, color:'#f59e0b', marginBottom:8}}, 'Similar open issues found:'),
+                        ...duplicates.map(d => React.createElement('div', {key:d.number, style:{padding:'6px 0', borderBottom:'1px solid #1e293b'}},
+                            React.createElement('a', {href:d.url, target:'_blank', style:{color:'#93c5fd', fontSize:13}},
+                                '#' + d.number + ': ' + d.title),
+                            React.createElement('span', {style:{fontSize:11, color:'#64748b', marginLeft:8}},
+                                d.created_at + ' \u00b7 ' + d.comments + ' comments')
+                        ))
+                    ) : null,
+
+                    // Category-specific fields
+                    React.createElement('div', {style:cs.card},
+                        category === 'bug' ? React.createElement(React.Fragment, null,
+                            React.createElement('label', {style:cs.label}, 'Description'),
+                            React.createElement('textarea', {value:description, onChange:e=>setDescription(e.target.value),
+                                placeholder:'What happened?', style:{...cs.textarea, marginBottom:12}}),
+                            React.createElement('label', {style:cs.label}, 'Steps to Reproduce'),
+                            React.createElement('textarea', {value:steps, onChange:e=>setSteps(e.target.value),
+                                placeholder:'1. Run nomad ... 2. Navigate to ... 3. See error', style:{...cs.textarea, marginBottom:12}}),
+                            React.createElement('label', {style:cs.label}, 'Expected Behavior'),
+                            React.createElement('textarea', {value:expected, onChange:e=>setExpected(e.target.value),
+                                placeholder:'What should have happened?', style:{...cs.textarea, marginBottom:12}}),
+                            React.createElement('label', {style:cs.label}, 'Actual Behavior'),
+                            React.createElement('textarea', {value:actual, onChange:e=>setActual(e.target.value),
+                                placeholder:'What actually happened?', style:cs.textarea})
+                        ) : category === 'feature' ? React.createElement(React.Fragment, null,
+                            React.createElement('label', {style:cs.label}, 'What problem does this solve?'),
+                            React.createElement('textarea', {value:description, onChange:e=>setDescription(e.target.value),
+                                placeholder:'Describe the problem or need', style:{...cs.textarea, marginBottom:12}}),
+                            React.createElement('label', {style:cs.label}, 'Proposed Solution (optional)'),
+                            React.createElement('textarea', {value:steps, onChange:e=>setSteps(e.target.value),
+                                placeholder:'How would you like this to work?', style:cs.textarea})
+                        ) : React.createElement(React.Fragment, null,
+                            React.createElement('label', {style:cs.label}, 'Your Question'),
+                            React.createElement('textarea', {value:description, onChange:e=>setDescription(e.target.value),
+                                placeholder:'What would you like to know?', style:{...cs.textarea, marginBottom:12}}),
+                            React.createElement('label', {style:cs.label}, "What I've Already Tried (optional)"),
+                            React.createElement('textarea', {value:steps, onChange:e=>setSteps(e.target.value),
+                                placeholder:'Documentation, commands, or approaches tried', style:cs.textarea})
+                        )
+                    ),
+
+                    // System info preview
+                    sysInfo ? React.createElement('div', {style:{...cs.card, fontSize:11, fontFamily:'monospace', color:'#64748b'}},
+                        React.createElement('div', {style:{fontWeight:600, marginBottom:4, color:'#94a3b8'}}, 'Auto-included system info:'),
+                        React.createElement('div', null, 'NOMAD ' + (sysInfo.nomad_version||'?') + ' | Python ' + (sysInfo.python_version||'?') + ' | ' + (sysInfo.os_info||'?')),
+                        sysInfo.active_collectors && sysInfo.active_collectors.length > 0 ?
+                            React.createElement('div', null, 'Collectors: ' + sysInfo.active_collectors.join(', ')) : null
+                    ) : null,
+
+                    // Submit buttons
+                    React.createElement('div', {style:{display:'flex', gap:8, marginTop:8}},
+                        React.createElement('button', {onClick:handleSubmit, disabled:submitting || !title,
+                            style:{...cs.btn, background: title ? '#3b82f6' : '#334155', color:'#fff', flex:1}},
+                            submitting ? 'Submitting...' : 'Submit Issue'),
+                        React.createElement('button', {onClick:openBrowser, disabled:!title,
+                            style:{...cs.btn, background:'#1e293b', color:'#e2e8f0'}}, 'Open in GitHub')
+                    ),
+
+                    // Error display
+                    result && !result.success && result.error ? React.createElement('div', {style:{...cs.card, borderColor:'#ef4444', marginTop:8, color:'#fca5a5', fontSize:12}},
+                        result.error
+                    ) : null
+                );
+            };
+
             // Insights Panel
             const InsightsPanel = () => {
                 const [insights, setInsights] = useState(null);
@@ -3946,6 +4118,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             >
                                 Dynamics
                             </div>
+                            <div
+                                className={`tab ${activeTab === 'issue' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('issue'); setSelectedNode(null); }}
+                            >
+                                Report Issue
+                            </div>
                         </nav>
                         
                         <div className="header-right">
@@ -3986,6 +4164,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <InsightsPanel />
                         ) : activeTab === 'dynamics' ? (
                             <DynamicsPanel />
+                        ) : activeTab === 'issue' ? (
+                            <ReportIssuePanel />
                         ) : (
                             <>
                                 <ClusterView
@@ -6539,11 +6719,136 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 result = {"error": str(e)}
             self.wfile.write(json.dumps(result, default=str).encode())
+        elif parsed.path == '/api/issue/info':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            try:
+                from nomad.issue.collector import IssueCollector
+                collector = IssueCollector(
+                    db_path=str(dm.db_path) if dm.db_path else None,
+                    source="dashboard",
+                )
+                info = collector.collect()
+                result = info.to_dict()
+            except Exception as e:
+                result = {"error": str(e)}
+            self.wfile.write(json.dumps(result).encode())
+        elif parsed.path == '/api/issue/url':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            dm = DashboardHandler.data_manager
+            try:
+                from nomad.issue.collector import IssueCollector
+                from nomad.issue.formatter import IssueFormatter
+                from nomad.issue.github_api import GitHubClient
+                params = dict(urllib.parse.parse_qsl(parsed.query))
+                category = params.get('category', 'bug')
+                title = params.get('title', '')
+                component = params.get('component', 'other')
+                description = params.get('description', '')
+                collector = IssueCollector(
+                    db_path=str(dm.db_path) if dm.db_path else None,
+                    source="dashboard",
+                )
+                sys_info = collector.collect()
+                formatter = IssueFormatter(system_info=sys_info)
+                data = {
+                    "category": category, "title": title,
+                    "component": component, "description": description,
+                    "steps": params.get("steps", ""),
+                    "expected": params.get("expected", ""),
+                    "actual": params.get("actual", ""),
+                    "problem": params.get("problem", description),
+                    "question": params.get("question", description),
+                }
+                fmt_title, body = formatter.format_from_dict(data)
+                client = GitHubClient()
+                url = client.generate_browser_url(fmt_title, body, category)
+                result = {"url": url, "title": fmt_title}
+            except Exception as e:
+                result = {"error": str(e), "url": "https://github.com/jtonini/nomad-hpc/issues/new"}
+            self.wfile.write(json.dumps(result).encode())
+        elif parsed.path == '/api/issue/search':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            try:
+                from nomad.issue.github_api import GitHubClient
+                params = dict(urllib.parse.parse_qsl(parsed.query))
+                keywords = params.get('q', '')
+                client = GitHubClient()
+                duplicates = client.search_duplicates(keywords, max_results=5)
+                result = [
+                    {"number": d.number, "title": d.title, "url": d.url,
+                     "state": d.state, "labels": d.labels,
+                     "created_at": d.created_at, "comments": d.comments}
+                    for d in duplicates
+                ]
+            except Exception as e:
+                result = []
+            self.wfile.write(json.dumps(result).encode())
         else:
             self.send_error(404)
 
     def log_message(self, format, *args):
         pass  # Quiet logging
+    def do_POST(self):
+        """Handle POST requests for issue submission."""
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == '/api/issue/submit':
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            try:
+                import json as _json
+                from nomad.issue.collector import IssueCollector
+                from nomad.issue.formatter import IssueFormatter
+                from nomad.issue.github_api import GitHubClient
+                data = _json.loads(post_data.decode())
+                dm = DashboardHandler.data_manager
+                collector = IssueCollector(
+                    db_path=str(dm.db_path) if dm.db_path else None,
+                    config=getattr(dm, 'config', {}),
+                    source="dashboard",
+                )
+                sys_info = collector.collect()
+                formatter = IssueFormatter(system_info=sys_info)
+                fmt_title, body = formatter.format_from_dict(data)
+                # Check for token in config
+                cfg = getattr(dm, 'config', {})
+                token = cfg.get('issue_reporting', {}).get('github_token', '')
+                client = GitHubClient(token=token)
+                if client.has_token:
+                    result = client.create_issue(
+                        title=fmt_title, body=body,
+                        category=data.get('category', ''),
+                        component=data.get('component', ''),
+                        version=sys_info.nomad_version,
+                        institution=sys_info.institution,
+                        source="dashboard",
+                    )
+                    resp = {"success": result.success, "url": result.url,
+                            "number": result.number, "method": result.method,
+                            "error": result.error}
+                else:
+                    url = client.generate_browser_url(fmt_title, body, data.get('category', ''))
+                    resp = {"success": False, "url": url, "method": "browser",
+                            "error": "No token — use browser link"}
+                self.wfile.write(_json.dumps(resp).encode())
+            except Exception as e:
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+        else:
+            self.send_error(404)
+
 
 
 def serve_dashboard(host='localhost', port=8050, config_path=None, db_path=None):

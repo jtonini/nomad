@@ -5,14 +5,36 @@ PyTorch Geometric GNN for failure prediction.
 Optional dependency - falls back to pure Python if not available.
 """
 
+def _check_torch_geometric() -> bool:
+    """Probe torch_geometric availability in a subprocess.
+
+    C-extension crashes (e.g., NumPy ABI mismatches in pyarrow/numexpr)
+    cannot be caught by Python's try/except — they abort the process.
+    Running the import in a subprocess isolates the crash and lets the
+    parent process degrade gracefully.
+    """
+    import subprocess
+    import sys
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "import torch_geometric"],
+            capture_output=True, timeout=30,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 try:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
+    if not _check_torch_geometric():
+        raise ImportError("torch_geometric not usable (C-extension probe failed)")
     from torch_geometric.data import Data
     from torch_geometric.nn import GATConv, GCNConv, SAGEConv
     HAS_TORCH = True
-except ImportError:
+except Exception:
     HAS_TORCH = False
     print("PyTorch Geometric not available. Install with:")
     print("  pip install torch torch-geometric")

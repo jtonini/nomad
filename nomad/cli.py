@@ -40,6 +40,7 @@ from nomad.collectors.nfs import NFSCollector
 from nomad.collectors.node_state import NodeStateCollector
 from nomad.collectors.slurm import SlurmCollector
 from nomad.collectors.vmstat import VMStatCollector
+from nomad.issue.cli_commands import issue as issue_group
 
 # Cloud collectors (optional — only available when provider SDKs are installed)
 try:
@@ -4234,6 +4235,9 @@ def main() -> None:
     """Entry point for CLI."""
     cli(obj={})
 
+
+
+cli.add_command(issue_group, 'issue')
 
 if __name__ == '__main__':
     main()

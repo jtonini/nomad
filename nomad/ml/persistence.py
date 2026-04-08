@@ -14,7 +14,7 @@ from pathlib import Path
 try:
     import torch
     HAS_TORCH = True
-except ImportError:
+except Exception:
     HAS_TORCH = False
 
 

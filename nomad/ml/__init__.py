@@ -19,7 +19,45 @@ from .gnn import (
     prepare_job_features,
 )
 
+def _check_numpy_abi() -> bool:
+    """Check if NumPy ABI is compatible with installed C extensions.
+
+    pyarrow, numexpr, and bottleneck compiled against NumPy 1.x crash
+    fatally (not catchable) under NumPy 2.x. We check package metadata
+    to detect the mismatch without importing the broken modules.
+    """
+    try:
+        import numpy as np
+        np_major = int(np.__version__.split(".")[0])
+        if np_major < 2:
+            return True  # NumPy 1.x — no ABI issue
+
+        # NumPy 2.x installed. Check if pyarrow is from anaconda (likely 1.x-built)
+        from importlib.metadata import requires, PackageNotFoundError
+        try:
+            import importlib.util
+            pa_spec = importlib.util.find_spec("pyarrow")
+            if pa_spec and pa_spec.origin and "/anaconda" in str(pa_spec.origin):
+                return False  # anaconda pyarrow almost certainly NumPy 1.x-built
+            # Also check if pyarrow METADATA has numpy<2 requirement
+            from importlib.metadata import metadata
+            pa_meta = metadata("pyarrow")
+            requires_str = str(pa_meta.get_all("Requires-Dist") or "")
+            if "numpy<2" in requires_str or "numpy (<2" in requires_str:
+                return False
+        except Exception:
+            pass
+
+        return True
+    except Exception:
+        return True
+
+
+_HAS_TORCH_GEO = _check_numpy_abi()
+
 try:
+    if not _HAS_TORCH_GEO:
+        raise ImportError("torch_geometric not usable on this system")
     from .autoencoder import (
         AutoencoderTrainer,
         JobAutoencoder,
@@ -50,7 +88,7 @@ try:
         save_ensemble_models,
         save_predictions_to_db,
     )
-except ImportError:
+except Exception:
     is_torch_available = lambda: False
 
 __all__ = [
@@ -69,5 +107,5 @@ __all__ = [
 
 try:
     from .continuous import ContinuousLearner
-except ImportError:
+except Exception:
     pass
