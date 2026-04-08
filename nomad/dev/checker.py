@@ -225,7 +225,7 @@ class HealthChecker:
             for metric in metrics:
                 has_test = (
                     f"test_dynamics_{metric}" in test_files
-                    or "test_dynamics" in test_files
+                    or f"test_dynamics" in test_files
                 )
                 if not has_test:
                     report.add(CheckItem(
@@ -530,14 +530,323 @@ class HealthChecker:
                     actions.append(fixed)
 
             elif "Create tests/" in item.fix_action:
-                # Create stub test files
-                # Extract module name from description
-                match = re.search(r'nomad/\w+/(\w+)\.py', item.description)
+                # Create test stub files by inspecting the source module
+                match = re.search(r'nomad/(\w+)/(\w+)\.py', item.description)
                 if match:
-                    module_name = match.group(1)
-                    actions.append(f"Created test stub for {module_name}")
+                    subdir = match.group(1)
+                    module_name = match.group(2)
+                    fixed = self._fix_missing_test(subdir, module_name)
+                    if fixed:
+                        actions.append(fixed)
 
         return actions
+
+    def _fix_missing_test(self, subdir: str, module_name: str) -> str | None:
+        """Generate a test stub for an existing module by inspecting its source.
+
+        Reads the source file to extract class names, public methods,
+        and metric definitions, then generates a targeted test file.
+
+        Args:
+            subdir: Module subdirectory (e.g., 'collectors', 'dynamics').
+            module_name: Module filename without .py.
+
+        Returns:
+            Description of the action taken, or None.
+        """
+        source_path = self.nomad_dir / subdir / f"{module_name}.py"
+        if not source_path.exists():
+            return None
+
+        content = source_path.read_text()
+
+        # Parse AST to extract class info
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return None
+
+        # Find the main class
+        classes = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                bases = [
+                    getattr(b, 'id', getattr(b, 'attr', ''))
+                    for b in node.bases
+                ]
+                methods = [
+                    n.name for n in node.body
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                ]
+                public_methods = [m for m in methods if not m.startswith('_')]
+                private_methods = [m for m in methods if m.startswith('_') and m != '__init__']
+                classes.append({
+                    'name': node.name,
+                    'bases': bases,
+                    'methods': methods,
+                    'public_methods': public_methods,
+                    'private_methods': private_methods,
+                    'docstring': ast.get_docstring(node) or '',
+                })
+
+        if not classes:
+            return None
+
+        # Prefer collector/backend classes over helper dataclasses
+        main_class = classes[0]
+        for cls in classes:
+            if any(
+                base in ('BaseCollector', 'NotificationBackend',
+                         'AnalysisInterface', 'DynamicsInterface')
+                for base in cls['bases']
+            ):
+                main_class = cls
+                break
+        class_name = main_class['name']
+
+        # Detect module type from base class
+        is_collector = any(
+            'Collector' in b or 'BaseCollector' in b
+            for b in main_class['bases']
+        )
+        is_backend = any(
+            'Backend' in b or 'NotificationBackend' in b
+            for b in main_class['bases']
+        )
+
+        # Extract the 'name' attribute if present
+        module_label = module_name
+        name_match = re.search(r'name\s*=\s*["\'](\w+)["\']', content)
+        if name_match:
+            module_label = name_match.group(1)
+
+        # Extract metric names if present
+        metrics = re.findall(r'["\'](\w+)["\']\s*:\s*(?:0|None|float|int)', content)
+
+        # Build test prefix
+        if is_collector:
+            test_filename = f"test_collector_{module_name}.py"
+        elif subdir == "dynamics":
+            test_filename = f"test_dynamics_{module_name}.py"
+        elif subdir == "analysis":
+            test_filename = f"test_analysis_{module_name}.py"
+        elif subdir == "alerts":
+            test_filename = f"test_alert_{module_name}.py"
+        else:
+            test_filename = f"test_{module_name}.py"
+
+        test_path = self.tests_dir / test_filename
+        if test_path.exists():
+            return None
+
+        # Build import path
+        import_path = f"nomad.{subdir}.{module_name}"
+
+        # Generate test content
+        lines = [
+            "# SPDX-License-Identifier: AGPL-3.0-or-later",
+            f"# Copyright (C) {__import__('datetime').date.today().year} João Tonini",
+            f'"""Tests for {class_name} (auto-generated by nomad dev check --fix)."""',
+            "",
+            "import pytest",
+            "from unittest.mock import MagicMock, patch",
+            "",
+            f"from {import_path} import {class_name}",
+            "",
+            "",
+        ]
+
+        if is_collector:
+            lines.extend(self._generate_collector_tests(
+                class_name, module_name, module_label,
+                main_class, metrics, import_path,
+            ))
+        elif is_backend:
+            lines.extend(self._generate_backend_tests(
+                class_name, module_name, main_class, import_path,
+            ))
+        else:
+            lines.extend(self._generate_generic_tests(
+                class_name, module_name, main_class, import_path,
+            ))
+
+        test_path.parent.mkdir(parents=True, exist_ok=True)
+        test_path.write_text("\n".join(lines))
+        return f"Created {test_filename} ({len(main_class['public_methods'])} method tests)"
+
+    def _generate_collector_tests(
+        self,
+        class_name: str,
+        module_name: str,
+        module_label: str,
+        class_info: dict,
+        metrics: list[str],
+        import_path: str,
+    ) -> list[str]:
+        """Generate test class for a collector."""
+        lines = [
+            f"class Test{class_name}:",
+            f'    """Test suite for {class_name}."""',
+            "",
+            "    def setup_method(self):",
+            '        """Set up test fixtures."""',
+            "        self.config = {}",
+            f"        self.collector = {class_name}(self.config)",
+            "",
+            "    def test_init(self):",
+            '        """Collector initializes with valid config."""',
+            f'        assert self.collector.name == "{module_label}"',
+            "        assert self.collector.description",
+            "",
+            "    def test_collect_returns_list(self):",
+            '        """collect() returns a list of dicts."""',
+            "        # TODO: Mock system commands/files before calling collect()",
+            "        # result = self.collector.collect()",
+            "        # assert isinstance(result, list)",
+            "        # for record in result:",
+            "        #     assert isinstance(record, dict)",
+            '        pytest.skip("Implement after mocking system dependencies")',
+            "",
+        ]
+
+        # Add parse method tests
+        parse_methods = [
+            m for m in class_info['private_methods']
+            if m.startswith('_parse')
+        ]
+        for method in parse_methods:
+            method_clean = method.lstrip('_')
+            lines.extend([
+                f"    def test_{method_clean}(self):",
+                f'        """Parser {method}() handles expected input."""',
+                f"        # TODO: Provide sample output from the system command",
+                f"        # result = self.collector.{method}(sample_output)",
+                f"        # assert isinstance(result, dict)",
+                f'        pytest.skip("Implement with sample command output")',
+                "",
+            ])
+
+        # Store test
+        if 'store' in class_info['methods']:
+            lines.extend([
+                "    def test_store(self):",
+                '        """Data round-trips through database correctly."""',
+                "        # TODO: Use in-memory SQLite to test storage",
+                "        # import sqlite3",
+                "        # db = sqlite3.connect(':memory:')",
+                "        # self.collector._create_tables(db)",
+                f"        # self.collector.store([{{'test': 1}}])",
+                '        pytest.skip("Implement with in-memory SQLite")',
+                "",
+            ])
+
+        # Config test
+        lines.extend([
+            "    def test_config_defaults(self):",
+            '        """Collector works with default config."""',
+            f"        collector = {class_name}({{}})",
+            f'        assert collector.name == "{module_label}"',
+            "",
+        ])
+
+        # Error handling test
+        lines.extend([
+            "    def test_error_handling(self):",
+            '        """Graceful handling of missing dependencies/permissions."""',
+            "        # TODO: Mock missing commands and verify CollectionError",
+            "        # with pytest.raises(CollectionError):",
+            "        #     self.collector.collect()",
+            '        pytest.skip("Implement after identifying failure modes")',
+            "",
+        ])
+
+        # Metric-specific tests
+        if metrics:
+            lines.extend([
+                "    def test_metric_keys(self):",
+                '        """Collected data contains expected metric keys."""',
+                "        # TODO: Mock collect and verify keys",
+                f"        expected_keys = {metrics!r}",
+                "        # result = self.collector.collect()",
+                "        # for key in expected_keys:",
+                "        #     assert key in result[0]",
+                '        pytest.skip("Implement after collect() is working")',
+                "",
+            ])
+
+        # Public method tests
+        for method in class_info['public_methods']:
+            if method in ('collect', 'store', 'get_history'):
+                continue  # Already covered above
+            lines.extend([
+                f"    def test_{method}(self):",
+                f'        """Method {method}() works correctly."""',
+                f'        pytest.skip("Implement test for {method}()")',
+                "",
+            ])
+
+        return lines
+
+    def _generate_backend_tests(
+        self,
+        class_name: str,
+        module_name: str,
+        class_info: dict,
+        import_path: str,
+    ) -> list[str]:
+        """Generate test class for an alert backend."""
+        lines = [
+            f"class Test{class_name}:",
+            f'    """Test suite for {class_name}."""',
+            "",
+            "    def setup_method(self):",
+            "        self.config = {}",
+            f"        self.backend = {class_name}(self.config)",
+            "",
+            "    def test_init(self):",
+            '        """Backend initializes with config."""',
+            f"        assert self.backend is not None",
+            "",
+        ]
+
+        for method in class_info['public_methods']:
+            lines.extend([
+                f"    def test_{method}(self):",
+                f'        """Method {method}() works correctly."""',
+                f'        pytest.skip("Implement test for {method}()")',
+                "",
+            ])
+
+        return lines
+
+    def _generate_generic_tests(
+        self,
+        class_name: str,
+        module_name: str,
+        class_info: dict,
+        import_path: str,
+    ) -> list[str]:
+        """Generate test class for a generic module."""
+        lines = [
+            f"class Test{class_name}:",
+            f'    """Test suite for {class_name}."""',
+            "",
+            "    def test_instantiate(self):",
+            '        """Class can be instantiated."""',
+            f"        obj = {class_name}()",
+            f"        assert obj is not None",
+            "",
+        ]
+
+        for method in class_info['public_methods']:
+            lines.extend([
+                f"    def test_{method}(self):",
+                f'        """Method {method}() works correctly."""',
+                f'        pytest.skip("Implement test for {method}()")',
+                "",
+            ])
+
+        return lines
 
     def _fix_collector_registration(self, item: CheckItem) -> str | None:
         """Add missing collector imports to __init__.py."""
