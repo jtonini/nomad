@@ -4144,6 +4144,15 @@ def ref(topic_parts):
         click.echo(f"\nNo reference entry found for '{query}'.")
         click.echo("Use 'nomad ref' to browse topics or 'nomad ref search <query>' to search.\n")
 
+
+
+# =============================================================================
+# DEVELOPER TOOLCHAIN COMMANDS
+# =============================================================================
+
+from nomad.dev.cli_commands import dev
+cli.add_command(dev)
+
 # =============================================================================
 # COMMUNITY COMMANDS
 # =============================================================================
