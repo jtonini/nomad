@@ -48,6 +48,7 @@ nomad dashboard               # Launch web interface
 | **Community Export** | Anonymized datasets for cross-institutional research | `nomad community export` |
 | **System Dynamics** | Ecological and economic metrics for resource analysis | `nomad dyn` |
 | **Reference** | Built-in documentation, code navigation, and search | `nomad ref` |
+| **Issue Reporting** | Submit bugs, features, questions from any interface | `nomad issue report` |
 
 ---
 
@@ -149,6 +150,16 @@ nomad ref search "regime"     # Search across documentation
 nomad ref alerts thresholds   # Alert threshold reference
 nomad ref config              # Configuration reference
 ```
+
+### Issue Reporting
+```bash
+nomad issue report            # Interactive bug/feature/question form
+nomad issue report -c bug -m alerts  # Pre-select category and component
+nomad issue report --email    # Send via email instead of GitHub
+nomad issue search disk       # Search existing issues
+nomad issue info              # Preview auto-collected system info
+nomad issue info --json       # JSON output for scripting
+```
 ---
 
 ## Dashboard Views
@@ -162,6 +173,10 @@ The web dashboard includes multiple views accessible via tabs:
 - **Interactive**: Active RStudio and Jupyter sessions with memory usage
 - **Workstations**: Departmental machines with CPU, memory, disk, and logged-in users
 - **Storage**: NFS servers with ZFS pool health, capacity, and client connections
+- **Cloud**: AWS, Azure, and GCP resource utilization and cost tracking
+- **Insights**: Operational narratives from multi-signal analysis
+- **Dynamics**: Ecological and economic metrics (diversity, niche, capacity, resilience)
+- **Report Issue**: Submit bugs, feature requests, and questions with auto-populated system info
 
 Toggle between light and dark themes with the Theme button.
 
@@ -206,6 +221,10 @@ nomad syscheck
 - [Proficiency Scoring](https://jtonini.github.io/nomad-hpc/proficiency/)
 - [CLI Reference](https://jtonini.github.io/nomad-hpc/cli/)
 - [Configuration Options](https://jtonini.github.io/nomad-hpc/config/)
+  - [Issue Reporting](https://jtonini.github.io/nomad-hpc/issue/)
+  - [System Dynamics](https://jtonini.github.io/nomad-hpc/dynamics/)
+  - [Cloud Monitoring](https://jtonini.github.io/nomad-hpc/cloud/)
+  - [Reference System](https://jtonini.github.io/nomad-hpc/reference/)
 
 ---
 
@@ -225,6 +244,16 @@ Dual-licensed:
   year = {2026},
   url = {https://github.com/jtonini/nomad-hpc},
   doi = {10.5281/zenodo.18614517}
+}
+
+@article{tonini2026nomad,
+  author = {Tonini, João Filipe Riva},
+  title = {NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction},
+  journal = {Journal of Open Research Software},
+  volume = {14},
+  pages = {17},
+  year = {2026},
+  doi = {10.5334/jors.686}
 }
 ```
 

@@ -70,3 +70,75 @@ nomad collect -C disk,slurm,groups
 | `--verbose` / `-v` | Verbose output |
 | `--quiet` / `-q` | Suppress output |
 | `--help` | Show help |
+
+## Insight Engine
+
+| Command | Description |
+|---------|-------------|
+| `nomad insights brief` | Executive summary |
+| `nomad insights detail` | Comprehensive report |
+| `nomad insights json` | Machine-readable output |
+| `nomad insights slack` | Slack-formatted message |
+| `nomad insights digest` | Periodic digest |
+
+**Options**: `--hours N` (lookback window), `--db PATH`, `--cluster NAME`
+
+
+## System Dynamics
+
+| Command | Description |
+|---------|-------------|
+| `nomad dyn summary` | Full dynamics narrative |
+| `nomad dyn diversity` | Simpson/Shannon diversity indices |
+| `nomad dyn niche` | Pianka niche overlap matrix |
+| `nomad dyn capacity` | Multi-dimensional carrying capacity |
+| `nomad dyn resilience` | Disturbance detection and recovery time |
+| `nomad dyn externality` | Cross-group impact scoring |
+
+**Options**: `--hours N`, `--db PATH`, `--by {user,group,partition}`, `--json`
+
+
+## Cloud Monitoring
+
+| Command | Description |
+|---------|-------------|
+| `nomad cloud collect` | Collect metrics from cloud providers |
+| `nomad cloud status` | Current resource utilization |
+| `nomad cloud diag` | Cost and performance diagnostics |
+| `nomad cloud edu` | Usage recommendations |
+
+**Options**: `--provider {aws,azure,gcp}`, `--db PATH`
+
+
+## Reference
+
+| Command | Description |
+|---------|-------------|
+| `nomad ref` | Browse all topics |
+| `nomad ref <topic>` | Look up a specific topic |
+| `nomad ref search <query>` | Full-text search |
+
+Topics cover all commands, configuration, concepts, and mathematical foundations.
+
+
+## Issue Reporting
+
+| Command | Description |
+|---------|-------------|
+| `nomad issue report` | Interactive bug/feature/question form |
+| `nomad issue search <keywords>` | Search existing GitHub issues |
+| `nomad issue info` | Preview auto-collected system info |
+
+**Options for report**:
+
+- `-c, --category {bug,feature,question}` — Issue category
+- `-m, --component {collectors,alerts,dashboard,...}` — Affected component
+- `-t, --title TEXT` — Issue title
+- `--email` — Send via email instead of GitHub
+- `--json` — Output formatted issue as JSON
+- `--no-duplicate-check` — Skip duplicate search
+- `--db PATH` — Database path for system info
+
+When a GitHub token is configured in `nomad.toml` under `[issue_reporting]`, issues
+are submitted directly via the GitHub API with auto-labeling. Without a token,
+opens a pre-filled GitHub issue form in the browser.

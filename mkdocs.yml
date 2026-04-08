@@ -50,6 +50,7 @@ nav:
     - Insight Engine: insights.md
     - System Dynamics: dynamics.md
     - Cloud Monitoring: cloud.md
+    - Issue Reporting: issue.md
     - Infrastructure: infrastructure.md
   - Technical:
     - Architecture: ARCHITECTURE.md

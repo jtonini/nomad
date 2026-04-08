@@ -1,5 +1,45 @@
 # Changelog
 
+## v1.3.1 (April 2026)
+
+### Fixes
+- Dashboard blank page regression from NumPy 2.x ABI incompatibility
+- Metadata-based probe guards torch_geometric import against C-extension crashes
+- Broadened exception handling in ML modules for non-ImportError failures
+
+### Features
+- Integrated issue reporting system (`nomad issue report/search/info`)
+- Dashboard "Report Issue" tab with structured form and duplicate detection
+- GitHub issue templates (bug report, feature request, question)
+- Auto-acknowledgment bot via GitHub Actions
+- Auto-labeling by source, component, version, and institution
+- `nomad ref` entries for issue module and configuration
+
+## v1.3.0 (April 2026)
+
+### Features
+- Reference system (`nomad ref`) with 60+ searchable topics
+- `nomad ref search` for full-text documentation search
+- Reference entries for all commands, configuration, and concepts
+
+### Improvements
+- Ruff linting fixes across reference module
+- CI configuration excludes generated snippet files
+
+## v1.2.6 (March 2026)
+
+### Features
+- System Dynamics module (`nomad dyn`) with 5 ecological/economic metrics
+- Insight Engine (`nomad insights`) with multi-signal analysis and narratives
+- Cloud monitoring (`nomad cloud`) for AWS, Azure, and GCP
+- Dashboard tabs for Insights, Dynamics, and Cloud
+- Alert enrichment with insight narratives and recommendations
+
+### Improvements
+- Console backend routes for insights and dynamics
+- Demo data generator includes stress scenarios for insights
+- MkDocs documentation for dynamics, insights, cloud, and reference
+
 ## v1.2.1 (February 2026)
 
 ### Features
