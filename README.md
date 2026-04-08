@@ -48,9 +48,32 @@ nomad dashboard               # Launch web interface
 | **Community Export** | Anonymized datasets for cross-institutional research | `nomad community export` |
 | **System Dynamics** | Ecological and economic metrics for resource analysis | `nomad dyn` |
 | **Reference** | Built-in documentation, code navigation, and search | `nomad ref` |
+| **Developer Toolchain** | Scaffolding, validation, and contribution pipeline | `nomad dev` |
 | **Issue Reporting** | Submit bugs, features, questions from any interface | `nomad issue report` |
 
 ---
+
+
+### Developer Toolchain
+
+Scaffolding, codebase validation, and contribution pipeline for NØMAD development.
+
+```bash
+nomad dev guide                # Interactive contribution wizard
+nomad dev new collector zfs    # Scaffold a new module
+nomad dev check                # Validate codebase health
+nomad dev check --fix          # Auto-fix registration issues
+nomad dev test changed         # Test only modified files
+nomad dev status               # Current branch and readiness
+nomad dev submit               # Full contribution pipeline
+nomad dev setup                # One-time dev environment config
+nomad dev bump patch           # Version management
+nomad dev deps collector disk  # Module dependency graph
+```
+
+Supports 8 module types: collector, command, analysis, metric, view, page, alert, insight.
+Every scaffolded module includes source file, test stubs, schema/config templates,
+and next-step instructions. Quality by construction — not by review.
 
 ## Architecture
 ```

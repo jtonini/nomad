@@ -53,6 +53,7 @@ nav:
     - Issue Reporting: issue.md
     - Infrastructure: infrastructure.md
   - Technical:
+    - Developer Toolchain: dev.md
     - Architecture: ARCHITECTURE.md
     - Network Methodology: network.md
     - ML Framework: ml.md
