@@ -806,7 +806,182 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
 
     return signals
 
-# ── Master reader ────────────────────────────────────────────────────────
+
+# ── Network analytics signals ────────────────────────────────────────────
+
+def read_network_analytics_signals(db_path: Path, hours: int = 24) -> list[Signal]:
+    """Analyze job similarity network structure for clustering patterns."""
+    signals: list[Signal] = []
+
+    try:
+        from nomad.viz.server import (
+            load_jobs_from_db,
+            build_similarity_network,
+            compute_clustering_quality,
+            compute_failure_hotspots,
+            compute_correlation_matrix,
+        )
+
+        jobs = load_jobs_from_db(db_path, limit=2000)
+        if not jobs or len(jobs) < 20:
+            return signals
+
+        network_result = build_similarity_network(jobs, threshold=0.90)
+        edges = network_result.get("edges", [])
+        if not edges:
+            return signals
+
+        quality = compute_clustering_quality(jobs, edges)
+        if quality.get("error"):
+            return signals
+
+        assort = quality.get("assortativity", {})
+        assort_val = assort.get("binary", 0) if isinstance(assort, dict) else 0
+        assort_z = assort.get("z_score", 0) if isinstance(assort, dict) else 0
+        mntd = quality.get("mntd_ratio", 1.0)
+        ses_mntd = quality.get("ses_mntd", 0)
+        purity = quality.get("neighborhood_purity", {})
+        purity_val = purity.get("binary", 0) if isinstance(purity, dict) else 0
+        is_clustered = quality.get("is_clustered", False)
+        n_jobs = quality.get("sample_sizes", {}).get("n_jobs", 0)
+        n_edges = quality.get("sample_sizes", {}).get("n_edges", 0)
+        n_failure = quality.get("sample_sizes", {}).get("n_failure", 0)
+
+        if is_clustered:
+            signals.append(Signal(
+                signal_type=SignalType.JOBS,
+                severity=Severity.WARNING if assort_z > 3 else Severity.NOTICE,
+                title="failure_clustering",
+                detail=(
+                    f"Job failures are clustering in the similarity network "
+                    f"(assortativity r={assort_val}, z={assort_z}). "
+                    f"Failures are not random -- they share common resource patterns."
+                ),
+                metrics={
+                    "assortativity": assort_val, "assortativity_z": assort_z,
+                    "mntd_ratio": mntd, "ses_mntd": ses_mntd,
+                    "purity": purity_val, "n_jobs": n_jobs,
+                    "n_edges": n_edges, "n_failures": n_failure,
+                },
+            ))
+        elif assort_val < -0.1 and abs(assort_z) > 2:
+            signals.append(Signal(
+                signal_type=SignalType.JOBS,
+                severity=Severity.INFO,
+                title="failure_dispersion",
+                detail=(
+                    f"Failures are dispersed across the similarity network "
+                    f"(r={assort_val}, z={assort_z}). "
+                    f"No systematic resource pattern drives failures."
+                ),
+                metrics={"assortativity": assort_val, "assortativity_z": assort_z},
+            ))
+
+        if mntd < 0.8 and abs(ses_mntd) > 1.5:
+            signals.append(Signal(
+                signal_type=SignalType.JOBS,
+                severity=Severity.NOTICE,
+                title="mntd_clustering",
+                detail=(
+                    f"Same-outcome jobs are closer in the network than expected "
+                    f"(MNTD ratio={mntd}, SES={ses_mntd}). "
+                    f"Failed jobs tend to be similar to other failed jobs."
+                ),
+                metrics={"mntd_ratio": mntd, "ses_mntd": ses_mntd},
+            ))
+
+        hotspots = quality.get("hotspots", [])
+        if not hotspots:
+            hotspots = compute_failure_hotspots(jobs)
+        for hs in hotspots[:3]:
+            ratio = hs.get("ratio", 1)
+            if ratio >= 1.5:
+                feature = hs["feature"].replace("_", " ")
+                signals.append(Signal(
+                    signal_type=SignalType.JOBS,
+                    severity=Severity.WARNING if ratio >= 2.0 else Severity.NOTICE,
+                    title="failure_hotspot",
+                    detail=(
+                        f"Jobs with {hs['bin']} {feature} fail at "
+                        f"{hs['failure_rate']}% vs {hs['baseline_rate']}% baseline "
+                        f"({ratio}x higher). "
+                        f"{hs['n_failures']}/{hs['n_jobs']} jobs affected."
+                    ),
+                    metrics={
+                        "feature": hs["feature"], "bin": hs["bin"],
+                        "failure_rate": hs["failure_rate"],
+                        "baseline_rate": hs["baseline_rate"],
+                        "ratio": ratio,
+                    },
+                ))
+
+        try:
+            corr_data = compute_correlation_matrix(jobs)
+            if corr_data and "matrix" in corr_data and "features" in corr_data:
+                features = corr_data["features"]
+                matrix = corr_data["matrix"]
+                strong = []
+                for i in range(len(features)):
+                    for j in range(i + 1, len(features)):
+                        if abs(matrix[i][j]) > 0.7:
+                            strong.append((features[i], features[j], matrix[i][j]))
+                if strong:
+                    strong.sort(key=lambda x: -abs(x[2]))
+                    f1 = strong[0][0].replace("_", " ")
+                    f2 = strong[0][1].replace("_", " ")
+                    r_val = strong[0][2]
+                    direction = "positively" if r_val > 0 else "negatively"
+                    signals.append(Signal(
+                        signal_type=SignalType.JOBS,
+                        severity=Severity.INFO,
+                        title="strong_feature_correlation",
+                        detail=(
+                            f"{f1} and {f2} are strongly {direction} correlated "
+                            f"(r={r_val:.2f}). {len(strong)} strong correlations "
+                            f"found across job features."
+                        ),
+                        metrics={
+                            "feature_1": strong[0][0], "feature_2": strong[0][1],
+                            "correlation": round(r_val, 3),
+                            "total_strong_correlations": len(strong),
+                        },
+                    ))
+        except Exception:
+            pass
+
+        n_possible = n_jobs * (n_jobs - 1) / 2
+        if n_possible > 0:
+            density = n_edges / n_possible
+            if density > 0.3:
+                signals.append(Signal(
+                    signal_type=SignalType.JOBS,
+                    severity=Severity.INFO,
+                    title="high_network_density",
+                    detail=(
+                        f"Job similarity network is dense ({density:.1%} of possible edges). "
+                        f"Most jobs share similar resource patterns."
+                    ),
+                    metrics={"density": round(density, 4), "n_edges": n_edges, "n_jobs": n_jobs},
+                ))
+            elif density < 0.05 and n_jobs > 50:
+                signals.append(Signal(
+                    signal_type=SignalType.JOBS,
+                    severity=Severity.NOTICE,
+                    title="sparse_network",
+                    detail=(
+                        f"Job similarity network is sparse ({density:.1%}). "
+                        f"Jobs have diverse resource profiles."
+                    ),
+                    metrics={"density": round(density, 4), "n_edges": n_edges, "n_jobs": n_jobs},
+                ))
+
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    return signals
+
 def read_all_signals(db_path: Path, hours: int = 24) -> list[Signal]:
     """Run all signal readers and return combined results."""
     all_signals: list[Signal] = []
@@ -821,6 +996,7 @@ def read_all_signals(db_path: Path, hours: int = 24) -> list[Signal]:
         (read_cloud_signals, {"hours": hours}),
         (read_workstation_signals, {"hours": min(hours, 12)}),
         (read_dynamics_signals, {"hours": hours}),
+        (read_network_analytics_signals, {"hours": hours}),
     ]
 
     for reader, kwargs in readers:

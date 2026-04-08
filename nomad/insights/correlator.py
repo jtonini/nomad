@@ -292,7 +292,7 @@ def _correlate_capacity_and_niche(signals: list[Signal]) -> list[Insight]:
             f"groups with overlapping resource profiles will experience "
             f"disproportionate degradation as the binding constraint tightens."
         ),
-        contributing_signals=[cap, niche],
+        source_signals=[cap, niche],
         recommendation=(
             f"Consider staggering workloads for high-overlap groups, "
             f"adding capacity to the binding dimension "
@@ -320,17 +320,95 @@ def _correlate_externality_and_failures(signals: list[Signal]) -> list[Insight]:
         severity=Severity.WARNING,
         narrative=(
             f"Job failure rates are elevated while inter-group externalities "
-            f"are active. Groups {imposers} are imposing measurable costs "
+            f"are active. Group(s) {imposers} imposing measurable costs "
             f"on other users' jobs. Some of the observed failures may be "
             f"caused by cross-group resource contention rather than "
             f"job-level issues."
         ),
-        contributing_signals=[ext, job],
+        source_signals=[ext, job],
         recommendation=(
             f"Review resource usage patterns of {imposers} and consider "
             f"I/O quotas, partition isolation, or scheduling policies to "
             f"reduce cross-group interference."
         ),
+    )]
+
+
+
+def _correlate_niche_and_clustering(signals: list[Signal]) -> list[Insight]:
+    """Niche overlap + failure clustering = contention driving failures."""
+    niche = [s for s in signals if 'niche' in s.title]
+    clustering = [s for s in signals if s.title == 'failure_clustering']
+    externality = [s for s in signals if 'externality' in s.title]
+
+    if not niche or not clustering:
+        return []
+
+    combined = niche + clustering + externality
+    imposer = ''
+    for e in externality:
+        imposer = e.metrics.get('top_imposer', e.metrics.get('imposer', ''))
+        if imposer:
+            break
+
+    narrative = (
+        'Groups with high resource overlap are competing for the same '
+        'capacity, and job failures are clustering in the similarity network. '
+        'Contention between overlapping groups is a likely driver of failures.'
+    )
+    if imposer:
+        narrative += (
+            f" The '{imposer}' group appears to be the primary imposer, "
+            f'whose resource usage correlates with failures in other groups.'
+        )
+
+    return [Insight(
+        title='niche_contention_failures',
+        narrative=narrative,
+        severity=_max_severity(combined),
+        source_signals=combined,
+        recommendation=(
+            'Review resource allocation between overlapping groups. '
+            'Consider partition-level isolation, fairshare adjustments, '
+            'or staggered scheduling. Use nomad dyn niche for details.'
+        ),
+        category='contention',
+    )]
+
+
+def _correlate_clustering_and_hotspots(signals: list[Signal]) -> list[Insight]:
+    """Failure clustering + hotspots = actionable failure pattern."""
+    clustering = [s for s in signals if s.title == 'failure_clustering']
+    hotspots = [s for s in signals if s.title == 'failure_hotspot']
+
+    if not clustering or not hotspots:
+        return []
+
+    combined = clustering + hotspots
+    details = []
+    for hs in hotspots:
+        m = hs.metrics
+        details.append(
+            f"{m.get('bin','')} {m.get('feature','').replace('_',' ')} "
+            f"({m.get('failure_rate',0)}% fail, {m.get('ratio',0)}x baseline)"
+        )
+
+    return [Insight(
+        title='systematic_failure_pattern',
+        narrative=(
+            'Failures are systematically clustering in the similarity network '
+            'and specific resource configurations are hotspots: '
+            + '; '.join(details) + '. '
+            'These follow predictable resource patterns.'
+        ),
+        severity=_max_severity(combined),
+        source_signals=combined,
+        recommendation=(
+            'Target the hotspot configurations. Adjust resource limits, '
+            'add capacity, or guide users to avoid the failure zone. '
+            'Use nomad edu explain on failed jobs in the hotspot.'
+        ),
+        category='failure_analysis',
     )]
 
 
@@ -344,6 +422,8 @@ _CORRELATORS = [
     _correlate_workstation_and_alerts,
     _correlate_capacity_and_niche,
     _correlate_externality_and_failures,
+    _correlate_niche_and_clustering,
+    _correlate_clustering_and_hotspots,
 ]
 
 
