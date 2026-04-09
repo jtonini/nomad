@@ -308,7 +308,6 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                             state,
                             COUNT(*) as count
                         FROM jobs
-                        WHERE start_time > datetime('now', '-1 day')
                         GROUP BY node_list, state
                     """).fetchall()
 
@@ -317,11 +316,15 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                             for node in row['node_list'].split(','):
                                 node = node.strip()
                                 if node not in job_stats:
-                                    job_stats[node] = {'success': 0, 'failed': 0}
+                                    job_stats[node] = {'success': 0, 'failed': 0, 'running': 0, 'pending': 0}
                                 if row['state'] == 'COMPLETED':
                                     job_stats[node]['success'] += row['count']
                                 elif row['state'] in ('FAILED', 'TIMEOUT', 'OUT_OF_MEMORY'):
                                     job_stats[node]['failed'] += row['count']
+                                elif row['state'] == 'RUNNING':
+                                    job_stats[node]['running'] += row['count']
+                                elif row['state'] == 'PENDING':
+                                    job_stats[node]['pending'] += row['count']
                 except:
                     pass
 
@@ -386,6 +389,8 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                         "slurm_state": row['state'],
                         "success_rate": success_rate,
                         "jobs_today": total_jobs,
+                        "jobs_running": stats.get('running', 0),
+                        "jobs_pending": stats.get('pending', 0),
                         "jobs_success": stats['success'],
                         "jobs_failed": stats['failed'],
                         "failures": {},  # TODO: aggregate failure types
@@ -485,9 +490,13 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                             if row['node_list']:
                                 node = row['node_list'].strip()
                                 if node not in job_stats:
-                                    job_stats[node] = {'success': 0, 'failed': 0, 'failures': {}}
+                                    job_stats[node] = {'success': 0, 'failed': 0, 'running': 0, 'pending': 0, 'failures': {}}
                                 if row['state'] == 'COMPLETED':
                                     job_stats[node]['success'] += row['count']
+                                elif row['state'] == 'RUNNING':
+                                    job_stats[node]['running'] += row['count']
+                                elif row['state'] == 'PENDING':
+                                    job_stats[node]['pending'] += row['count']
                                 else:
                                     job_stats[node]['failed'] += row['count']
                                     # Track failure types
@@ -4185,17 +4194,21 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
         function ClusterView({ cluster, nodes, selectedNode, onSelectNode }) {
             const stats = useMemo(() => {
                 const online = nodes.filter(n => n.status === 'online');
-                const totalJobs = online.reduce((sum, n) => sum + (n.jobs_today || 0), 0);
+                const runningJobs = online.reduce((sum, n) => sum + (n.jobs_running || 0), 0);
+                const pendingJobs = online.reduce((sum, n) => sum + (n.jobs_pending || 0), 0);
                 const successJobs = online.reduce((sum, n) => sum + (n.jobs_success || 0), 0);
-                const avgSuccess = online.length > 0 
-                    ? online.reduce((sum, n) => sum + (n.success_rate || 0), 0) / online.length 
-                    : 0;
+                const failedJobs = online.reduce((sum, n) => sum + (n.jobs_failed || 0), 0);
+                const totalCompleted = successJobs + failedJobs;
+                const avgSuccess = totalCompleted > 0
+                    ? successJobs / totalCompleted
+                    : (runningJobs > 0 ? 1.0 : 0);
                 return {
                     online: online.length,
                     down: nodes.length - online.length,
-                    totalJobs,
+                    runningJobs,
+                    pendingJobs,
                     successJobs,
-                    failedJobs: totalJobs - successJobs,
+                    failedJobs,
                     avgSuccess
                 };
             }, [nodes]);
@@ -4223,8 +4236,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <div className="stat-label">Down</div>
                         </div>
                         <div className="stat">
-                            <div className="stat-value">{stats.totalJobs.toLocaleString()}</div>
-                            <div className="stat-label">Jobs Today</div>
+                            <div className="stat-value" style={{color: stats.runningJobs > 0 ? "#3b82f6" : "inherit"}}>{stats.runningJobs.toLocaleString()}</div>
+                            <div className="stat-label">Running</div>
+                        </div>
+                        <div className="stat">
+                            <div className="stat-value" style={{color: stats.pendingJobs > 0 ? "#f59e0b" : "inherit"}}>{stats.pendingJobs.toLocaleString()}</div>
+                            <div className="stat-label">Pending</div>
                         </div>
                         <div className="stat">
                             <div className="stat-value green">{stats.successJobs.toLocaleString()}</div>
@@ -4262,7 +4279,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                                 {node.status === 'down' ? '—' : `${Math.round((node.success_rate || 0) * 100)}%`}
                                             </div>
                                             <div className="node-jobs">
-                                                {node.status === 'down' ? (node.slurm_state || 'OFFLINE') : `${node.jobs_today || 0} jobs`}
+                                                {node.status === 'down' ? (node.slurm_state || 'OFFLINE') : (node.jobs_running > 0 ? `${node.jobs_running} running` : `${node.jobs_today || 0} jobs`)}
                                             </div>
                                             <div className="node-gpu-badge" style={{ background: node.has_gpu ? "#1a1a1a" : "rgba(255,255,255,0.9)", color: node.has_gpu ? "#ffffff" : "#1a1a1a" }}>{node.has_gpu ? "GPU" : "CPU"}</div>
                                         </div>
@@ -4293,6 +4310,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 : 0;
                             
                             // Job stats for this partition
+                            const totalRunning = partNodes.reduce((s, n) => s + (n.jobs_running || 0), 0);
                             const totalJobs = partNodes.reduce((s, n) => s + (n.jobs_today || 0), 0);
                             const okJobs = partNodes.reduce((s, n) => s + (n.jobs_success || 0), 0);
                             const failJobs = totalJobs - okJobs;
