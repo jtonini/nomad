@@ -252,8 +252,8 @@ class SlurmCollector(BaseCollector):
         """Collect completed job information from sacct."""
         try:
             # sacct format includes ExitCode which gives us exit_status:signal
-            # Format: JobID|User|Group|Partition|JobName|State|NodeList|AllocCPUS|ReqMem|ReqGRES|Timelimit|Elapsed|Submit|Start|End|ExitCode
-            format_str = "JobID,User,Group,Partition,JobName,State,NodeList,AllocCPUS,ReqMem,ReqGRES,Timelimit,Elapsed,Submit,Start,End,ExitCode"
+            # Format: JobID|User|Group|Partition|JobName|State|NodeList|AllocCPUS|ReqMem|ReqTRES|Timelimit|Elapsed|Submit|Start|End|ExitCode
+            format_str = "JobID,User,Group,Partition,JobName,State,NodeList,AllocCPUS,ReqMem,ReqTRES,Timelimit,Elapsed,Submit,Start,End,ExitCode"
 
             result = subprocess.run(
                 [
@@ -565,13 +565,29 @@ class SlurmCollector(BaseCollector):
             return 0
 
     def _parse_gpus(self, value: str) -> int:
-        """Parse GPU request string (e.g., 'gpu:2')."""
+        """Parse GPU request from ReqTRES or ReqGRES format.
+
+        Handles:
+          ReqGRES:  gpu:2, gpu:a100:1
+          ReqTRES:  cpu=4,mem=8G,gres/gpu=2, gres/gpu:a100=2
+        """
         try:
             value = value.strip()
             if not value or value == 'N/A':
                 return 0
 
-            # Format: gpu:N or gpu:type:N
+            # ReqTRES format: comma-separated key=value pairs
+            if '=' in value:
+                for part in value.split(','):
+                    if 'gpu' in part.lower():
+                        # gres/gpu=2 or gres/gpu:a100=2
+                        try:
+                            return int(part.split('=')[-1])
+                        except ValueError:
+                            continue
+                return 0
+
+            # Legacy ReqGRES format: gpu:N or gpu:type:N
             if 'gpu' in value.lower():
                 parts = value.split(':')
                 for p in reversed(parts):

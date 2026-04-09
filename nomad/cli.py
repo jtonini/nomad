@@ -99,7 +99,16 @@ def get_db_path(config: dict[str, Any]) -> Path:
     return data_dir / 'nomad.db'
 
 
+def _get_version():
+    try:
+        from importlib.metadata import version as pkg_version
+        return pkg_version('nomad-hpc')
+    except Exception:
+        return 'dev'
+
+
 @click.group()
+@click.version_option(version=_get_version(), prog_name='nomad')
 @click.option('-c', '--config', 'config_path',
               type=click.Path(),
               default=None,
@@ -150,6 +159,10 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
         db_path = Path(db)
     else:
         db_path = get_db_path(config)
+
+    # Ensure database schema exists
+    from nomad.db import ensure_database
+    ensure_database(db_path)
 
     click.echo(f"Database: {db_path}")
 
@@ -1786,7 +1799,10 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     def run_cmd(cmd, host=None, ssh_user=None, ssh_key=None):
         """Run a command locally or via SSH. Returns stdout or None."""
         if host:
+            if not ssh_user:
+                ssh_user = os.getenv("USER", "root")
             ssh_cmd = ["ssh", "-o", "ConnectTimeout=5",
+                       "-o", "BatchMode=yes",
                        "-o", "StrictHostKeyChecking=accept-new"]
             if ssh_key:
                 ssh_cmd += ["-i", ssh_key]
@@ -1972,9 +1988,13 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
 
     def collect_filesystems(cluster, host, ssh_user, ssh_key):
         """Ask user about filesystems. Modifies cluster."""
-        # For workstation groups, probe first node instead of headnode
+        # For remote workstation groups, probe first node
+        # For local HPC headnode, run df locally (host=None)
         probe_host = host
-        if not probe_host and cluster.get("partitions"):
+        if (not probe_host
+                and cluster.get("mode") == "remote"
+                and cluster.get("type") == "workstations"
+                and cluster.get("partitions")):
             first_part = next(iter(cluster["partitions"].values()), {})
             first_nodes = first_part.get("nodes", [])
             if first_nodes:
@@ -1999,9 +2019,13 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
 
     def collect_features(cluster, host, ssh_user, ssh_key):
         """Ask user about optional features. Modifies cluster."""
-        # For workstation groups, probe first node instead of headnode
+        # For remote workstation groups, probe first node
+        # For local HPC headnode, run commands locally
         probe_host = host
-        if not probe_host and cluster.get("partitions"):
+        if (not probe_host
+                and cluster.get("mode") == "remote"
+                and cluster.get("type") == "workstations"
+                and cluster.get("partitions")):
             first_part = next(iter(cluster["partitions"].values()), {})
             first_nodes = first_part.get("nodes", [])
             if first_nodes:
@@ -2095,6 +2119,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
         click.echo()
 
     # ── Banner ───────────────────────────────────────────────────────
+    click.echo("\033[2J\033[H", nl=False)  # Clear screen
     click.echo()
     click.echo(click.style(
         "  ◈ NØMAD Setup Wizard", fg="cyan", bold=True))

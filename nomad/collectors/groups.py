@@ -200,7 +200,7 @@ class GroupCollector(BaseCollector):
             f"sacct -n -X -P --starttime={start_date} "
             f"--format=JobID,User,Account,Partition,State,"
             f"ElapsedRaw,AllocCPUS,MaxRSS,ReqMem,Submit,"
-            f"Start,End,ReqGRES"
+            f"Start,End,ReqTRES"
         )
         output = self._run_cmd(cmd, host, ssh_user, ssh_key)
         if not output:
@@ -242,7 +242,7 @@ class GroupCollector(BaseCollector):
             # Parse submit time
             submit_time = fields[9] if fields[9] else None
 
-            # Parse GPU count from ReqGRES (e.g. "gpu:2", "gpu:a100:1")
+            # Parse GPU count from ReqTRES (e.g. "gres/gpu=2", "gres/gpu:a100=2")
             gpu_count = 0
             if len(fields) > 12 and fields[12]:
                 gpu_count = self._parse_gpu_gres(fields[12])
@@ -295,10 +295,24 @@ class GroupCollector(BaseCollector):
 
     @staticmethod
     def _parse_gpu_gres(gres_str: str) -> int:
-        """Parse SLURM GRES string for GPU count."""
+        """Parse SLURM GRES/TRES string for GPU count.
+
+        Handles:
+          ReqGRES:  gpu:2, gpu:a100:1
+          ReqTRES:  cpu=4,mem=8G,gres/gpu=2
+        """
         gpu_count = 0
         for part in gres_str.split(','):
-            if 'gpu' in part.lower():
+            if 'gpu' not in part.lower():
+                continue
+            # ReqTRES: gres/gpu=2 or gres/gpu:a100=2
+            if '=' in part:
+                try:
+                    gpu_count += int(part.split('=')[-1])
+                except ValueError:
+                    gpu_count += 1
+            else:
+                # ReqGRES: gpu:2 or gpu:a100:1
                 pieces = part.split(':')
                 try:
                     gpu_count += int(pieces[-1])
