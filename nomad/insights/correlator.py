@@ -307,79 +307,94 @@ def _correlate_externality_and_failures(signals: list[Signal]) -> list[Insight]:
     ext_signals = [s for s in signals if s.title == "externality_detected"]
     job_signals = [s for s in signals if s.title == "job_success_rate"
                    and s.severity in (Severity.WARNING, Severity.CRITICAL)]
-
     if not ext_signals or not job_signals:
         return []
-
     ext = ext_signals[0]
     job = job_signals[0]
-
     imposers = ", ".join(ext.metrics.get("top_imposers", [])[:2])
+    receivers = ", ".join(ext.metrics.get("top_receivers", [])[:2])
+    fail_rate = job.metrics.get("success_rate", 0)
+    n_rels = ext.metrics.get("edge_count", 0)
     return [Insight(
         title="Hidden Externality Costs",
         severity=Severity.WARNING,
         narrative=(
-            f"Job failure rates are elevated while inter-group externalities "
-            f"are active. Group(s) {imposers} imposing measurable costs "
-            f"on other users' jobs. Some of the observed failures may be "
-            f"caused by cross-group resource contention rather than "
-            f"job-level issues."
+            f"Job success rate is {fail_rate:.1f}% while {n_rels} inter-group "
+            f"impact relationships are active. Group {imposers} is imposing "
+            f"resource costs on {receivers}, contributing to failures "
+            f"in the affected groups."
         ),
         source_signals=[ext, job],
         recommendation=(
             f"Review resource usage patterns of {imposers} and consider "
-            f"I/O quotas, partition isolation, or scheduling policies to "
-            f"reduce cross-group interference."
+            f"I/O quotas, partition isolation, or scheduling policies "
+            f"to reduce cross-group interference."
         ),
+        category="externality",
     )]
-
 
 
 def _correlate_niche_and_clustering(signals: list[Signal]) -> list[Insight]:
     """Niche overlap + failure clustering = contention driving failures."""
-    niche = [s for s in signals if 'niche' in s.title]
-    clustering = [s for s in signals if s.title == 'failure_clustering']
-    externality = [s for s in signals if 'externality' in s.title]
+    niche = [s for s in signals if "niche" in s.title]
+    clustering = [s for s in signals if s.title == "failure_clustering"]
+    externality = [s for s in signals if "externality" in s.title]
 
     if not niche or not clustering:
         return []
 
     combined = niche + clustering + externality
-    imposer = ''
+    nm = niche[0].metrics
+    cm = clustering[0].metrics
+    pair_a = nm.get("top_pair_a", "?")
+    pair_b = nm.get("top_pair_b", "?")
+    overlap = nm.get("top_overlap", 0)
+    overlap_count = nm.get("high_overlap_count", 0)
+    assort_r = cm.get("assortativity", 0)
+    assort_z = cm.get("assortativity_z", 0)
+    n_failures = cm.get("n_failures", 0)
+
+    imposer = ""
     for e in externality:
-        imposer = e.metrics.get('top_imposer', e.metrics.get('imposer', ''))
+        imposer = e.metrics.get("top_imposer", "")
+        if not imposer:
+            tops = e.metrics.get("top_imposers", [])
+            imposer = tops[0] if tops else ""
         if imposer:
             break
 
     narrative = (
-        'Groups with high resource overlap are competing for the same '
-        'capacity, and job failures are clustering in the similarity network. '
-        'Contention between overlapping groups is a likely driver of failures.'
+        f"{overlap_count} group pairs have high resource overlap "
+        f"(highest: {pair_a} and {pair_b} at O={overlap:.2f}), "
+        f"and {n_failures} failures are clustering in the similarity "
+        f"network (r={assort_r}, z={assort_z:.1f}). "
+        f"These groups compete for the same resources, and that contention "
+        f"is driving the observed failures."
     )
     if imposer:
         narrative += (
-            f" The '{imposer}' group appears to be the primary imposer, "
-            f'whose resource usage correlates with failures in other groups.'
+            f" Group {imposer} is the primary imposer whose resource usage "
+            f"correlates with failures in other groups."
         )
 
     return [Insight(
-        title='niche_contention_failures',
+        title="niche_contention_failures",
         narrative=narrative,
         severity=_max_severity(combined),
         source_signals=combined,
         recommendation=(
-            'Review resource allocation between overlapping groups. '
-            'Consider partition-level isolation, fairshare adjustments, '
-            'or staggered scheduling. Use nomad dyn niche for details.'
+            "Review resource allocation between overlapping groups. "
+            "Consider partition-level isolation, fairshare adjustments, "
+            "or staggered scheduling. Use 'nomad dyn niche' for details."
         ),
-        category='contention',
+        category="contention",
     )]
 
 
 def _correlate_clustering_and_hotspots(signals: list[Signal]) -> list[Insight]:
     """Failure clustering + hotspots = actionable failure pattern."""
-    clustering = [s for s in signals if s.title == 'failure_clustering']
-    hotspots = [s for s in signals if s.title == 'failure_hotspot']
+    clustering = [s for s in signals if s.title == "failure_clustering"]
+    hotspots = [s for s in signals if s.title == "failure_hotspot"]
 
     if not clustering or not hotspots:
         return []
@@ -389,26 +404,26 @@ def _correlate_clustering_and_hotspots(signals: list[Signal]) -> list[Insight]:
     for hs in hotspots:
         m = hs.metrics
         details.append(
-            f"{m.get('bin','')} {m.get('feature','').replace('_',' ')} "
-            f"({m.get('failure_rate',0)}% fail, {m.get('ratio',0)}x baseline)"
+            f"{m.get('bin', '')} {m.get('feature', '').replace('_', ' ')} "
+            f"({m.get('failure_rate', 0)}% fail, {m.get('ratio', 0)}x baseline)"
         )
 
     return [Insight(
-        title='systematic_failure_pattern',
+        title="systematic_failure_pattern",
         narrative=(
-            'Failures are systematically clustering in the similarity network '
-            'and specific resource configurations are hotspots: '
-            + '; '.join(details) + '. '
-            'These follow predictable resource patterns.'
+            "Failures are systematically clustering in the similarity network "
+            "and specific resource configurations are hotspots: "
+            + "; ".join(details) + ". "
+            "These follow predictable resource patterns."
         ),
         severity=_max_severity(combined),
         source_signals=combined,
         recommendation=(
-            'Target the hotspot configurations. Adjust resource limits, '
-            'add capacity, or guide users to avoid the failure zone. '
-            'Use nomad edu explain on failed jobs in the hotspot.'
+            "Target the hotspot configurations. Adjust resource limits, "
+            "add capacity, or guide users to avoid the failure zone. "
+            "Use 'nomad edu explain' on failed jobs in the hotspot."
         ),
-        category='failure_analysis',
+        category="failure_analysis",
     )]
 
 
