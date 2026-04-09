@@ -44,7 +44,8 @@ def dyn_summary(ctx, db_path, hours, cluster_name, output_json):
     if db_path is None:
         db_path = str(get_db_path(config))
     if cluster_name is None:
-        cluster_name = config.get('cluster', {}).get('name', 'cluster')
+        from nomad.config import resolve_cluster_name
+        cluster_name = resolve_cluster_name(config)
 
     engine = DynamicsEngine(db_path, hours=hours, cluster_name=cluster_name)
 

@@ -79,9 +79,22 @@ def resolve_config_path() -> str:
 
 
 def get_db_path(config: dict[str, Any]) -> Path:
-    """Get database path from config."""
+    """Get database path from config.
+
+    Resolution:
+      1. [database].path — if absolute, use as-is; if relative, join with data_dir
+      2. Fall back to data_dir / nomad.db
+    """
     default_data = str(Path.home() / '.local' / 'share' / 'nomad')
     data_dir = Path(config.get('general', {}).get('data_dir', default_data))
+
+    db_path_str = config.get('database', {}).get('path', '')
+    if db_path_str:
+        db_path = Path(db_path_str)
+        if db_path.is_absolute():
+            return db_path
+        return data_dir / db_path
+
     return data_dir / 'nomad.db'
 
 
@@ -183,7 +196,8 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
     if not collector or 'node_state' in collector:
         if node_state_config.get('enabled', True):
             if 'cluster_name' not in node_state_config:
-                node_state_config['cluster_name'] = config.get('cluster_name', 'default')
+                from nomad.config import resolve_cluster_name
+                node_state_config['cluster_name'] = resolve_cluster_name(config)
             collectors.append(NodeStateCollector(node_state_config, db_path))
 
     # GPU collector (graceful skip if no GPU)
@@ -206,8 +220,10 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
             groups_config['clusters'] = config.get('clusters', {})
             collectors.append(GroupCollector(groups_config, db_path))
 
-    # Interactive session collector
+    # Interactive session collector -- check [interactive] and [collectors.interactive]
     interactive_config = config.get("interactive", {})
+    if not interactive_config:
+        interactive_config = config.get("collectors", {}).get("interactive", {})
     if not collector or "interactive" in collector:
         if interactive_config.get("enabled", False):
             collectors.append(InteractiveCollector(interactive_config, db_path))
@@ -222,7 +238,20 @@ def collect(ctx: click.Context, collector: tuple, once: bool, interval: int, db:
     if not collectors:
         raise click.ClickException("No collectors enabled")
 
-    click.echo(f"Running collectors: {[c.name for c in collectors]}")
+    # Report which collectors are running and which were skipped
+    all_collector_names = [
+        "disk", "slurm", "job_metrics", "iostat", "mpstat",
+        "vmstat", "node_state", "gpu", "nfs", "groups", "interactive"
+    ]
+    running_names = [c.name for c in collectors]
+    skipped_names = [
+        n for n in all_collector_names
+        if n not in running_names
+        and config.get("collectors", {}).get(n, {}).get("enabled", True) is False
+    ]
+    click.echo(f"Running collectors: {running_names}")
+    if skipped_names:
+        click.echo(f"Disabled collectors: {skipped_names}")
 
     if once:
         # Single collection cycle
@@ -1627,8 +1656,10 @@ def learn(ctx, db, strategy, threshold, interval, epochs, force, daemon,
 @click.option('--quick', is_flag=True, help='Skip wizard, use auto-detected defaults')
 @click.option('--no-systemd', is_flag=True, help='Skip systemd service installation')
 @click.option('--no-prolog', is_flag=True, help='Skip SLURM prolog hook')
+@click.option('--dry-run', is_flag=True, help='Show config without writing')
+@click.option('--show', is_flag=True, help='Display current config and exit')
 @click.pass_context
-def init(ctx, system, force, quick, no_systemd, no_prolog):
+def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     """Initialize NOMAD with an interactive setup wizard.
 
     \b
@@ -1656,6 +1687,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
       nomad init                    Interactive wizard
       nomad init --quick            Auto-detect everything
       nomad init --force            Overwrite existing config
+      nomad init --show             Display current config
+      nomad init --dry-run          Preview without writing
       sudo nomad init --system      System-wide installation
     """
     import os
@@ -1672,6 +1705,24 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
         log_dir = data_dir / 'logs'
 
     config_file = config_dir / 'nomad.toml'
+
+    # ── Show current config and exit ────────────────────────────────
+    if show:
+        if config_file.exists():
+            click.echo()
+            click.echo(click.style(
+                f"  Config: {config_file}", fg="cyan", bold=True))
+            click.echo(click.style(
+                "  ══════════════════════════════════════", fg="cyan"))
+            click.echo()
+            click.echo(config_file.read_text())
+        else:
+            click.echo()
+            click.echo(click.style(
+                f"  No config found at {config_file}", fg="yellow"))
+            click.echo("  Run 'nomad init' to create one.")
+            click.echo()
+        return
 
     # Check existing config
     if config_file.exists() and not force:
@@ -2090,6 +2141,12 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
         click.echo(
             "  HPC environment. Press Enter to accept the default")
         click.echo("  value shown in [brackets].")
+        click.echo()
+        click.echo(click.style(
+            "  Tip:", fg="green", bold=True) +
+            " After this wizard, run 'nomad syscheck' to verify")
+        click.echo(
+            "  your environment is ready for data collection.")
         click.echo()
 
     # ── Collect configuration ────────────────────────────────────────
@@ -2716,23 +2773,88 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
                             if f.strip()]
 
                     elif edit_choice == 4:
-                        cluster["has_gpu"] = (
-                            click.confirm(
-                                "  Enable GPU monitoring?",
-                                default=cluster.get(
-                                    "has_gpu", False)))
-                        cluster["has_nfs"] = (
-                            click.confirm(
-                                "  Enable NFS monitoring?",
-                                default=cluster.get(
-                                    "has_nfs", False)))
-                        cluster["has_interactive"] = (
-                            click.confirm(
-                                "  Enable interactive"
-                                " session monitoring?",
-                                default=cluster.get(
+                        gpu_st = click.style(
+                            "on" if cluster.get("has_gpu")
+                            else "off",
+                            fg="green" if cluster.get("has_gpu")
+                            else "red")
+                        nfs_st = click.style(
+                            "on" if cluster.get("has_nfs")
+                            else "off",
+                            fg="green" if cluster.get("has_nfs")
+                            else "red")
+                        int_st = click.style(
+                            "on" if cluster.get("has_interactive")
+                            else "off",
+                            fg="green"
+                            if cluster.get("has_interactive")
+                            else "red")
+                        click.echo()
+                        click.echo(
+                            f"    1) GPU monitoring:"
+                            f"         {gpu_st}")
+                        click.echo(
+                            f"    2) NFS monitoring:"
+                            f"         {nfs_st}")
+                        click.echo(
+                            f"    3) Interactive sessions:"
+                            f"  {int_st}")
+                        click.echo(
+                            "    4) Toggle all")
+                        click.echo()
+                        feat_choice = click.prompt(
+                            "  Select",
+                            type=click.IntRange(1, 4),
+                            default=4)
+                        if feat_choice == 1:
+                            cluster["has_gpu"] = (
+                                not cluster.get(
+                                    "has_gpu", False))
+                            st = ("enabled"
+                                  if cluster["has_gpu"]
+                                  else "disabled")
+                            click.echo(
+                                f"  GPU monitoring {st}.")
+                        elif feat_choice == 2:
+                            cluster["has_nfs"] = (
+                                not cluster.get(
+                                    "has_nfs", False))
+                            st = ("enabled"
+                                  if cluster["has_nfs"]
+                                  else "disabled")
+                            click.echo(
+                                f"  NFS monitoring {st}.")
+                        elif feat_choice == 3:
+                            cluster["has_interactive"] = (
+                                not cluster.get(
                                     "has_interactive",
-                                    False)))
+                                    False))
+                            st = ("enabled"
+                                  if cluster[
+                                      "has_interactive"]
+                                  else "disabled")
+                            click.echo(
+                                "  Interactive session"
+                                f" monitoring {st}.")
+                        elif feat_choice == 4:
+                            cluster["has_gpu"] = (
+                                click.confirm(
+                                    "  Enable GPU?",
+                                    default=cluster.get(
+                                        "has_gpu",
+                                        False)))
+                            cluster["has_nfs"] = (
+                                click.confirm(
+                                    "  Enable NFS?",
+                                    default=cluster.get(
+                                        "has_nfs",
+                                        False)))
+                            cluster["has_interactive"] = (
+                                click.confirm(
+                                    "  Enable interactive?",
+                                    default=cluster.get(
+                                        "has_interactive",
+                                        False)))
 
                     elif (edit_choice == 5
                           and is_remote):
@@ -2826,59 +2948,82 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     lines.append("")
 
     lines.append("[database]")
-    lines.append('path = "nomad.db"')
+    lines.append("# Database stored as nomad.db in data_dir")
     lines.append("")
 
-    # Collectors
-    coll_list = ["disk", "slurm", "node_state"]
+    # Collector feature flags
     any_gpu = any(c.get("has_gpu") for c in clusters)
     any_nfs = any(c.get("has_nfs") for c in clusters)
     any_interactive = any(
         c.get("has_interactive") for c in clusters)
-    if any_gpu:
-        coll_list.append("gpu")
-    if any_nfs:
-        coll_list.append("nfs")
-    if any_interactive:
-        coll_list.append("interactive")
 
     lines.append("[collectors]")
-    coll_str = ', '.join(f'"{c}"' for c in coll_list)
-    lines.append(f"enabled = [{coll_str}]")
+    lines.append("# Collection interval in seconds")
     lines.append("interval = 60")
     lines.append("")
 
-    # Filesystems
+    # Disk collector
     all_fs = set()
     for c in clusters:
         all_fs.update(c.get("filesystems", []))
-    fs_items = ', '.join(f'"{f}"' for f in sorted(all_fs))
+    fs_items = ', '.join(f'"{{f}}"' for f in sorted(all_fs))
     lines.append("[collectors.disk]")
-    lines.append(f"filesystems = [{fs_items}]")
+    lines.append("enabled = true")
+    lines.append(f"filesystems = [{{fs_items}}]")
     lines.append("")
 
-    # SLURM partitions
+    # SLURM collector
     all_parts = set()
     for c in clusters:
         if c.get("type", "hpc") == "hpc":
             all_parts.update(
-                c.get("partitions", {}).keys())
+                c.get("partitions", {{}}).keys())
+    lines.append("[collectors.slurm]")
+    lines.append("enabled = true")
     if all_parts:
         parts_items = ', '.join(
-            f'"{p}"' for p in sorted(all_parts))
-        lines.append("[collectors.slurm]")
-        lines.append(f"partitions = [{parts_items}]")
-        lines.append("")
+            f'"{{p}}"' for p in sorted(all_parts))
+        lines.append(f"partitions = [{{parts_items}}]")
+    lines.append("")
 
-    if any_gpu:
-        lines.append("[collectors.gpu]")
-        lines.append("enabled = true")
-        lines.append("")
+    # Node state collector
+    lines.append("[collectors.node_state]")
+    lines.append("enabled = true")
+    lines.append("")
 
+    # System stat collectors
+    lines.append("[collectors.iostat]")
+    lines.append("enabled = true")
+    lines.append("")
+    lines.append("[collectors.mpstat]")
+    lines.append("enabled = true")
+    lines.append("")
+    lines.append("[collectors.vmstat]")
+    lines.append("enabled = true")
+    lines.append("")
+    lines.append("[collectors.job_metrics]")
+    lines.append("enabled = true")
+    lines.append("")
+    lines.append("[collectors.groups]")
+    lines.append("enabled = true")
+    lines.append("")
+
+    # GPU collector
+    lines.append("[collectors.gpu]")
+    lines.append(f"enabled = {{str(any_gpu).lower()}}")
+    lines.append("")
+
+    # NFS collector
+    lines.append("[collectors.nfs]")
+    lines.append(f"enabled = {{str(any_nfs).lower()}}")
     if any_nfs:
-        lines.append("[collectors.nfs]")
         lines.append("mount_points = []")
-        lines.append("")
+    lines.append("")
+
+    # Interactive collector
+    lines.append("[collectors.interactive]")
+    lines.append(f"enabled = {{str(any_interactive).lower()}}")
+    lines.append("")
 
     # Clusters
     lines.append("# ============================================")
@@ -2948,12 +3093,39 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
     lines.append("used_percent_critical = 95")
     lines.append("")
 
+    if any_gpu:
+        lines.append("[alerts.thresholds.gpu]")
+        lines.append("memory_percent_warning = 90")
+        lines.append("temperature_warning = 80")
+        lines.append("temperature_critical = 90")
+        lines.append("")
+
+    if any_nfs:
+        lines.append("[alerts.thresholds.nfs]")
+        lines.append("retrans_percent_warning = 1.0")
+        lines.append("retrans_percent_critical = 5.0")
+        lines.append("avg_rtt_ms_warning = 50")
+        lines.append("avg_rtt_ms_critical = 100")
+        lines.append("")
+
     if any_interactive:
         lines.append("[alerts.thresholds.interactive]")
         lines.append("idle_sessions_warning = 50")
         lines.append("idle_sessions_critical = 100")
         lines.append("memory_gb_warning = 32")
         lines.append("memory_gb_critical = 64")
+        lines.append("")
+
+    # Interactive session monitoring config (top-level, read by collect)
+    if any_interactive:
+        lines.append("# ============================================")
+        lines.append("# INTERACTIVE SESSION MONITORING")
+        lines.append("# ============================================")
+        lines.append("")
+        lines.append("[interactive]")
+        lines.append("enabled = true")
+        lines.append("idle_session_hours = 24")
+        lines.append("memory_hog_mb = 8192")
         lines.append("")
 
     if admin_email:
@@ -2988,6 +3160,20 @@ def init(ctx, system, force, quick, no_systemd, no_prolog):
 
     # Write the config
     config_content = '\n'.join(lines)
+
+    if dry_run:
+        click.echo()
+        click.echo(click.style(
+            "  ── Preview (--dry-run) ──", fg="yellow", bold=True))
+        click.echo()
+        click.echo(config_content)
+        click.echo()
+        click.echo(click.style(
+            f"  Would be written to: {config_file}", fg="yellow"))
+        click.echo("  Run without --dry-run to save.")
+        click.echo()
+        return
+
     config_file.write_text(config_content)
 
     # Clean up wizard state file
@@ -3665,7 +3851,11 @@ def insights_brief(ctx, db_path, hours, cluster):
             click.echo("Error: No database found. Run 'nomad demo' first or specify --db.", err=True)
             raise SystemExit(1)
 
-    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    if not cluster:
+        from nomad.config import resolve_cluster_name
+        cluster_name = resolve_cluster_name(ctx.obj.get('config', {}))
+    else:
+        cluster_name = cluster
     engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
     click.echo(engine.brief())
 
@@ -3693,7 +3883,11 @@ def insights_detail(ctx, db_path, hours, cluster):
             click.echo("Error: No database found. Run 'nomad demo' first or specify --db.", err=True)
             raise SystemExit(1)
 
-    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    if not cluster:
+        from nomad.config import resolve_cluster_name
+        cluster_name = resolve_cluster_name(ctx.obj.get('config', {}))
+    else:
+        cluster_name = cluster
     engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
     click.echo(engine.detail())
 
@@ -3721,7 +3915,11 @@ def insights_json(ctx, db_path, hours, cluster):
             click.echo("Error: No database found.", err=True)
             raise SystemExit(1)
 
-    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    if not cluster:
+        from nomad.config import resolve_cluster_name
+        cluster_name = resolve_cluster_name(ctx.obj.get('config', {}))
+    else:
+        cluster_name = cluster
     engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
     click.echo(engine.to_json())
 
@@ -3750,7 +3948,11 @@ def insights_slack(ctx, db_path, hours, cluster, webhook):
             click.echo("Error: No database found.", err=True)
             raise SystemExit(1)
 
-    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    if not cluster:
+        from nomad.config import resolve_cluster_name
+        cluster_name = resolve_cluster_name(ctx.obj.get('config', {}))
+    else:
+        cluster_name = cluster
     engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
     message = engine.to_slack()
 
@@ -3800,7 +4002,11 @@ def insights_digest(ctx, db_path, hours, cluster, period, email_addr):
     if period == 'weekly':
         hours = max(hours, 168)
 
-    cluster_name = cluster or ctx.obj.get('config', {}).get('cluster', {}).get('name', 'cluster')
+    if not cluster:
+        from nomad.config import resolve_cluster_name
+        cluster_name = resolve_cluster_name(ctx.obj.get('config', {}))
+    else:
+        cluster_name = cluster
     engine = InsightEngine(db_path, hours=hours, cluster_name=cluster_name)
     subject, body = engine.to_email(period=period)
 

@@ -8,7 +8,12 @@ log_level = "info"
 data_dir = "~/.local/share/nomad"
 
 [database]
-# SQLite database path (relative to data_dir or absolute)
+# SQLite database filename (relative to data_dir) or absolute path.
+# Default: nomad.db in data_dir.
+# Examples:
+#   path = "nomad.db"              # -> data_dir/nomad.db
+#   path = "mydb.sqlite"           # -> data_dir/mydb.sqlite
+#   path = "/var/lib/nomad/prod.db" # absolute, used as-is
 path = "nomad.db"
 
 # ============================================
