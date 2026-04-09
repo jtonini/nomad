@@ -41,6 +41,12 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         CREATE INDEX idx_collector_runs_name ON collector_runs(collector_name);
     """),
+
+    (4, "Add cluster column to node_state", """
+        ALTER TABLE node_state ADD COLUMN cluster TEXT DEFAULT 'default';
+        CREATE INDEX IF NOT EXISTS idx_node_state_cluster
+            ON node_state(cluster);
+    """),
 ]
 
 

@@ -209,6 +209,7 @@ CREATE TABLE IF NOT EXISTS node_state (
     memory_free_mb INTEGER,
     cpu_alloc_percent REAL,
     memory_alloc_percent REAL,
+    cluster TEXT DEFAULT 'default',
     partitions TEXT,
     reason TEXT,
     features TEXT,
