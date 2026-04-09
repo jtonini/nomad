@@ -2999,10 +2999,10 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     all_fs = set()
     for c in clusters:
         all_fs.update(c.get("filesystems", []))
-    fs_items = ', '.join(f'"{{f}}"' for f in sorted(all_fs))
+    fs_items = ', '.join(f'"{f}"' for f in sorted(all_fs))
     lines.append("[collectors.disk]")
     lines.append("enabled = true")
-    lines.append(f"filesystems = [{{fs_items}}]")
+    lines.append(f"filesystems = [{fs_items}]")
     lines.append("")
 
     # SLURM collector
@@ -3010,13 +3010,13 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     for c in clusters:
         if c.get("type", "hpc") == "hpc":
             all_parts.update(
-                c.get("partitions", {{}}).keys())
+                c.get("partitions", {}).keys())
     lines.append("[collectors.slurm]")
     lines.append("enabled = true")
     if all_parts:
         parts_items = ', '.join(
-            f'"{{p}}"' for p in sorted(all_parts))
-        lines.append(f"partitions = [{{parts_items}}]")
+            f'"{p}"' for p in sorted(all_parts))
+        lines.append(f"partitions = [{parts_items}]")
     lines.append("")
 
     # Node state collector
@@ -3043,19 +3043,19 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
 
     # GPU collector
     lines.append("[collectors.gpu]")
-    lines.append(f"enabled = {{str(any_gpu).lower()}}")
+    lines.append(f"enabled = {str(any_gpu).lower()}")
     lines.append("")
 
     # NFS collector
     lines.append("[collectors.nfs]")
-    lines.append(f"enabled = {{str(any_nfs).lower()}}")
+    lines.append(f"enabled = {str(any_nfs).lower()}")
     if any_nfs:
         lines.append("mount_points = []")
     lines.append("")
 
     # Interactive collector
     lines.append("[collectors.interactive]")
-    lines.append(f"enabled = {{str(any_interactive).lower()}}")
+    lines.append(f"enabled = {str(any_interactive).lower()}")
     lines.append("")
 
     # Workstation collector
