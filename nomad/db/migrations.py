@@ -87,7 +87,13 @@ class MigrationManager:
         return result[0] if result[0] is not None else 0
 
     def apply_migration(self, version: int, description: str, sql: str) -> None:
-        """Apply a single migration."""
+        """Apply a single migration.
+
+        Handles benign errors gracefully:
+          - "duplicate column name" (column already exists from manual ALTER)
+          - "already exists" (table/index created outside migrations)
+        These are recorded as successful so the migration is not retried.
+        """
         logger.info(f"Applying migration {version}: {description}")
 
         cursor = self.conn.cursor()
@@ -103,6 +109,27 @@ class MigrationManager:
 
             self.conn.commit()
             logger.info(f"Migration {version} applied successfully")
+
+        except sqlite3.OperationalError as e:
+            err_msg = str(e).lower()
+            if "duplicate column" in err_msg or "already exists" in err_msg:
+                # Benign: schema element already present (manual ALTER, etc.)
+                self.conn.rollback()
+                try:
+                    cursor.execute(
+                        "INSERT INTO schema_migrations"
+                        " (version, description) VALUES (?, ?)",
+                        (version, description)
+                    )
+                    self.conn.commit()
+                except Exception:
+                    pass
+                logger.warning(
+                    f"Migration {version}: {e} (already applied, continuing)")
+            else:
+                self.conn.rollback()
+                logger.error(f"Migration {version} failed: {e}")
+                raise
 
         except Exception as e:
             self.conn.rollback()
