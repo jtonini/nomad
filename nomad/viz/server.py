@@ -174,14 +174,15 @@ def load_clusters_from_db(db_path: Path) -> dict:
                         gpu_nodes.add(node)
 
                 for cluster_name, part_map in cluster_data.items():
-                    all_nodes = []
+                    all_nodes_set = set()
                     for p_nodes in part_map.values():
-                        all_nodes.extend(p_nodes)
+                        all_nodes_set.update(p_nodes)
+                    all_nodes = sorted(all_nodes_set)
                     cluster_id = cluster_name.lower().replace(' ', '-')
                     clusters[cluster_id] = {
                         "name": cluster_name,
                         "description": f"{len(all_nodes)}-node cluster",
-                        "nodes": sorted(all_nodes),
+                        "nodes": all_nodes,
                         "gpu_nodes": [n for n in all_nodes if n in gpu_nodes],
                         "type": "gpu" if all_nodes and all(n in gpu_nodes for n in all_nodes) else "cpu",
                         "partitions": {p: sorted(ns) for p, ns in part_map.items()},
@@ -2033,6 +2034,24 @@ class DataManager:
 
             # Load clusters
             self._clusters = load_clusters_from_db(self.db_path)
+
+            # Filter partitions by TOML config if available
+            if self._clusters and self.config:
+                slurm_config = self.config.get("collectors", {}).get("slurm", {})
+                configured_parts = slurm_config.get("partitions")
+                if configured_parts:
+                    for cid, cluster in self._clusters.items():
+                        if "partitions" in cluster:
+                            filtered = {p: ns for p, ns in cluster["partitions"].items()
+                                        if p in configured_parts}
+                            if filtered:
+                                cluster["partitions"] = filtered
+                                # Update node list to only configured partition nodes
+                                all_ns = set()
+                                for ns in filtered.values():
+                                    all_ns.update(ns)
+                                cluster["nodes"] = sorted(all_ns)
+                                cluster["description"] = f"{len(all_ns)}-node cluster"
 
             if self._clusters:
                 self.data_source = f"database ({self.db_path.name})"
@@ -4392,7 +4411,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                                     {node.status === 'down' ? '—' : `${Math.round((node.success_rate || 0) * 100)}%`}
                                                 </div>
                                                 <div className="node-jobs">
-                                                    {node.status === 'down' ? (node.slurm_state || 'OFFLINE') : `${node.jobs_today || 0} jobs`}
+                                                    {node.status === 'down' ? (node.slurm_state || 'OFFLINE') : (node.jobs_running > 0 ? `${node.jobs_running} running` : `${node.jobs_today || 0} jobs`)}
                                                 </div>
                                                 <div className="node-gpu-badge" style={{ background: node.has_gpu ? "#1a1a1a" : "rgba(255,255,255,0.9)", color: node.has_gpu ? "#ffffff" : "#1a1a1a" }}>{node.has_gpu ? "GPU" : "CPU"}</div>
                                             </div>
