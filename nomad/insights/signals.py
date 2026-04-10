@@ -642,7 +642,7 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
         if div.fragility_warning:
             signals.append(Signal(
                 signal_type=SignalType.DYNAMICS,
-                severity=Severity.WARNING,
+                severity=Severity.NOTICE,
                 title="diversity_fragility",
                 detail=div.fragility_detail,
                 metrics={

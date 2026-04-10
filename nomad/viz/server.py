@@ -2106,23 +2106,11 @@ class DataManager:
                         # Run ML predictions
                         self.run_ml_predictions()
                 else:
-                    # Use demo jobs
-                    self._jobs = generate_demo_jobs(150)
-                    self._feature_stats = compute_feature_stats(self._jobs)
-                    self._correlation_data = compute_correlation_matrix(self._jobs)
-                    self._suggested_axes = suggest_decorrelated_axes(
-                        self._feature_stats,
-                        self._correlation_data
-                    )
-                    network_result = build_similarity_network(self._jobs, method='cosine', threshold=0.7)
-                    self._edges = network_result['edges']
-                    self._network_stats = network_result['stats']
-                    self._discretization = network_result.get('discretization') or network_result.get('normalization')
-                    self._clustering_quality = compute_clustering_quality(self._jobs, self._edges)
-                    logger.info("Using demo job data for network view")
-
-                    # Run ML predictions
-                    self.run_ml_predictions()
+                    # No completed jobs yet — show empty network
+                    self._jobs = []
+                    self._edges = []
+                    self._network_stats = {"nodes": 0, "edges": 0}
+                    logger.info("No completed jobs in database — network view empty")
                 return
 
         # Fall back to demo data
@@ -4595,6 +4583,25 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             const forcePositionsRef = useRef(null);
             const animationRef = useRef(null);
             
+            // Empty state when no completed jobs
+            if (!jobs || jobs.length === 0) {
+                return (
+                    <div className="content">
+                        <div className="cluster-header">
+                            <h1 className="cluster-title">Job Network</h1>
+                            <p className="cluster-desc">3D force-directed layout — connected jobs cluster together</p>
+                        </div>
+                        <div style={{display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "60vh", color: "var(--text-muted)"}}>
+                            <div style={{fontSize: "48px", marginBottom: "16px", opacity: 0.3}}>◇</div>
+                            <div style={{fontSize: "18px", marginBottom: "8px"}}>Waiting for completed jobs</div>
+                            <div style={{fontSize: "13px", maxWidth: "400px", textAlign: "center", lineHeight: "1.6"}}>
+                                The network visualization builds from completed job data. Jobs currently running will appear here once they finish and their metrics are recorded.
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
             // Force-directed layout computation
             const computeForceLayout = useMemo(() => {
                 if (!jobs || !edges) return null;

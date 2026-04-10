@@ -4242,18 +4242,11 @@ def insights_brief(ctx, db_path, hours, cluster):
 
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
-        db_path = config.get('database', {}).get('path')
-        if not db_path:
-            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+        db_path = str(get_db_path(config))
 
     if not Path(db_path).exists():
-        # Try demo DB
-        demo_path = Path.home() / 'nomad_demo.db'
-        if demo_path.exists():
-            db_path = str(demo_path)
-        else:
-            click.echo("Error: No database found. Run 'nomad demo' first or specify --db.", err=True)
-            raise SystemExit(1)
+        click.echo(f"Error: Database not found at {db_path}. Run 'nomad collect --once' first.", err=True)
+        raise SystemExit(1)
 
     if not cluster:
         from nomad.config import resolve_cluster_name
@@ -4275,17 +4268,11 @@ def insights_detail(ctx, db_path, hours, cluster):
 
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
-        db_path = config.get('database', {}).get('path')
-        if not db_path:
-            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+        db_path = str(get_db_path(config))
 
     if not Path(db_path).exists():
-        demo_path = Path.home() / 'nomad_demo.db'
-        if demo_path.exists():
-            db_path = str(demo_path)
-        else:
-            click.echo("Error: No database found. Run 'nomad demo' first or specify --db.", err=True)
-            raise SystemExit(1)
+        click.echo(f"Error: Database not found at {db_path}. Run 'nomad collect --once' first.", err=True)
+        raise SystemExit(1)
 
     if not cluster:
         from nomad.config import resolve_cluster_name
@@ -4307,17 +4294,11 @@ def insights_json(ctx, db_path, hours, cluster):
 
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
-        db_path = config.get('database', {}).get('path')
-        if not db_path:
-            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+        db_path = str(get_db_path(config))
 
     if not Path(db_path).exists():
-        demo_path = Path.home() / 'nomad_demo.db'
-        if demo_path.exists():
-            db_path = str(demo_path)
-        else:
-            click.echo("Error: No database found.", err=True)
-            raise SystemExit(1)
+        click.echo(f"Error: Database not found at {db_path}. Run 'nomad collect --once' first.", err=True)
+        raise SystemExit(1)
 
     if not cluster:
         from nomad.config import resolve_cluster_name
@@ -4340,17 +4321,11 @@ def insights_slack(ctx, db_path, hours, cluster, webhook):
 
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
-        db_path = config.get('database', {}).get('path')
-        if not db_path:
-            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+        db_path = str(get_db_path(config))
 
     if not Path(db_path).exists():
-        demo_path = Path.home() / 'nomad_demo.db'
-        if demo_path.exists():
-            db_path = str(demo_path)
-        else:
-            click.echo("Error: No database found.", err=True)
-            raise SystemExit(1)
+        click.echo(f"Error: Database not found at {db_path}. Run 'nomad collect --once' first.", err=True)
+        raise SystemExit(1)
 
     if not cluster:
         from nomad.config import resolve_cluster_name
@@ -4391,17 +4366,11 @@ def insights_digest(ctx, db_path, hours, cluster, period, email_addr):
 
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
-        db_path = config.get('database', {}).get('path')
-        if not db_path:
-            db_path = str(Path.home() / '.config' / 'nomad' / 'nomad.db')
+        db_path = str(get_db_path(config))
 
     if not Path(db_path).exists():
-        demo_path = Path.home() / 'nomad_demo.db'
-        if demo_path.exists():
-            db_path = str(demo_path)
-        else:
-            click.echo("Error: No database found.", err=True)
-            raise SystemExit(1)
+        click.echo(f"Error: Database not found at {db_path}. Run 'nomad collect --once' first.", err=True)
+        raise SystemExit(1)
 
     if period == 'weekly':
         hours = max(hours, 168)
@@ -4803,14 +4772,11 @@ def community_export(ctx, db_path, output, salt_file, salt, institution_type, cl
 
     if not db_path:
         config = ctx.obj.get('config', {}) if ctx.obj else {}
-        db_path = config.get('database', {}).get('path')
-        if not db_path:
-            default_db = Path.home() / '.config' / 'nomad' / 'nomad.db'
-            if default_db.exists():
-                db_path = str(default_db)
-            else:
-                click.echo("Error: No database found. Use --db to specify path.", err=True)
-                raise SystemExit(1)
+        db_path = str(get_db_path(config))
+
+    if not Path(db_path).exists():
+        click.echo(f"Error: Database not found at {db_path}. Run 'nomad collect --once' first.", err=True)
+        raise SystemExit(1)
 
     try:
         export_community_data(
