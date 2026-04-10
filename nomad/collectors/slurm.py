@@ -723,6 +723,42 @@ class SlurmCollector(BaseCollector):
                         )
                     )
 
+            # Clean up stale RUNNING jobs that are no longer in squeue.
+            # When a job finishes between collection cycles, it disappears
+            # from squeue but stays as RUNNING in the DB. Mark these as
+            # COMPLETED so counts stay accurate. The sacct collector will
+            # later update them with the real exit code/state.
+            current_running = set()
+            for record in data:
+                if (record.get('type') == 'job'
+                        and record.get('state') in ('RUNNING', 'PENDING')):
+                    current_running.add(str(record['job_id']))
+
+            if current_running:
+                # Find DB jobs marked RUNNING that are no longer in squeue
+                try:
+                    stale_rows = conn.execute(
+                        "SELECT job_id FROM jobs WHERE state IN ('RUNNING', 'PENDING')"
+                    ).fetchall()
+                    stale_ids = [
+                        r['job_id'] for r in stale_rows
+                        if str(r['job_id']) not in current_running
+                    ]
+                    if stale_ids:
+                        placeholders = ','.join('?' for _ in stale_ids)
+                        conn.execute(
+                            f"UPDATE jobs SET state='COMPLETED',"
+                            f" end_time=datetime('now')"
+                            f" WHERE job_id IN ({placeholders})",
+                            stale_ids
+                        )
+                        conn.commit()
+                        logger.info(
+                            f"Marked {len(stale_ids)} stale jobs"
+                            f" as COMPLETED (no longer in squeue)")
+                except Exception as e:
+                    logger.warning(f"Failed to clean stale jobs: {e}")
+
             conn.commit()
             logger.debug(f"Stored {len(data)} SLURM records")
 

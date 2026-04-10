@@ -3005,8 +3005,10 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     lines.append(f'data_dir = "{data_dir}"')
     lines.append("")
 
+    # Name database after primary cluster
+    db_name = clusters[0]["name"].lower().replace(" ", "_") if clusters else "nomad"
     lines.append("[database]")
-    lines.append("# Database stored as nomad.db in data_dir")
+    lines.append(f'path = "{db_name}.db"')
     lines.append("")
 
     # Collector feature flags
