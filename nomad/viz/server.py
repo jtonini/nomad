@@ -574,6 +574,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 5000) -> list:
             rows = conn.execute("""
                 SELECT 
                     j.job_id,
+                    j.user_name,
                     j.state,
                     j.partition,
                     j.runtime_seconds,
@@ -646,6 +647,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 5000) -> list:
 
                     jobs.append({
                         "job_id": job_id,
+                        "user_name": row['user_name'] or '—',
                         "state": row['state'],
                         "partition": row['partition'],
                         "success": row['state'] == 'COMPLETED',
@@ -5079,6 +5081,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <span style="background: ${stateColor}22; color: ${stateColor}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">${stateLabel}</span>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 10px;">
+                            <div><span style="color: #8b949e;">User:</span> ${job.user_name || '—'}</div>
                             <div><span style="color: #8b949e;">Partition:</span> ${job.partition || '—'}</div>
                             <div><span style="color: #8b949e;">Runtime:</span> ${formatValue(job.runtime_sec)}s</div>
                             <div><span style="color: #8b949e;">Wait:</span> ${formatValue(job.wait_time_sec)}s</div>
