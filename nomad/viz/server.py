@@ -363,7 +363,8 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                             SELECT username, COUNT(*) as job_count
                             FROM job_accounting
                             WHERE node_list LIKE ?
-                            AND end_time > datetime('now', '-1 day')
+                            AND (end_time > datetime('now', '-1 day')
+                                 OR end_time IS NULL)
                             GROUP BY username
                             ORDER BY job_count DESC
                             LIMIT 5
@@ -378,7 +379,8 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                                 SELECT user_name as username, COUNT(*) as job_count
                                 FROM jobs
                                 WHERE node_list LIKE ?
-                                AND end_time > datetime('now', '-1 day')
+                                AND (state = 'RUNNING' OR state = 'PENDING'
+                                     OR end_time > datetime('now', '-1 day'))
                                 GROUP BY user_name
                                 ORDER BY job_count DESC
                                 LIMIT 5
@@ -4200,10 +4202,18 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
         function ClusterView({ cluster, nodes, selectedNode, onSelectNode }) {
             const stats = useMemo(() => {
                 const online = nodes.filter(n => n.status === 'online');
-                const runningJobs = online.reduce((sum, n) => sum + (n.jobs_running || 0), 0);
-                const pendingJobs = online.reduce((sum, n) => sum + (n.jobs_pending || 0), 0);
-                const successJobs = online.reduce((sum, n) => sum + (n.jobs_success || 0), 0);
-                const failedJobs = online.reduce((sum, n) => sum + (n.jobs_failed || 0), 0);
+                // Deduplicate nodes (same node appears in multiple partitions)
+                const seen = new Set();
+                let runningJobs = 0, pendingJobs = 0, successJobs = 0, failedJobs = 0;
+                online.forEach(n => {
+                    if (!seen.has(n.name)) {
+                        seen.add(n.name);
+                        runningJobs += (n.jobs_running || 0);
+                        pendingJobs += (n.jobs_pending || 0);
+                        successJobs += (n.jobs_success || 0);
+                        failedJobs += (n.jobs_failed || 0);
+                    }
+                });
                 const totalCompleted = successJobs + failedJobs;
                 const avgSuccess = totalCompleted > 0
                     ? successJobs / totalCompleted
@@ -4443,8 +4453,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <div className="detail-section">
                                 <div className="detail-section-title">Job Statistics</div>
                                 <div className="detail-row">
-                                    <span className="detail-label">Jobs Today</span>
-                                    <span className="detail-value">{node.jobs_today || 0}</span>
+                                    <span className="detail-label">Running</span>
+                                    <span className="detail-value" style={{color: "#3b82f6"}}>{node.jobs_running || 0}</span>
+                                </div>
+                                <div className="detail-row">
+                                    <span className="detail-label">Pending</span>
+                                    <span className="detail-value" style={{color: "#f59e0b"}}>{node.jobs_pending || 0}</span>
                                 </div>
                                 <div className="detail-row">
                                     <span className="detail-label">Succeeded</span>
