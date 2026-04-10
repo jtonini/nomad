@@ -164,8 +164,11 @@ def load_clusters_from_db(db_path: Path) -> dict:
                     node = row['node_name']
                     cluster = row['cluster'] or 'default'
                     partitions = row['partitions'] or 'default'
-                    primary_partition = partitions.split(',')[0]
-                    cluster_data[cluster][primary_partition].append(node)
+                    # Strip SLURM asterisks and assign node to ALL its partitions
+                    for part in partitions.split(','):
+                        part = part.strip().rstrip('*')
+                        if part:
+                            cluster_data[cluster][part].append(node)
 
                     if row['gres'] and 'gpu' in row['gres'].lower():
                         gpu_nodes.add(node)
@@ -255,8 +258,11 @@ def load_clusters_from_db(db_path: Path) -> dict:
                     node = row["hostname"]
                     cluster_name = row["cluster"] or "default"
                     partitions = row["partition"] or "default"
-                    primary_part = partitions.split(",")[0]
-                    partition_node_map[cluster_name][primary_part].append(node)
+                    # Assign node to ALL its partitions, strip asterisks
+                    for part in partitions.split(","):
+                        part = part.strip().rstrip("*")
+                        if part:
+                            partition_node_map[cluster_name][part].append(node)
 
                 for cluster_name, nodes in cluster_nodes.items():
                     cluster_id = cluster_name.lower().replace(" ", "-")
@@ -4335,7 +4341,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                         </div>
                                         <div className="partition-stats">
                                             <span className="partition-jobs">
-                                                {totalJobs} jobs  <span style={{color: '#22c55e'}}>{okJobs} ok</span>  <span style={{color: '#ef4444'}}>{failJobs} fail</span>
+                                                {totalRunning > 0 ? <><span style={{color: '#3b82f6'}}>{totalRunning} running</span>{'  '}</> : ''}{okJobs > 0 ? <><span style={{color: '#22c55e'}}>{okJobs} ok</span>{'  '}</> : ''}{failJobs > 0 ? <span style={{color: '#ef4444'}}>{failJobs} fail</span> : ''}{totalRunning === 0 && okJobs === 0 && failJobs === 0 ? '0 jobs' : ''}
                                             </span>
                                         </div>
                                         <div className="partition-bars">

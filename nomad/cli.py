@@ -1873,22 +1873,47 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
                 click.echo(click.style(
                     f"found {len(detected)}", fg="green"))
                 click.echo()
-                for p in detected:
-                    click.echo(f"    • {p}")
+                for i, p in enumerate(detected, 1):
+                    click.echo(f"    {i}) {p}")
                 click.echo()
                 use_all = click.confirm(
-                    "  Monitor all of these partitions?", default=True)
+                    "  Monitor all of these partitions?",
+                    default=True)
                 if use_all:
                     chosen = detected
                 else:
                     click.echo()
-                    click.echo("  Type the partition names you want,")
-                    click.echo("  separated by commas:")
-                    chosen_str = click.prompt(
+                    click.echo(
+                        "  Type the numbers of the partitions")
+                    click.echo(
+                        "  you want, separated by commas.")
+                    click.echo(
+                        f"  (e.g., 1,2 for"
+                        f" {detected[0]} and"
+                        f" {detected[1] if len(detected) > 1 else detected[0]})")
+                    click.echo()
+                    sel_str = click.prompt(
                         "  Partitions",
-                        default=', '.join(detected))
-                    chosen = [p.strip() for p in chosen_str.split(',')
-                              if p.strip()]
+                        default=','.join(
+                            str(i) for i in
+                            range(1, len(detected) + 1)))
+                    chosen = []
+                    for part in sel_str.split(','):
+                        part = part.strip()
+                        # Accept numbers or names
+                        try:
+                            idx = int(part) - 1
+                            if 0 <= idx < len(detected):
+                                chosen.append(detected[idx])
+                        except ValueError:
+                            if part in detected:
+                                chosen.append(part)
+                    if not chosen:
+                        click.echo(click.style(
+                            "  No valid selection,"
+                            " using all partitions.",
+                            fg="yellow"))
+                        chosen = detected
             else:
                 click.echo(click.style(
                     "could not auto-detect", fg="yellow"))
@@ -2131,7 +2156,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     saved = load_state()
     resume = False
 
-    if saved and not quick:
+    if saved and not quick and not force:
         from datetime import datetime as dt
         try:
             ts = dt.fromisoformat(saved['_timestamp'])
@@ -2245,8 +2270,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
         else:
             # Step 1: Connection mode
             click.echo(click.style(
-                "  Step 1: Connection Mode",
-                fg="green", bold=True))
+                "  ━━ Step 1: Connection Mode ━━",
+                fg="cyan", bold=True))
             click.echo()
             click.echo("  Where is NØMAD running?")
             click.echo()
@@ -2447,7 +2472,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
 
             # Step 2: Number of clusters
             click.echo(click.style(
-                "  Step 2: Clusters", fg="green", bold=True))
+                "  ━━ Step 2: Clusters ━━", fg="cyan", bold=True))
             click.echo()
             click.echo(
                 "  How many HPC clusters or workstation groups"
@@ -2926,7 +2951,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
 
         # ── Alerts ───────────────────────────────────────────────────
         click.echo(click.style(
-            "  Step 3: Alerts", fg="green", bold=True))
+            "  ━━ Step 3: Alerts ━━", fg="cyan", bold=True))
         click.echo()
         click.echo(
             "  NØMAD can send you email alerts when something"
@@ -2950,7 +2975,7 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
 
         # ── Dashboard ────────────────────────────────────────────────
         click.echo(click.style(
-            "  Step 4: Dashboard", fg="green", bold=True))
+            "  ━━ Step 4: Dashboard ━━", fg="cyan", bold=True))
         click.echo()
         click.echo(
             "  The NØMAD dashboard is a web page you open in"
@@ -3096,6 +3121,13 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
         lines.append(f'name = "{cluster["name"]}"')
         lines.append(
             f'type = "{cluster.get("type", "hpc")}"')
+
+        # SSH user for accessing compute nodes (e.g., root)
+        if cluster.get("type") == "hpc":
+            lines.append(
+                '# SSH user for compute nodes'
+                ' (if different from current user)')
+            lines.append('# node_ssh_user = "root"')
 
         if cluster.get("mode") == "remote":
             if cluster.get("host"):
