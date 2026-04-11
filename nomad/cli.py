@@ -3461,13 +3461,11 @@ def sync(ctx, config_file, output, dry_run):
 
         click.echo(f"  {name}: ", nl=False)
 
-        scp_base = ["scp", "-o", "ConnectTimeout=10",
-                     "-o", "BatchMode=yes"]
+        scp_cmd = ["scp", "-o", "ConnectTimeout=10",
+                   "-o", "BatchMode=yes"]
         if ssh_key:
-            scp_base += ["-i", ssh_key]
-
-        # Copy main DB + WAL/SHM files (WAL-mode databases need all three)
-        scp_cmd = scp_base + [
+            scp_cmd += ["-i", ssh_key]
+        scp_cmd += [
             f"{user}@{host}:{remote_db}",
             str(local_copy)]
 
@@ -3475,14 +3473,13 @@ def sync(ctx, config_file, output, dry_run):
             result = sp.run(scp_cmd, capture_output=True,
                             text=True, timeout=60)
 
-            # Also try to copy WAL and SHM (may not exist if not in WAL mode)
+            # Remove any stale WAL/SHM files from previous syncs
+            # (these contain lock state from remote collectors)
             if result.returncode == 0:
                 for suffix in ["-wal", "-shm"]:
-                    sp.run(
-                        scp_base + [
-                            f"{user}@{host}:{remote_db}{suffix}",
-                            str(local_copy) + suffix],
-                        capture_output=True, text=True, timeout=30)
+                    stale = Path(str(local_copy) + suffix)
+                    if stale.exists():
+                        stale.unlink()
             if result.returncode == 0:
                 size_mb = local_copy.stat().st_size / (1024 * 1024)
                 click.echo(click.style(
