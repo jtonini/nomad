@@ -3508,23 +3508,24 @@ def sync(ctx, config_file, output, dry_run):
         "  Phase 2: Merging databases", bold=True))
     click.echo()
 
-    # Tables that need a source_site column added during merge
+    # Tables that get a source_site column during merge.
+    # Every data table gets tagged so the dashboard can filter by site.
     NEEDS_SITE_COL = {
         'filesystems', 'queue_state',
         'iostat_cpu', 'iostat_device',
         'mpstat_core', 'mpstat_summary',
         'vmstat', 'nfs_stats',
-    }
-
-    # Tables that already have cluster/hostname disambiguation
-    SAFE_TABLES = {
         'jobs', 'job_summary', 'job_metrics', 'node_state',
         'gpu_stats', 'workstation_state', 'group_membership',
-        'job_accounting', 'alerts', 'cloud_metrics',
+        'job_accounting', 'alert_history',
         'interactive_sessions', 'interactive_summary',
         'interactive_servers', 'network_perf',
         'storage_state', 'proficiency_scores',
+        'collector_runs',
     }
+
+    # No longer needed — all tables get source_site
+    SAFE_TABLES = set()
 
     # Schema-only tables (don't merge data)
     SKIP_TABLES = {

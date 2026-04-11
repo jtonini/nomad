@@ -149,10 +149,15 @@ def load_clusters_from_db(db_path: Path) -> dict:
         # Try NOMAD's node_state table first
         try:
             rows = conn.execute("""
-                SELECT DISTINCT node_name, partitions, gres,
-                       COALESCE(cluster, 'default') as cluster
-                FROM node_state
-                WHERE timestamp = (SELECT MAX(timestamp) FROM node_state)
+                SELECT DISTINCT ns.node_name, ns.partitions, ns.gres,
+                       COALESCE(ns.cluster, 'default') as cluster
+                FROM node_state ns
+                INNER JOIN (
+                    SELECT cluster, MAX(timestamp) as max_ts
+                    FROM node_state
+                    GROUP BY cluster
+                ) latest ON ns.cluster = latest.cluster
+                    AND ns.timestamp = latest.max_ts
             """).fetchall()
 
             if rows:
@@ -187,6 +192,40 @@ def load_clusters_from_db(db_path: Path) -> dict:
                         "type": "gpu" if all_nodes and all(n in gpu_nodes for n in all_nodes) else "cpu",
                         "partitions": {p: sorted(ns) for p, ns in part_map.items()},
                     }
+
+                # Also detect non-SLURM clusters from source_site
+                # (e.g., spiderweb has no node_state but has data
+                # in other tables with source_site column)
+                try:
+                    site_tables = [
+                        "filesystems", "iostat_cpu",
+                        "interactive_sessions"]
+                    known_clusters = set(clusters.keys())
+                    for st in site_tables:
+                        try:
+                            sites = conn.execute(
+                                f"SELECT DISTINCT source_site"
+                                f" FROM {st}"
+                                f" WHERE source_site IS NOT NULL"
+                            ).fetchall()
+                            for (site,) in sites:
+                                site_id = site.lower().replace(
+                                    " ", "-")
+                                if site_id not in known_clusters:
+                                    clusters[site_id] = {
+                                        "name": site,
+                                        "description":
+                                            "Workstation/server",
+                                        "nodes": [],
+                                        "gpu_nodes": [],
+                                        "type": "workstation",
+                                        "partitions": {},
+                                    }
+                                    known_clusters.add(site_id)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
                 conn.close()
                 return clusters
@@ -297,12 +336,20 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
         try:
             rows = conn.execute("""
                 SELECT 
-                    node_name, state, cpus_total, cpus_alloc, cpu_load,
-                    memory_total_mb, memory_alloc_mb, memory_free_mb,
-                    cpu_alloc_percent, memory_alloc_percent,
-                    partitions, reason, gres, is_healthy
-                FROM node_state
-                WHERE timestamp = (SELECT MAX(timestamp) FROM node_state)
+                    ns.node_name, ns.state, ns.cpus_total, ns.cpus_alloc,
+                    ns.cpu_load,
+                    ns.memory_total_mb, ns.memory_alloc_mb,
+                    ns.memory_free_mb,
+                    ns.cpu_alloc_percent, ns.memory_alloc_percent,
+                    ns.partitions, ns.reason, ns.gres, ns.is_healthy,
+                    COALESCE(ns.cluster, 'default') as cluster
+                FROM node_state ns
+                INNER JOIN (
+                    SELECT cluster, MAX(timestamp) as max_ts
+                    FROM node_state
+                    GROUP BY cluster
+                ) latest ON ns.cluster = latest.cluster
+                    AND ns.timestamp = latest.max_ts
             """).fetchall()
 
             if rows:
