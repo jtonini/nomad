@@ -2299,6 +2299,11 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             --red-muted: #da3633;
             --cyan: #58a6ff;
             --purple: #a371f7;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #0f172a;
+            --input-bg: #1e293b;
+            --input-border: #334155;
+            --btn-text: #e2e8f0;
         }
         /* Light theme - toggle with button in header */
         .light-theme {
@@ -2315,6 +2320,11 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             --red: #b91c1c;
             --cyan: #0077a0;
             --purple: #6b21a8;
+            --bg-secondary: #f0f2f5;
+            --bg-tertiary: #e8eaed;
+            --input-bg: #ffffff;
+            --input-border: #c0c6cc;
+            --btn-text: #1a1a1a;
         }
         .light-theme .logo > span {
             color: #00BACF !important;
@@ -3415,10 +3425,10 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 const maxCount = cats.length ? cats[0][1] : 1;
                 const colors = ['#00BACF','#3b82f6','#8b5cf6','#B64326','#22c55e','#f59e0b','#ef4444','#64748b'];
                 const divBars = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
-                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'Workload Composition'),
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: 'var(--btn-text)', marginBottom: 12}}, 'Workload Composition'),
                     ...cats.map(([name, count], i) => React.createElement('div', {key: name, style: {display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6}},
                         React.createElement('span', {style: {width: 80, fontSize: 12, color: '#94a3b8', textAlign: 'right', flexShrink: 0}}, name),
-                        React.createElement('div', {style: {flex: 1, height: 18, background: '#1e293b', borderRadius: 4, overflow: 'hidden'}},
+                        React.createElement('div', {style: {flex: 1, height: 18, background: 'var(--bg-secondary)', borderRadius: 4, overflow: 'hidden'}},
                             React.createElement('div', {style: {width: (count/maxCount*100)+'%', height: '100%', background: colors[i%colors.length], borderRadius: 4, opacity: 0.8}})
                         ),
                         React.createElement('span', {style: {width: 50, fontSize: 11, color: '#64748b', textAlign: 'right'}}, count + ' jobs')
@@ -3427,13 +3437,13 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 // Capacity bars
                 const dims = (cap.dimensions || []).sort((a,b) => b.current_utilization - a.current_utilization);
                 const capBars = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
-                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'Carrying Capacity — ' + (cap.overall_pressure || '').toUpperCase()),
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: 'var(--btn-text)', marginBottom: 12}}, 'Carrying Capacity — ' + (cap.overall_pressure || '').toUpperCase()),
                     ...dims.map(d => {
                         const pct = (d.current_utilization * 100).toFixed(1);
                         const col = d.is_binding ? '#ef4444' : d.current_utilization > 0.75 ? '#f59e0b' : '#00BACF';
                         return React.createElement('div', {key: d.dimension, style: {display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6}},
                             React.createElement('span', {style: {width: 100, fontSize: 12, color: '#94a3b8', textAlign: 'right', flexShrink: 0}}, d.label + (d.is_binding ? ' ←' : '')),
-                            React.createElement('div', {style: {flex: 1, height: 18, background: '#1e293b', borderRadius: 4, overflow: 'hidden'}},
+                            React.createElement('div', {style: {flex: 1, height: 18, background: 'var(--bg-secondary)', borderRadius: 4, overflow: 'hidden'}},
                                 React.createElement('div', {style: {width: pct+'%', height: '100%', background: col, borderRadius: 4, opacity: 0.8}})
                             ),
                             React.createElement('span', {style: {width: 45, fontSize: 11, color: col, textAlign: 'right', fontFamily: 'monospace'}}, pct + '%')
@@ -3444,7 +3454,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 const names = (niche.profiles || []).map(p => p.name);
                 const matrix = niche.overlap_matrix || {};
                 const nicheTable = names.length > 0 ? React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16, overflowX: 'auto'}},
-                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'Niche Overlap Matrix'),
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: 'var(--btn-text)', marginBottom: 12}}, 'Niche Overlap Matrix'),
                     React.createElement('table', {style: {fontSize: 11, borderCollapse: 'collapse', width: '100%'}},
                         React.createElement('thead', null,
                             React.createElement('tr', null,
@@ -3456,7 +3466,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             ...names.map(row => React.createElement('tr', {key: row},
                                 React.createElement('td', {style: {padding: '4px 8px', color: '#94a3b8'}}, row.slice(0,10)),
                                 ...names.map(col => {
-                                    if (row === col) return React.createElement('td', {key: col, style: {padding: '4px 6px', textAlign: 'center', color: '#334155'}}, '—');
+                                    if (row === col) return React.createElement('td', {key: col, style: {padding: '4px 6px', textAlign: 'center', color: 'var(--text-muted)'}}, '—');
                                     const val = matrix[row+'|'+col];
                                     const bg = val >= 0.8 ? 'rgba(239,68,68,0.25)' : val >= 0.6 ? 'rgba(245,158,11,0.15)' : 'transparent';
                                     return React.createElement('td', {key: col, style: {padding: '4px 6px', textAlign: 'center', fontFamily: 'monospace', background: bg}}, val !== undefined ? val.toFixed(2) : '—');
@@ -3467,7 +3477,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 ) : null;
                 // Resilience
                 const resCard = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
-                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'System Resilience'),
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: 'var(--btn-text)', marginBottom: 12}}, 'System Resilience'),
                     React.createElement('div', {style: {display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12}},
                         React.createElement('div', null,
                             React.createElement('div', {style: {fontSize: 11, color: '#94a3b8', textTransform: 'uppercase'}}, 'Score'),
@@ -3485,9 +3495,9 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 );
                 // Externality edges
                 const extCard = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
-                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 12}}, 'Inter-Group Externalities'),
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: 'var(--btn-text)', marginBottom: 12}}, 'Inter-Group Externalities'),
                     React.createElement('div', {style: {fontSize: 12, color: '#94a3b8', marginBottom: 8}}, ext.summary || 'No data'),
-                    ...(ext.edges || []).slice(0, 8).map((e, i) => React.createElement('div', {key: i, style: {display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b'}},
+                    ...(ext.edges || []).slice(0, 8).map((e, i) => React.createElement('div', {key: i, style: {display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)'}},
                         React.createElement('span', {style: {fontSize: 12}},
                             React.createElement('span', {style: {color: '#ef4444'}}, e.source_group),
                             ' → ',
@@ -3561,18 +3571,18 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 };
 
                 const cs = {
-                    card: {background:'#0f172a', border:'1px solid #1e293b', borderRadius:8, padding:16, marginBottom:12},
+                    card: {background:'var(--bg-tertiary)', border:'1px solid var(--border)', borderRadius:8, padding:16, marginBottom:12},
                     label: {fontSize:12, color:'#94a3b8', marginBottom:4, display:'block'},
-                    input: {width:'100%', padding:'8px 12px', background:'#1e293b', border:'1px solid #334155',
-                            borderRadius:6, color:'#e2e8f0', fontSize:13, fontFamily:'inherit', boxSizing:'border-box'},
-                    textarea: {width:'100%', padding:'8px 12px', background:'#1e293b', border:'1px solid #334155',
-                               borderRadius:6, color:'#e2e8f0', fontSize:13, fontFamily:'inherit',
+                    input: {width:'100%', padding:'8px 12px', background:'var(--bg-secondary)', border:'1px solid var(--input-border)',
+                            borderRadius:6, color:'var(--btn-text)', fontSize:13, fontFamily:'inherit', boxSizing:'border-box'},
+                    textarea: {width:'100%', padding:'8px 12px', background:'var(--bg-secondary)', border:'1px solid var(--input-border)',
+                               borderRadius:6, color:'var(--btn-text)', fontSize:13, fontFamily:'inherit',
                                minHeight:80, resize:'vertical', boxSizing:'border-box'},
-                    select: {padding:'8px 12px', background:'#1e293b', border:'1px solid #334155',
-                             borderRadius:6, color:'#e2e8f0', fontSize:13},
+                    select: {padding:'8px 12px', background:'var(--bg-secondary)', border:'1px solid var(--input-border)',
+                             borderRadius:6, color:'var(--btn-text)', fontSize:13},
                     btn: {padding:'8px 16px', borderRadius:6, border:'none', cursor:'pointer', fontSize:13, fontWeight:600},
-                    catBtn: (active) => ({padding:'10px 16px', borderRadius:6, border: active ? '2px solid #3b82f6' : '1px solid #334155',
-                        background: active ? '#1e3a5f' : '#0f172a', color: active ? '#93c5fd' : '#94a3b8',
+                    catBtn: (active) => ({padding:'10px 16px', borderRadius:6, border: active ? '2px solid var(--cyan)' : '1px solid var(--input-border)',
+                        background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)', color: active ? '#93c5fd' : '#94a3b8',
                         cursor:'pointer', fontSize:13, flex:1, textAlign:'center'}),
                 };
 
@@ -3584,7 +3594,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             React.createElement('a', {href:result.url, target:'_blank', style:{color:'#93c5fd', fontSize:13}}, result.url),
                             React.createElement('div', {style:{marginTop:16}},
                                 React.createElement('button', {onClick:()=>{setResult(null);setTitle('');setDescription('');setSteps('');setExpected('');setActual('');setDuplicates([]);},
-                                    style:{...cs.btn, background:'#1e293b', color:'#e2e8f0'}}, 'Report Another Issue')
+                                    style:{...cs.btn, background:'var(--bg-secondary)', color:'var(--btn-text)'}}, 'Report Another Issue')
                             )
                         )
                     );
@@ -3616,7 +3626,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     // Duplicates
                     duplicates.length > 0 ? React.createElement('div', {style:{...cs.card, borderColor:'#f59e0b'}},
                         React.createElement('div', {style:{fontSize:13, fontWeight:600, color:'#f59e0b', marginBottom:8}}, 'Similar open issues found:'),
-                        ...duplicates.map(d => React.createElement('div', {key:d.number, style:{padding:'6px 0', borderBottom:'1px solid #1e293b'}},
+                        ...duplicates.map(d => React.createElement('div', {key:d.number, style:{padding:'6px 0', borderBottom:'1px solid var(--border)'}},
                             React.createElement('a', {href:d.url, target:'_blank', style:{color:'#93c5fd', fontSize:13}},
                                 '#' + d.number + ': ' + d.title),
                             React.createElement('span', {style:{fontSize:11, color:'#64748b', marginLeft:8}},
@@ -3667,10 +3677,10 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     // Submit buttons
                     React.createElement('div', {style:{display:'flex', gap:8, marginTop:8}},
                         React.createElement('button', {onClick:handleSubmit, disabled:submitting || !title,
-                            style:{...cs.btn, background: title ? '#3b82f6' : '#334155', color:'#fff', flex:1}},
+                            style:{...cs.btn, background: title ? '#3b82f6' : 'var(--input-border)', color:'#fff', flex:1}},
                             submitting ? 'Submitting...' : 'Submit Issue'),
                         React.createElement('button', {onClick:openBrowser, disabled:!title,
-                            style:{...cs.btn, background:'#1e293b', color:'#e2e8f0'}}, 'Open in GitHub')
+                            style:{...cs.btn, background:'var(--bg-secondary)', color:'var(--btn-text)'}}, 'Open in GitHub')
                     ),
 
                     // Error display
@@ -3870,7 +3880,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 ),
                                 React.createElement("p", {style: {fontSize: "13px", lineHeight: 1.5, margin: "0 0 8px 0"}}, ins.narrative),
                                 ins.recommendation && React.createElement("div", {style: {
-                                    fontSize: "12px", opacity: 0.7, borderTop: "1px solid var(--border-color, #334155)",
+                                    fontSize: "12px", opacity: 0.7, borderTop: "1px solid var(--border)",
                                     paddingTop: "8px", marginTop: "4px"
                                 }}, "Recommendation: " + ins.recommendation)
                             )
