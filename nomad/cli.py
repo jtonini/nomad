@@ -3625,8 +3625,8 @@ def sync(ctx, config_file, output, dry_run):
                     f"SELECT changes()").fetchone()[0]
                 site_records += count
 
-            combined.execute("DETACH DATABASE source")
             combined.commit()
+            combined.execute("DETACH DATABASE source")
             total_records += site_records
             click.echo(click.style(
                 f"OK ({site_records:,} records)", fg="green"))
