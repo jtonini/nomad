@@ -193,6 +193,54 @@ def load_clusters_from_db(db_path: Path) -> dict:
                         "partitions": {p: sorted(ns) for p, ns in part_map.items()},
                     }
 
+                # Filter partitions using sync_sites metadata
+                try:
+                    sync_rows = conn.execute(
+                        "SELECT name, partitions, cluster_type"
+                        " FROM sync_sites"
+                    ).fetchall()
+                    sync_meta = {
+                        r[0]: {
+                            "partitions": [
+                                p.strip() for p in
+                                (r[1] or "").split(",")
+                                if p.strip()
+                            ],
+                            "type": r[2] or "hpc",
+                        }
+                        for r in sync_rows
+                    }
+                    # Filter each cluster's partitions
+                    for cid, cdata in list(
+                            clusters.items()):
+                        cname = cdata.get("name", cid)
+                        meta = (sync_meta.get(cname)
+                                or sync_meta.get(cid))
+                        if meta and meta["partitions"]:
+                            allowed = set(
+                                meta["partitions"])
+                            filtered = {
+                                p: ns for p, ns
+                                in cdata.get(
+                                    "partitions",
+                                    {}).items()
+                                if p in allowed
+                            }
+                            cdata["partitions"] =\
+                                filtered
+                            # Update node list to
+                            # only include filtered
+                            all_ns = set()
+                            for pns in filtered.values():
+                                all_ns.update(pns)
+                            cdata["nodes"] = sorted(
+                                all_ns)
+                        if meta:
+                            cdata["type"] = meta[
+                                "type"]
+                except Exception:
+                    pass  # No sync_sites table
+
                 # Also detect non-SLURM clusters from source_site
                 # (e.g., spiderweb has no node_state but has data
                 # in other tables with source_site column)

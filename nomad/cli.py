@@ -3503,6 +3503,53 @@ def sync(ctx, config_file, output, dry_run):
 
     click.echo()
 
+    # Phase 1b: Pull site configs (for partition metadata)
+    site_configs = {}
+    for site in sites:
+        name = site.get('name', 'unknown')
+        host = site.get('host', 'localhost')
+        user = site.get('user', '')
+        ssh_key = site.get('ssh_key')
+        # Derive config path from user's home
+        if user == 'root':
+            remote_toml = '/root/.config/nomad/nomad.toml'
+        else:
+            remote_toml = f'/home/{user}/.config/nomad/nomad.toml'
+        local_toml = cache_dir / f'{name}.toml'
+        toml_cmd = ['scp', '-o', 'ConnectTimeout=5',
+                    '-o', 'BatchMode=yes']
+        if ssh_key:
+            toml_cmd += ['-i', ssh_key]
+        toml_cmd += [f'{user}@{host}:{remote_toml}',
+                     str(local_toml)]
+        try:
+            r = sp.run(toml_cmd, capture_output=True,
+                       text=True, timeout=15)
+            if r.returncode == 0 and local_toml.exists():
+                with open(local_toml) as f:
+                    cfg = toml_lib.load(f)
+                partitions = (cfg.get('collectors', {})
+                              .get('slurm', {})
+                              .get('partitions', []))
+                filesystems = (cfg.get('collectors', {})
+                               .get('disk', {})
+                               .get('filesystems', []))
+                cluster_type = 'hpc'
+                for cn, cv in cfg.get('clusters', {}).items():
+                    ct = cv.get('type', 'hpc')
+                    if ct in ('workstations', 'workstation'):
+                        cluster_type = 'workstation'
+                    break
+                site_configs[name] = {
+                    'partitions': ','.join(partitions)
+                        if partitions else '',
+                    'filesystems': ','.join(filesystems)
+                        if filesystems else '',
+                    'cluster_type': cluster_type,
+                }
+        except Exception:
+            pass
+
     # Phase 2: Merge into combined database
     click.echo(click.style(
         "  Phase 2: Merging databases", bold=True))
@@ -3638,6 +3685,35 @@ def sync(ctx, config_file, output, dry_run):
                 combined.execute("DETACH DATABASE source")
             except Exception:
                 pass
+
+    # Write sync_sites metadata table
+    if site_configs:
+        try:
+            combined.execute(
+                'CREATE TABLE IF NOT EXISTS sync_sites ('
+                '  name TEXT PRIMARY KEY,'
+                '  partitions TEXT,'
+                '  filesystems TEXT,'
+                '  cluster_type TEXT,'
+                '  synced_at TEXT'
+                ')'
+            )
+            combined.execute('DELETE FROM sync_sites')
+            from datetime import datetime
+            now = datetime.now().isoformat()
+            for sname, smeta in site_configs.items():
+                combined.execute(
+                    'INSERT OR REPLACE INTO sync_sites '
+                    '(name, partitions, filesystems, '
+                    ' cluster_type, synced_at) '
+                    'VALUES (?, ?, ?, ?, ?)',
+                    (sname, smeta['partitions'],
+                     smeta['filesystems'],
+                     smeta['cluster_type'], now)
+                )
+            combined.commit()
+        except Exception:
+            pass
 
     combined.close()
 
