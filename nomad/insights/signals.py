@@ -1109,40 +1109,9 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
                     suffix=".db", delete=False)
                 tmp.close()
                 tmp_path = Path(tmp.name)
-                src = _get_conn(db_path)
                 dst = sqlite3.connect(str(tmp_path))
-                # Copy jobs for this site
-                dst.execute(
-                    "CREATE TABLE jobs AS"
-                    " SELECT * FROM ("
-                    "  SELECT * FROM jobs WHERE 0)"
-                )
-                # Get column names
-                cols = [r[1] for r in src.execute(
-                    "PRAGMA table_info(jobs)"
-                ).fetchall()]
-                col_list = ", ".join(cols)
-                placeholders = ", ".join(
-                    ["?"] * len(cols))
-                rows = src.execute(
-                    f"SELECT {col_list} FROM jobs"
-                    f" WHERE source_site = ?",
-                    (site,)
-                ).fetchall()
-                if rows:
-                    dst.execute(
-                        "DROP TABLE IF EXISTS jobs")
-                    dst.execute(
-                        f"CREATE TABLE jobs"
-                        f" AS SELECT * FROM("
-                        f"  SELECT {col_list}"
-                        f"  FROM jobs WHERE 0)"
-                    )
-                    # Actually just copy with INSERT
-                    src2 = sqlite3.connect(str(db_path))
-                    dst.execute("DROP TABLE IF EXISTS jobs")
-                    dst.execute("ATTACH DATABASE ? AS src",
-                                (str(db_path),))
+                dst.execute("ATTACH DATABASE ? AS src",
+                            (str(db_path),))
                     dst.execute(
                         "CREATE TABLE jobs AS"
                         " SELECT * FROM src.jobs"
