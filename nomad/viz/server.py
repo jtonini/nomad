@@ -6538,7 +6538,119 @@ def query_resource_footprint(db_path, cluster='all', group='all', days=30):
         'totals': {'cpu_hours': 0, 'gpu_hours': 0, 'jobs': 0, 'users': 0},
         'filters': {'clusters': [], 'groups': []},
     }
-    if 'job_accounting' not in tables:
+    if 'job_accounting' not in tables or (
+            'job_accounting' in tables and
+            c.execute('SELECT COUNT(*) FROM job_accounting'
+                      ).fetchone()[0] < 5):
+        # Fallback: compute from jobs table
+        if 'jobs' in tables:
+            try:
+                where_j = ['end_time >= ?']
+                params_j = [start]
+                if cluster != 'all':
+                    where_j.append(
+                        "source_site = ?")
+                    params_j.append(cluster)
+                c.execute("""
+                    SELECT user_name as username,
+                        COALESCE(source_site, 'unknown')
+                            as cluster,
+                        SUM(CASE WHEN req_gpus > 0
+                            THEN runtime_seconds/3600.0
+                            ELSE 0 END) as gpu_hours,
+                        SUM(CASE WHEN req_gpus = 0
+                                      OR req_gpus IS NULL
+                            THEN req_cpus *
+                                 runtime_seconds/3600.0
+                            ELSE 0 END) as cpu_hours,
+                        COUNT(*) as jobs
+                    FROM jobs
+                    WHERE """ + ' AND '.join(where_j)
+                    + ' GROUP BY username, cluster',
+                    params_j)
+                user_rows = c.fetchall()
+                grp_map = {}
+                if 'group_membership' in tables:
+                    c.execute(
+                        'SELECT username, group_name'
+                        ' FROM group_membership')
+                    for row in c.fetchall():
+                        grp_map.setdefault(
+                            row['username'], []
+                        ).append(row['group_name'])
+                users = []
+                for row in user_rows:
+                    u = row['username']
+                    ugroups = grp_map.get(u, [])
+                    if group != 'all' and \
+                            group not in ugroups:
+                        continue
+                    users.append({
+                        'username': u,
+                        'cluster': row['cluster'],
+                        'cpu_hours': round(
+                            row['cpu_hours'] or 0, 1),
+                        'gpu_hours': round(
+                            row['gpu_hours'] or 0, 1),
+                        'jobs': row['jobs'],
+                        'groups': ugroups,
+                    })
+                gtotals = {}
+                for u in users:
+                    for g in u['groups']:
+                        if g not in gtotals:
+                            gtotals[g] = {
+                                'name': g,
+                                'cpu_hours': 0,
+                                'gpu_hours': 0,
+                                'jobs': 0,
+                                'users': set()}
+                        gtotals[g]['cpu_hours'] += \
+                            u['cpu_hours']
+                        gtotals[g]['gpu_hours'] += \
+                            u['gpu_hours']
+                        gtotals[g]['jobs'] += u['jobs']
+                        gtotals[g]['users'].add(
+                            u['username'])
+                groups_list = []
+                for g in sorted(
+                        gtotals.values(),
+                        key=lambda x: x['jobs'],
+                        reverse=True):
+                    g['users'] = len(g['users'])
+                    groups_list.append(g)
+                all_clusters = sorted(set(
+                    u['cluster'] for u in users))
+                all_groups = sorted(set(
+                    g for u in users
+                    for g in u['groups']))
+                conn.close()
+                return {
+                    'groups': groups_list,
+                    'users': sorted(
+                        users,
+                        key=lambda x: x['jobs'],
+                        reverse=True),
+                    'totals': {
+                        'cpu_hours': round(sum(
+                            u['cpu_hours']
+                            for u in users), 1),
+                        'gpu_hours': round(sum(
+                            u['gpu_hours']
+                            for u in users), 1),
+                        'jobs': sum(
+                            u['jobs'] for u in users),
+                        'users': len(set(
+                            u['username']
+                            for u in users)),
+                    },
+                    'filters': {
+                        'clusters': all_clusters,
+                        'groups': all_groups,
+                    },
+                }
+            except Exception:
+                pass
         conn.close()
         return empty
     where = ["submit_time >= ?"]
@@ -7051,14 +7163,17 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                     for row in fs_rows:
                         site = row['source_site'] or 'local'
                         devices.append({
-                            'hostname': site,
-                            'filesystem_type': 'disk',
+                            'hostname':
+                                f"{site}:{row['path']}",
+                            'storage_type': 'disk',
                             'mount_point': row['path'],
+                            'status': 'online',
                             'total_bytes': row['total_bytes'],
                             'used_bytes': row['used_bytes'],
                             'available_bytes':
                                 row['available_bytes'],
                             'used_percent': row['used_percent'],
+                            'usage_pct': row['used_percent'],
                             'timestamp': row['timestamp'],
                             'days_until_full':
                                 row['days_until_full'],
