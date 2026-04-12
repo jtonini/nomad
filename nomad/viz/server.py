@@ -3433,12 +3433,15 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     if (pct >= 85) return "#f5a623";
                     return "#4ade80";
                 };
-                
-                const healthColor = (health) => {
-                    if (health === "ONLINE") return "#4ade80";
-                    if (health === "DEGRADED") return "#f5a623";
-                    return "#f87171";
-                };
+
+                // Group devices by server
+                const byServer = {};
+                devices.forEach(d => {
+                    const parts = (d.hostname || "local").split(":");
+                    const srv = parts[0];
+                    if (!byServer[srv]) byServer[srv] = [];
+                    byServer[srv].push(d);
+                });
                 
                 return React.createElement("div", {style: eduStyles.panel},
                     React.createElement("div", {style: eduStyles.section}, "Storage Overview"),
@@ -3448,94 +3451,61 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             React.createElement("div", {style: eduStyles.cardLabel}, "Storage Devices")
                         ),
                         React.createElement("div", {style: eduStyles.card},
-                            React.createElement("div", {style: eduStyles.cardValue}, formatBytes(summary.total_bytes || devices.reduce((a, d) => a + (d.total_bytes || 0), 0))),
+                            React.createElement("div", {style: eduStyles.cardValue}, formatBytes(summary.total_bytes || 0)),
                             React.createElement("div", {style: eduStyles.cardLabel}, "Total Capacity")
                         ),
                         React.createElement("div", {style: eduStyles.card},
-                            React.createElement("div", {style: eduStyles.cardValue}, formatBytes(summary.used_bytes || devices.reduce((a, d) => a + (d.used_bytes || 0), 0))),
+                            React.createElement("div", {style: eduStyles.cardValue}, formatBytes(summary.used_bytes || 0)),
                             React.createElement("div", {style: eduStyles.cardLabel}, "Used")
-                        ),
-                        React.createElement("div", {style: eduStyles.card},
-                            React.createElement("div", {style: eduStyles.cardValue}, summary.nfs_clients || 0),
-                            React.createElement("div", {style: eduStyles.cardLabel}, "NFS Clients")
                         )
                     ),
-                    React.createElement("div", {style: eduStyles.section}, "Storage Devices"),
-                    // Group devices by server
-                    (() => {
-                        const byServer = {};
-                        devices.forEach(d => {
-                            const parts = (d.hostname || "local").split(":");
-                            const srv = parts[0];
-                            if (!byServer[srv]) byServer[srv] = [];
-                            byServer[srv].push(d);
-                        });
-                        return Object.entries(byServer).map(([srv, devs]) =>
-                            React.createElement("div", {key: srv, style: {marginBottom: "1.5rem"}},
-                                React.createElement("div", {style: {fontWeight: "bold", fontSize: "1.1rem", marginBottom: "0.5rem", opacity: 0.8}}, srv),
-                                React.createElement("div", {style: {display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "0.75rem"}},
-                                    ...devs.map((dev, i) =>
-                                        React.createElement("div", {key: i, style: {
-                                            background: "var(--card-bg)",
-                                            border: "1px solid var(--border)",
-                                            borderRadius: "8px",
-                                            padding: "1rem"
+                    React.createElement("div", {style: eduStyles.section}, "Storage by Server"),
+                    ...Object.entries(byServer).map(([srv, devs]) =>
+                        React.createElement("div", {key: srv, style: {marginBottom: "1.5rem"}},
+                            React.createElement("div", {style: {fontWeight: "bold", fontSize: "1.1rem", marginBottom: "0.5rem", opacity: 0.8}}, srv),
+                            React.createElement("div", {style: {display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem"}},
+                                ...devs.map((dev, i) =>
+                                    React.createElement("div", {key: i, style: {
+                                        background: "var(--bg-secondary, #1e293b)",
+                                        border: "1px solid var(--border)",
+                                        borderRadius: "8px",
+                                        padding: "1rem"
+                                    }},
+                                        React.createElement("div", {style: {display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem"}},
+                                            React.createElement("span", {style: {fontWeight: "bold"}}, dev.hostname),
+                                            React.createElement("span", {style: {
+                                                color: dev.status === "online" ? "#4ade80" : "#f87171",
+                                                fontWeight: "bold", fontSize: "0.8rem"
+                                            }}, (dev.status || "").toUpperCase())
+                                        ),
+                                        React.createElement("div", {style: {marginBottom: "0.25rem", fontSize: "0.85rem"}},
+                                            React.createElement("span", null, "Capacity "),
+                                            React.createElement("span", {style: {color: usageColor(dev.usage_pct || 0)}},
+                                                formatBytes(dev.used_bytes) + " / " + formatBytes(dev.total_bytes) + " (" + (dev.usage_pct || 0).toFixed(1) + "%)"
+                                            )
+                                        ),
+                                        React.createElement("div", {style: {
+                                            background: "var(--border)",
+                                            borderRadius: "4px",
+                                            height: "8px",
+                                            overflow: "hidden"
                                         }},
-                            React.createElement("div", {style: {display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem"}},
-                                React.createElement("span", {style: {fontWeight: "bold", fontSize: "1.1rem"}}, dev.hostname),
-                                React.createElement("span", {style: {
-                                    color: dev.status === "online" ? "#4ade80" : dev.status === "degraded" ? "#f5a623" : "#f87171",
-                                    fontWeight: "bold"
-                                }}, dev.status?.toUpperCase())
-                            ),
-                            React.createElement("div", {style: {color: "var(--text-muted)", fontSize: "0.9rem", marginBottom: "0.5rem"}}, 
-                                "Type: " + (dev.storage_type || "unknown") + " | NFS Clients: " + (dev.nfs_clients_connected || 0)
-                            ),
-                            React.createElement("div", {style: {marginBottom: "0.5rem"}},
-                                React.createElement("div", {style: {display: "flex", justifyContent: "space-between", marginBottom: "0.25rem"}},
-                                    React.createElement("span", null, "Capacity"),
-                                    React.createElement("span", {style: {color: usageColor(dev.usage_pct || 0)}}, 
-                                        formatBytes(dev.used_bytes) + " / " + formatBytes(dev.total_bytes) + " (" + (dev.usage_pct || 0).toFixed(1) + "%)"
+                                            React.createElement("div", {style: {
+                                                background: usageColor(dev.usage_pct || 0),
+                                                height: "100%",
+                                                width: (dev.usage_pct || 0) + "%",
+                                                transition: "width 0.3s"
+                                            }})
+                                        )
                                     )
-                                ),
-                                React.createElement("div", {style: {
-                                    background: "var(--border)",
-                                    borderRadius: "4px",
-                                    height: "8px",
-                                    overflow: "hidden"
-                                }},
-                                    React.createElement("div", {style: {
-                                        background: usageColor(dev.usage_pct || 0),
-                                        height: "100%",
-                                        width: (dev.usage_pct || 0) + "%",
-                                        transition: "width 0.3s"
-                                    }})
                                 )
-                            ),
-                            dev.pools && dev.pools.length > 0 && React.createElement("div", {style: {marginTop: "0.75rem"}},
-                                React.createElement("div", {style: {fontWeight: "bold", marginBottom: "0.5rem"}}, "ZFS Pools"),
-                                dev.pools.map((pool, j) => React.createElement("div", {key: j, style: {
-                                    display: "flex", 
-                                    justifyContent: "space-between",
-                                    padding: "0.25rem 0",
-                                    borderBottom: "1px solid var(--border)"
-                                }},
-                                    React.createElement("span", null, pool.name),
-                                    React.createElement("span", null,
-                                        React.createElement("span", {style: {color: healthColor(pool.health), marginRight: "1rem"}}, pool.health),
-                                        React.createElement("span", {style: {color: usageColor(pool.capacity_pct || 0)}}, (pool.capacity_pct || 0).toFixed(1) + "%")
-                                    )
-                                ))
                             )
                         )
                     )
-                )
-            )
-        })()
                 );
             };
 
-            // Dynamics Panel
+                        // Dynamics Panel
             const DynamicsPanel = () => {
                 const [dynData, setDynData] = useState(null);
                 const [dynLoading, setDynLoading] = useState(true);
