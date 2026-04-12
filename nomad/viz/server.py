@@ -3530,7 +3530,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         )
                     )
                 )
-            );
+            )
         })()
                 );
             };
