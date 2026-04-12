@@ -151,30 +151,27 @@ class AlertDispatcher:
 
         try:
             conn = sqlite3.connect(self.db_path)
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS alerts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    severity TEXT,
-                    source TEXT,
-                    host TEXT,
-                    message TEXT,
-                    details TEXT,
-                    resolved INTEGER DEFAULT 0,
-                    resolved_at TEXT
-                )
-            ''')
+
+            # Use existing alerts table schema (from migrations)
+            # Columns: severity, category, source, message, details, dedup_key
+            details = alert.get('details', {})
+            if alert.get('host'):
+                details['host'] = alert['host']
+
+            dedup_key = f"{alert.get('source')}:{alert.get('host')}:{alert.get('message', '')[:50]}"
 
             conn.execute('''
-                INSERT INTO alerts (timestamp, severity, source, host, message, details)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO alerts
+                    (timestamp, severity, category, source, message, details, dedup_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 alert.get('timestamp'),
                 alert.get('severity'),
                 alert.get('source'),
-                alert.get('host'),
+                alert.get('host', 'unknown'),
                 alert.get('message'),
-                json.dumps(alert.get('details', {}))
+                json.dumps(details),
+                dedup_key,
             ))
 
             conn.commit()
