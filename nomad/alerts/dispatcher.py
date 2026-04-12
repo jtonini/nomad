@@ -62,7 +62,16 @@ class AlertDispatcher:
         self.config = config.get('alerts', {})
         self.min_severity = self.config.get('min_severity', 'warning').lower()
         self.cooldown_minutes = self.config.get('cooldown_minutes', 15)
-        self.db_path = config.get('database', {}).get('path')
+        # Resolve full database path
+        db_rel = config.get('database', {}).get('path')
+        if db_rel:
+            from pathlib import Path
+            data_dir = config.get('general', {}).get('data_dir',
+                str(Path.home() / '.local' / 'share' / 'nomad'))
+            db_full = Path(data_dir) / db_rel
+            self.db_path = str(db_full)
+        else:
+            self.db_path = None
 
         # Initialize backends
         self.backends = []
