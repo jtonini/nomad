@@ -200,8 +200,94 @@ def read_disk_signals(db_path: Path, hours: int = 6) -> list[Signal]:
     conn = _get_conn(db_path)
     cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
 
+    # Try filesystems table first (from DiskCollector)
     try:
-        # Get latest storage readings per server
+        fs_rows = conn.execute("""
+            SELECT f.path, f.used_percent,
+                   (f.total_bytes/1073741824.0) as total_gb,
+                   (f.used_bytes/1073741824.0) as used_gb,
+                   (f.available_bytes/1073741824.0) as free_gb,
+                   f.days_until_full,
+                   f.first_derivative,
+                   f.timestamp,
+                   f.source_site
+            FROM filesystems f
+            INNER JOIN (
+                SELECT path,
+                       COALESCE(source_site, 'local') as ss,
+                       MAX(timestamp) as max_ts
+                FROM filesystems
+                GROUP BY path, COALESCE(source_site, 'local')
+            ) latest ON f.path = latest.path
+                AND f.timestamp = latest.max_ts
+                AND COALESCE(f.source_site, 'local') = latest.ss
+        """).fetchall()
+    except Exception:
+        try:
+            fs_rows = conn.execute("""
+                SELECT f.path, f.used_percent,
+                    (f.total_bytes/1073741824.0) as total_gb,
+                    (f.used_bytes/1073741824.0) as used_gb,
+                    (f.available_bytes/1073741824.0) as free_gb,
+                    f.days_until_full,
+                    f.first_derivative,
+                    f.timestamp,
+                    NULL as source_site
+                FROM filesystems f
+                INNER JOIN (
+                    SELECT path, MAX(timestamp) as max_ts
+                    FROM filesystems GROUP BY path
+                ) latest ON f.path = latest.path
+                    AND f.timestamp = latest.max_ts
+            """).fetchall()
+        except Exception:
+            fs_rows = []
+
+    for r in fs_rows:
+        usage = r['used_percent']
+        site = r['source_site'] or 'local'
+        label = f"{site}:{r['path']}"
+        if usage >= 90:
+            sev = Severity.CRITICAL
+        elif usage >= 80:
+            sev = Severity.WARNING
+        elif usage >= 70:
+            sev = Severity.NOTICE
+        else:
+            continue
+
+        detail = (f"{label} at {usage:.0f}% "
+                  f"({r['free_gb']:.1f} GB free)")
+
+        # Add fill rate info if available
+        if r['days_until_full'] and r['days_until_full'] > 0:
+            detail += (f". Projected full in "
+                       f"{r['days_until_full']:.0f} days.")
+        if r['first_derivative'] and r['first_derivative'] > 0:
+            gb_per_day = (r['first_derivative']
+                          * 86400 / 1073741824.0)
+            if gb_per_day > 0.1:
+                detail += (f" Fill rate: "
+                           f"{gb_per_day:.1f} GB/day.")
+
+        signals.append(Signal(
+            signal_type=SignalType.DISK,
+            severity=sev,
+            title='filesystem_usage',
+            detail=detail,
+            metrics={
+                'server': label,
+                'usage_pct': usage,
+                'avail_gb': r['free_gb'],
+                'free_gb': r['free_gb'],
+                'total_gb': r['total_gb'],
+            },
+            affected_entities=[label],
+            tags={'server': site, 'path': r['path']},
+        ))
+
+    try:
+        # Also check storage_state (ZFS/NAS)
         rows = conn.execute("""
             SELECT s1.hostname, s1.usage_percent,
                    (s1.total_bytes/1073741824.0) as total_gb,
@@ -486,16 +572,29 @@ def read_alert_signals(db_path: Path, hours: int = 24) -> list[Signal]:
             crit = [r for r in unresolved if r["severity"] == "critical"]
             warn = [r for r in unresolved if r["severity"] == "warning"]
 
+            # Build detail with actual alert messages
+            alert_msgs = []
+            for a in unresolved:
+                alert_msgs.append(a["message"])
+
+            detail = f"{len(unresolved)} active alert(s)"
+            if alert_msgs:
+                detail += ": " + "; ".join(
+                    alert_msgs[:5])  # Limit to 5
+                if len(alert_msgs) > 5:
+                    detail += f" (+{len(alert_msgs)-5} more)"
+
             signals.append(Signal(
                 signal_type=SignalType.ALERT,
                 severity=Severity.CRITICAL if crit else Severity.WARNING,
                 title="active_alerts",
-                detail=f"{len(unresolved)} active alerts ({len(crit)} critical, {len(warn)} warning)",
+                detail=detail,
                 metrics={
                     "total_active": len(unresolved),
                     "critical": len(crit),
                     "warning": len(warn),
                     "resolved_recently": len(resolved),
+                    "messages": alert_msgs[:10],
                 },
             ))
 
