@@ -672,6 +672,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 5000) -> list:
                     j.user_name,
                     j.state,
                     j.partition,
+                    j.source_site,
                     j.runtime_seconds,
                     j.wait_time_seconds,
                     j.req_cpus,
@@ -743,6 +744,7 @@ def load_jobs_from_db(db_path: Path, limit: int = 5000) -> list:
                     jobs.append({
                         "job_id": job_id,
                         "user_name": row['user_name'] or '—',
+                        "source_site": row_get(row, 'source_site') or '—',
                         "state": row['state'],
                         "partition": row['partition'],
                         "success": row['state'] == 'COMPLETED',
@@ -5328,6 +5330,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 10px;">
                             <div><span style="color: #8b949e;">User:</span> ${job.user_name || '—'}</div>
+                            <div><span style="color: #8b949e;">Cluster:</span> ${job.source_site || '—'}</div>
                             <div><span style="color: #8b949e;">Partition:</span> ${job.partition || '—'}</div>
                             <div><span style="color: #8b949e;">Runtime:</span> ${formatValue(job.runtime_sec)}s</div>
                             <div><span style="color: #8b949e;">Wait:</span> ${formatValue(job.wait_time_sec)}s</div>
@@ -7000,6 +7003,80 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 }
             except Exception:
                 devices, summary = [], {}
+
+            # Fallback: if no storage_state data, use filesystems table
+            if not devices:
+                try:
+                    conn2 = _sql.connect(str(dm.db_path))
+                    conn2.row_factory = _sql.Row
+                    c2 = conn2.cursor()
+                    # Get latest filesystem entry per path (per source_site)
+                    try:
+                        c2.execute("""
+                            SELECT f.path, f.total_bytes, f.used_bytes,
+                                   f.available_bytes, f.used_percent,
+                                   f.timestamp, f.source_site,
+                                   f.days_until_full
+                            FROM filesystems f
+                            INNER JOIN (
+                                SELECT path,
+                                       COALESCE(source_site, 'local')
+                                           as ss,
+                                       MAX(timestamp) as max_ts
+                                FROM filesystems
+                                GROUP BY path,
+                                    COALESCE(source_site, 'local')
+                            ) latest
+                            ON f.path = latest.path
+                               AND f.timestamp = latest.max_ts
+                               AND COALESCE(f.source_site, 'local')
+                                   = latest.ss
+                        """)
+                    except Exception:
+                        # source_site column may not exist
+                        c2.execute("""
+                            SELECT f.path, f.total_bytes, f.used_bytes,
+                                   f.available_bytes, f.used_percent,
+                                   f.timestamp, NULL as source_site,
+                                   f.days_until_full
+                            FROM filesystems f
+                            INNER JOIN (
+                                SELECT path, MAX(timestamp) as max_ts
+                                FROM filesystems GROUP BY path
+                            ) latest
+                            ON f.path = latest.path
+                               AND f.timestamp = latest.max_ts
+                        """)
+                    fs_rows = c2.fetchall()
+                    for row in fs_rows:
+                        site = row['source_site'] or 'local'
+                        devices.append({
+                            'hostname': site,
+                            'filesystem_type': 'disk',
+                            'mount_point': row['path'],
+                            'total_bytes': row['total_bytes'],
+                            'used_bytes': row['used_bytes'],
+                            'available_bytes':
+                                row['available_bytes'],
+                            'used_percent': row['used_percent'],
+                            'timestamp': row['timestamp'],
+                            'days_until_full':
+                                row['days_until_full'],
+                        })
+                    summary = {
+                        'total': len(devices),
+                        'total_bytes': sum(
+                            d.get('total_bytes', 0) or 0
+                            for d in devices),
+                        'used_bytes': sum(
+                            d.get('used_bytes', 0) or 0
+                            for d in devices),
+                        'nfs_clients': 0,
+                    }
+                    conn2.close()
+                except Exception:
+                    pass
+
             self.wfile.write(json.dumps({'devices': devices, 'summary': summary}).encode())
 
 
