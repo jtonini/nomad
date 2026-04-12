@@ -729,9 +729,12 @@ def read_workstation_signals(db_path: Path, hours: int = 6) -> list[Signal]:
 # ── Master reader ────────────────────────────────────────────────────────
 
 
-def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
-    """Read system dynamics metrics and convert notable findings to signals."""
+def _read_dynamics_for_site(
+        db_path: Path, hours: int, site_label: str = ""
+) -> list[Signal]:
+    """Run dynamics for a single site/cluster."""
     signals: list[Signal] = []
+    prefix = f"{site_label}: " if site_label else ""
 
     try:
         from nomad.dynamics.diversity import compute_diversity
@@ -743,7 +746,7 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
                 signal_type=SignalType.DYNAMICS,
                 severity=Severity.NOTICE,
                 title="diversity_fragility",
-                detail=div.fragility_detail,
+                detail=prefix + div.fragility_detail,
                 metrics={
                     "shannon_h": div.current.shannon_h,
                     "dominant": div.current.dominant_category,
@@ -759,7 +762,7 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
                 severity=Severity.NOTICE,
                 title="diversity_declining",
                 detail=(
-                    f"Workload diversity is declining "
+                    f"{prefix}Workload diversity is declining "
                     f"(slope: {div.trend_slope:.4f}/window). "
                     f"Current H'={div.current.shannon_h:.3f}."
                 ),
@@ -786,7 +789,7 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
                 severity=sev,
                 title="capacity_binding_constraint",
                 detail=(
-                    f"{bc.label} is the binding constraint at "
+                    f"{prefix}{bc.label} is the binding constraint at "
                     f"{bc.current_utilization:.0%} utilization."
                 ),
                 metrics={
@@ -805,7 +808,7 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
                     severity=Severity.CRITICAL,
                     title="capacity_saturation_imminent",
                     detail=(
-                        f"{bc.label} projected to reach saturation "
+                        f"{prefix}{bc.label} projected to reach saturation "
                         f"in {bc.hours_to_saturation:.0f} hours "
                         f"at current growth rate."
                     ),
@@ -830,7 +833,7 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
                     severity=Severity.WARNING if high_count >= 3 else Severity.NOTICE,
                     title="niche_contention_risk",
                     detail=(
-                        f"{high_count} high-overlap group pair(s) detected. "
+                        f"{prefix}{high_count} high-overlap group pair(s) detected. "
                         f"Highest: {top.group_a} <-> {top.group_b} "
                         f"(O={top.overlap:.2f})."
                     ),
@@ -1080,6 +1083,90 @@ def read_network_analytics_signals(db_path: Path, hours: int = 24) -> list[Signa
         pass
 
     return signals
+
+def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
+    """Read system dynamics metrics per-cluster."""
+    # Detect multi-site (combined) database
+    conn = _get_conn(db_path)
+    sites = []
+    try:
+        sites = [r[0] for r in conn.execute(
+            "SELECT DISTINCT source_site FROM jobs"
+            " WHERE source_site IS NOT NULL"
+        ).fetchall()]
+    except Exception:
+        pass
+    conn.close()
+
+    if len(sites) > 1:
+        # Combined DB: run per-cluster using temp DBs
+        import tempfile
+        all_signals = []
+        for site in sites:
+            try:
+                # Create temp DB with just this site's jobs
+                tmp = tempfile.NamedTemporaryFile(
+                    suffix=".db", delete=False)
+                tmp.close()
+                tmp_path = Path(tmp.name)
+                src = _get_conn(db_path)
+                dst = sqlite3.connect(str(tmp_path))
+                # Copy jobs for this site
+                dst.execute(
+                    "CREATE TABLE jobs AS"
+                    " SELECT * FROM ("
+                    "  SELECT * FROM jobs WHERE 0)"
+                )
+                # Get column names
+                cols = [r[1] for r in src.execute(
+                    "PRAGMA table_info(jobs)"
+                ).fetchall()]
+                col_list = ", ".join(cols)
+                placeholders = ", ".join(
+                    ["?"] * len(cols))
+                rows = src.execute(
+                    f"SELECT {col_list} FROM jobs"
+                    f" WHERE source_site = ?",
+                    (site,)
+                ).fetchall()
+                if rows:
+                    dst.execute(
+                        "DROP TABLE IF EXISTS jobs")
+                    dst.execute(
+                        f"CREATE TABLE jobs"
+                        f" AS SELECT * FROM("
+                        f"  SELECT {col_list}"
+                        f"  FROM jobs WHERE 0)"
+                    )
+                    # Actually just copy with INSERT
+                    src2 = sqlite3.connect(str(db_path))
+                    dst.execute("DROP TABLE IF EXISTS jobs")
+                    dst.execute("ATTACH DATABASE ? AS src",
+                                (str(db_path),))
+                    dst.execute(
+                        "CREATE TABLE jobs AS"
+                        " SELECT * FROM src.jobs"
+                        " WHERE source_site = ?",
+                        (site,))
+                    dst.execute("DETACH DATABASE src")
+                    dst.commit()
+                sigs = _read_dynamics_for_site(
+                    tmp_path, hours, site)
+                all_signals.extend(sigs)
+                src.close()
+                dst.close()
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        return all_signals
+    else:
+        # Single-site DB: run directly
+        return _read_dynamics_for_site(
+            db_path, hours)
+
 
 def read_all_signals(db_path: Path, hours: int = 24) -> list[Signal]:
     """Run all signal readers and return combined results."""
