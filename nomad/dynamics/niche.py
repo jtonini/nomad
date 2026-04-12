@@ -129,6 +129,26 @@ def compute_niche_overlap(
         ORDER BY job_count DESC
     """
     rows = conn.execute(query, (cutoff, min_jobs)).fetchall()
+
+    # Filter umbrella groups (>80% of all users)
+    try:
+        total_users = conn.execute(
+            "SELECT COUNT(DISTINCT username) FROM group_membership"
+        ).fetchone()[0]
+        if total_users > 0:
+            umbrella = set()
+            grp_sizes = conn.execute(
+                "SELECT group_name, COUNT(DISTINCT username) as cnt"
+                " FROM group_membership GROUP BY group_name"
+            ).fetchall()
+            for g in grp_sizes:
+                if g["cnt"] / total_users > 0.8:
+                    umbrella.add(g["group_name"])
+            if umbrella:
+                rows = [r for r in rows if r["grp"] not in umbrella]
+    except Exception:
+        pass
+
     conn.close()
 
     if not rows:
