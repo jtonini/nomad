@@ -735,6 +735,7 @@ def _read_dynamics_for_site(
     """Run dynamics for a single site/cluster."""
     signals: list[Signal] = []
     prefix = f"{site_label}: " if site_label else ""
+    cluster_tag = {"cluster": site_label} if site_label else {}
 
     try:
         from nomad.dynamics.diversity import compute_diversity
@@ -748,6 +749,7 @@ def _read_dynamics_for_site(
                 title="diversity_fragility",
                 detail=prefix + div.fragility_detail,
                 metrics={
+                    **cluster_tag,
                     "shannon_h": div.current.shannon_h,
                     "dominant": div.current.dominant_category,
                     "dominant_proportion": div.current.dominant_proportion,
@@ -767,6 +769,7 @@ def _read_dynamics_for_site(
                     f"Current H'={div.current.shannon_h:.3f}."
                 ),
                 metrics={
+                    **cluster_tag,
                     "shannon_h": div.current.shannon_h,
                     "slope": div.trend_slope,
                 },
@@ -838,7 +841,8 @@ def _read_dynamics_for_site(
                         f"(O={top.overlap:.2f})."
                     ),
                     metrics={
-                        "high_overlap_count": high_count,
+                        **cluster_tag,
+                    "high_overlap_count": high_count,
                         "top_pair_a": top.group_a,
                         "top_pair_b": top.group_b,
                         "top_overlap": top.overlap,

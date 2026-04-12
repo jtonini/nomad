@@ -63,7 +63,13 @@ class InsightEngine:
         self._signals = read_all_signals(self.db_path, hours=self.hours)
 
         # Step 2: Narrate each signal
-        self._narratives = [(sig, narrate(sig)) for sig in self._signals]
+        self._narratives = []
+        for sig in self._signals:
+            text = narrate(sig)
+            cluster = sig.metrics.get('cluster', '')
+            if cluster and not text.startswith(cluster):
+                text = f'{cluster}: {text}'
+            self._narratives.append((sig, text))
 
         # Step 3: Correlate signals into multi-signal insights (Level 2)
         self._insights = correlate(self._signals)
