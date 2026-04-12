@@ -242,6 +242,14 @@ def narrate_active_alerts(sig: Signal) -> str:
     crit = m["critical"]
     warn = m["warning"]
     resolved = m["resolved_recently"]
+    messages = m.get("messages", [])
+
+    if messages:
+        # Show actual alert messages
+        text = "; ".join(messages[:5])
+        if len(messages) > 5:
+            text += f" (+{len(messages)-5} more)"
+        return text
 
     parts = [f"{total} active alerts"]
     if crit:
