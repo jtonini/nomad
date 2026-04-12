@@ -3410,14 +3410,26 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         )
                     ),
                     React.createElement("div", {style: eduStyles.section}, "Storage Devices"),
-                    devices.map((dev, i) =>
-                        React.createElement("div", {key: i, style: {
-                            background: "var(--card-bg)",
-                            border: "1px solid var(--border)",
-                            borderRadius: "8px",
-                            padding: "1rem",
-                            marginBottom: "1rem"
-                        }},
+                    // Group devices by server
+                    (() => {
+                        const byServer = {};
+                        devices.forEach(d => {
+                            const parts = (d.hostname || "local").split(":");
+                            const srv = parts[0];
+                            if (!byServer[srv]) byServer[srv] = [];
+                            byServer[srv].push(d);
+                        });
+                        return Object.entries(byServer).map(([srv, devs]) =>
+                            React.createElement("div", {key: srv, style: {marginBottom: "1.5rem"}},
+                                React.createElement("div", {style: {fontWeight: "bold", fontSize: "1.1rem", marginBottom: "0.5rem", opacity: 0.8}}, srv),
+                                React.createElement("div", {style: {display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "0.75rem"}},
+                                    ...devs.map((dev, i) =>
+                                        React.createElement("div", {key: i, style: {
+                                            background: "var(--card-bg)",
+                                            border: "1px solid var(--border)",
+                                            borderRadius: "8px",
+                                            padding: "1rem"
+                                        }},
                             React.createElement("div", {style: {display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem"}},
                                 React.createElement("span", {style: {fontWeight: "bold", fontSize: "1.1rem"}}, dev.hostname),
                                 React.createElement("span", {style: {
@@ -3466,6 +3478,10 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             )
                         )
                     )
+                )
+            )
+        );
+        })()
                 );
             };
 
@@ -7012,7 +7028,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 servers = [dict(r) for r in c.fetchall()]
                 # Get recent sessions
                 c.execute("""SELECT * FROM interactive_sessions 
-                    WHERE timestamp = (SELECT MAX(timestamp) FROM interactive_sessions)""")
+                    WHERE timestamp >= datetime(
+                        (SELECT MAX(timestamp)
+                         FROM interactive_sessions),
+                        '-5 seconds')""")
                 sessions = [dict(r) for r in c.fetchall()]
                 # Get summary
                 c.execute("""SELECT * FROM interactive_summary 
