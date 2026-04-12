@@ -401,6 +401,32 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
             """).fetchall()
 
             if rows:
+                # Get per-partition running/pending from queue_state
+                # (more accurate than jobs table for live counts)
+                queue_running = {}
+                try:
+                    qrows = conn.execute("""
+                        SELECT qs.partition,
+                               qs.running_jobs,
+                               qs.pending_jobs
+                        FROM queue_state qs
+                        INNER JOIN (
+                            SELECT partition,
+                                   MAX(timestamp) as mt
+                            FROM queue_state
+                            GROUP BY partition
+                        ) latest
+                        ON qs.partition = latest.partition
+                           AND qs.timestamp = latest.mt
+                    """).fetchall()
+                    for qr in qrows:
+                        queue_running[qr["partition"]] = {
+                            "running": qr["running_jobs"],
+                            "pending": qr["pending_jobs"],
+                        }
+                except Exception:
+                    pass
+
                 # Get job statistics per node from jobs table
                 job_stats = {}
                 try:
@@ -2344,6 +2370,31 @@ class DataManager:
         except Exception as e:
             logger.error(f"ML prediction error: {e}")
             self._ml_predictions = {"status": "error", "message": str(e)}
+    def get_queue_running(self):
+        """Get running/pending from queue_state."""
+        try:
+            conn = get_db_connection(self.db_path)
+            rows = conn.execute("""
+                SELECT qs.partition, qs.running_jobs, qs.pending_jobs, qs.source_site
+                FROM queue_state qs
+                INNER JOIN (
+                    SELECT partition, COALESCE(source_site,'local') as ss, MAX(timestamp) as mt
+                    FROM queue_state GROUP BY partition, COALESCE(source_site,'local')
+                ) latest ON qs.partition = latest.partition AND qs.timestamp = latest.mt
+                   AND COALESCE(qs.source_site,'local') = latest.ss
+            """).fetchall()
+            conn.close()
+            by_site = {}
+            for r in rows:
+                site = r["source_site"] or "local"
+                if site not in by_site:
+                    by_site[site] = {"running": 0, "pending": 0}
+                by_site[site]["running"] += (r["running_jobs"] or 0)
+                by_site[site]["pending"] += (r["pending_jobs"] or 0)
+            return by_site
+        except Exception:
+            return {}
+
     def get_stats(self) -> dict:
         """Get summary statistics."""
         online_nodes = sum(1 for n in self._nodes.values() if n['status'] == 'online')
@@ -3479,8 +3530,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         )
                     )
                 )
-            )
-        );
+            );
         })()
                 );
             };
@@ -4277,6 +4327,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 
             const [activeTab, setActiveTab] = useState(null);
             const [selectedNode, setSelectedNode] = useState(null);
+            const [queueRunning, setQueueRunning] = useState({});
             const [currentTime, setCurrentTime] = useState(new Date());
             
             useEffect(() => {
@@ -4295,6 +4346,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         setClusteringQuality(data.clustering_quality);
                         setMlPredictions(data.ml_predictions);
                         setDataSource(data.data_source || 'unknown');
+                        setQueueRunning(data.queue_running || {});
                         setActiveTab(Object.keys(data.clusters)[0]);
                     });
                     
@@ -4460,9 +4512,11 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <>
                                 <ClusterView
                                     cluster={clusters[activeTab]}
+                                    clusterName={activeTab}
                                     nodes={Object.values(nodes).filter(n => n.cluster === activeTab)}
                                     selectedNode={selectedNode}
                                     onSelectNode={setSelectedNode}
+                                    queueRunning={queueRunning}
                                 />
                                 <NodeSidebar node={selectedNode ? nodes[selectedNode] : null} />
                             </>
@@ -4472,7 +4526,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             );
         }
         
-        function ClusterView({ cluster, nodes, selectedNode, onSelectNode }) {
+        function ClusterView({ cluster, clusterName, nodes, selectedNode, onSelectNode, queueRunning }) {
             const stats = useMemo(() => {
                 const online = nodes.filter(n => n.status === 'online');
                 // Deduplicate nodes (same node appears in multiple partitions)
@@ -4487,6 +4541,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         failedJobs += (n.jobs_failed || 0);
                     }
                 });
+                // Override with queue_state data if available (more accurate)
+                const qr = queueRunning[clusterName] || queueRunning[cluster?.name];
+                if (qr) {
+                    runningJobs = qr.running || runningJobs;
+                    pendingJobs = qr.pending || pendingJobs;
+                }
                 const totalCompleted = successJobs + failedJobs;
                 const avgSuccess = totalCompleted > 0
                     ? successJobs / totalCompleted
@@ -6635,8 +6695,15 @@ def query_resource_footprint(db_path, cluster='all', group='all', days=30):
                         reverse=True):
                     g['users'] = len(g['users'])
                     groups_list.append(g)
-                all_clusters = sorted(set(
-                    u['cluster'] for u in users))
+                all_clusters = []
+                try:
+                    all_clusters = sorted(set(
+                        r[0] for r in c.execute(
+                            'SELECT DISTINCT source_site FROM jobs WHERE source_site IS NOT NULL'
+                        ).fetchall()))
+                except Exception:
+                    all_clusters = sorted(set(
+                        u['cluster'] for u in users))
                 all_groups = sorted(set(
                     g for u in users
                     for g in u['groups']))
@@ -6716,8 +6783,12 @@ def query_resource_footprint(db_path, cluster='all', group='all', days=30):
     glist = sorted(gtotals.values(), key=lambda x: x['cpu_hours'], reverse=True)
     for g in glist:
         g['users'] = len(g['users'])
-    c.execute("SELECT DISTINCT cluster FROM job_accounting")
-    avail_clusters = [r[0] for r in c.fetchall()]
+    try:
+        c.execute("SELECT DISTINCT source_site FROM jobs WHERE source_site IS NOT NULL")
+        avail_clusters = [r[0] for r in c.fetchall()]
+    except Exception:
+        c.execute("SELECT DISTINCT cluster FROM job_accounting")
+        avail_clusters = [r[0] for r in c.fetchall()]
     avail_groups = sorted(gtotals.keys())
     conn.close()
     return {
@@ -6749,7 +6820,112 @@ def query_activity_heatmap(db_path, cluster='all', group='all', days=30):
         'total_jobs': 0, 'busiest': None, 'quietest': None,
         'filters': {'clusters': [], 'groups': []},
     }
-    if 'job_accounting' not in tables:
+    has_accounting = (
+        'job_accounting' in tables and
+        c.execute('SELECT COUNT(*) FROM job_accounting'
+                  ).fetchone()[0] >= 5)
+    if not has_accounting:
+        # Fallback: use jobs table for activity
+        if 'jobs' in tables:
+            try:
+                where_j = [
+                    'start_time >= ?',
+                    'start_time IS NOT NULL']
+                params_j = [start]
+                if cluster != 'all':
+                    where_j.append('source_site = ?')
+                    params_j.append(cluster)
+                c.execute(
+                    'SELECT start_time, user_name'
+                    ' FROM jobs WHERE '
+                    + ' AND '.join(where_j),
+                    params_j)
+                grid = [[0]*24 for _ in range(7)]
+                total = 0
+                gu2 = None
+                if group != 'all' and \
+                        'group_membership' in tables:
+                    c2 = conn.cursor()
+                    c2.execute(
+                        'SELECT username FROM'
+                        ' group_membership WHERE'
+                        ' group_name = ?', (group,))
+                    gu2 = set(
+                        r[0] for r in c2.fetchall())
+                for row in c.fetchall():
+                    if gu2 and row['user_name'] \
+                            not in gu2:
+                        continue
+                    try:
+                        dt = _dt.strptime(
+                            row['start_time'][:19],
+                            '%Y-%m-%dT%H:%M:%S')
+                        grid[dt.weekday()][
+                            dt.hour] += 1
+                        total += 1
+                    except (ValueError, TypeError):
+                        continue
+                max_val = max(
+                    max(row) for row in grid) \
+                    if total else 0
+                busiest = quietest = None
+                if total:
+                    days = ['Monday','Tuesday',
+                        'Wednesday','Thursday',
+                        'Friday','Saturday',
+                        'Sunday']
+                    best = (0, 0, 0)
+                    worst = (0, 0, 999999)
+                    for d in range(7):
+                        for h in range(24):
+                            v = grid[d][h]
+                            if v > best[2]:
+                                best = (d, h, v)
+                            if v < worst[2]:
+                                worst = (d, h, v)
+                    busiest = {
+                        'day': days[best[0]],
+                        'hour': f'{best[1]}:00',
+                        'count': best[2]}
+                    quietest = {
+                        'day': days[worst[0]],
+                        'hour': f'{worst[1]}:00',
+                        'count': worst[2]}
+                all_clusters = []
+                try:
+                    all_clusters = sorted(set(
+                        r[0] for r in c.execute(
+                            'SELECT DISTINCT'
+                            ' source_site FROM jobs'
+                            ' WHERE source_site'
+                            ' IS NOT NULL'
+                        ).fetchall()))
+                except Exception:
+                    pass
+                all_groups = []
+                try:
+                    all_groups = sorted(set(
+                        r[0] for r in c.execute(
+                            'SELECT DISTINCT'
+                            ' group_name FROM'
+                            ' group_membership'
+                        ).fetchall()))
+                except Exception:
+                    pass
+                conn.close()
+                return {
+                    'grid': grid,
+                    'max_value': max_val,
+                    'total_jobs': total,
+                    'busiest': busiest,
+                    'quietest': quietest,
+                    'filters': {
+                        'clusters': all_clusters,
+                        'groups': all_groups,
+                    },
+                }
+            except Exception:
+                pass
         conn.close()
         return empty
     group_users = None
@@ -6906,7 +7082,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 "network_stats": dm.network_stats,
                 "clustering_quality": dm.clustering_quality,
                 "network_method": dm.network_stats.get("method", "cosine") if dm.network_stats else "cosine",
-                "ml_predictions": dm.ml_predictions or {"status": "not_ready"}
+                "ml_predictions": dm.ml_predictions or {"status": "not_ready"},
+                "queue_running": dm.get_queue_running(),
             }
             self.wfile.write(json.dumps(data).encode())
 
@@ -6955,7 +7132,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps(DashboardHandler.data_manager.get_stats()).encode())
+            stats = DashboardHandler.data_manager.get_stats()
+            stats["queue_running"] = (
+                DashboardHandler.data_manager
+                .get_queue_running())
+            self.wfile.write(json.dumps(stats).encode())
         elif parsed.path == '/mobile':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
