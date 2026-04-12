@@ -471,7 +471,7 @@ def read_alert_signals(db_path: Path, hours: int = 24) -> list[Signal]:
 
     try:
         rows = conn.execute("""
-            SELECT severity, source as metric, host, message,
+            SELECT severity, category as metric, source as host, message,
                    details, timestamp, resolved
             FROM alerts
             WHERE timestamp >= ?
