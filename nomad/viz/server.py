@@ -297,7 +297,7 @@ def load_clusters_from_db(db_path: Path) -> dict:
                 for cluster_name, nodes in cluster_nodes.items():
                     cluster_id = cluster_name.lower().replace(' ', '-')
                     # Detect GPU nodes by name pattern
-                    gpu_nodes = [n for n in nodes if any(x in n.lower() for x in ['gpu', 'arachne0[456]'])]
+                    gpu_nodes = [n for n in nodes if 'gpu' in n.lower() or n.startswith('gn')]
                     clusters[cluster_id] = {
                         "name": cluster_name,
                         "description": f"{len(nodes)}-node cluster",
@@ -568,7 +568,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                     # Status can be 'ok', 'online', or other values
                     is_down = not row['is_available'] or row['status'] not in ('ok', 'online', 'up')
 
-                    # Detect GPU by node name pattern (node51-53 are GPU nodes on Arachne)
+                    # Detect GPU by node name pattern
                     has_gpu = any(x in node_name.lower() for x in ['gpu']) or \
                               node_name in ('node51', 'node52', 'node53') or \
                               (node_name.startswith('arachne') and node_name[-2:] in ['04', '05', '06'])
@@ -1446,25 +1446,19 @@ def load_similarity_edges_from_db(db_path: Path, job_ids: list, threshold: float
 def generate_demo_clusters():
     """Generate demo cluster data."""
     clusters = {
-        "spydur": {
-            "name": "Spydur",
-            "description": "48-node CPU cluster",
-            "nodes": [f"spydur{i:02d}" for i in range(1, 49)],
+        "cluster-1": {
+            "name": "Cluster-1",
+            "description": "30-node CPU cluster",
+            "nodes": [f"cn{i:02d}" for i in range(1, 31)],
             "type": "cpu"
         },
-        "arachne": {
-            "name": "Arachne",
-            "description": "6-node hybrid cluster (3 CPU + 3 GPU)",
-            "nodes": ["arachne01", "arachne02", "arachne03", "arachne04", "arachne05", "arachne06"],
-            "gpu_nodes": ["arachne04", "arachne05", "arachne06"],
+        "cluster-2": {
+            "name": "Cluster-2",
+            "description": "6-node GPU cluster (3 CPU + 3 GPU)",
+            "nodes": ["gn01", "gn02", "gn03", "gn04", "gn05", "gn06"],
+            "gpu_nodes": ["gn04", "gn05", "gn06"],
             "type": "hybrid"
         },
-        "chemistry": {
-            "name": "Chemistry",
-            "description": "Chemistry department workstations",
-            "nodes": ["chem-ws01", "chem-ws02", "chem-ws03", "chem-ws04"],
-            "type": "workstation"
-        }
     }
     return clusters
 

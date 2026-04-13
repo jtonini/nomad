@@ -3353,8 +3353,8 @@ def sync(ctx, config_file, output, dry_run):
     \b
     Config file (~/.config/nomad/sync.toml):
       [[sites]]
-      name = "arachne"
-      host = "arachne"
+      name = "cluster-a"
+      host = "headnode-a"
       user = "jtonini"
       db_path = "~/.local/share/nomad/nomad.db"
 
@@ -3392,8 +3392,8 @@ def sync(ctx, config_file, output, dry_run):
         click.echo("  Example contents:")
         click.echo()
         click.echo('    [[sites]]')
-        click.echo('    name = "arachne"')
-        click.echo('    host = "arachne"')
+        click.echo('    name = "cluster-a"')
+        click.echo('    host = "headnode-a"')
         click.echo('    user = "jtonini"')
         click.echo('    db_path = "~/.local/share/nomad/nomad.db"')
         click.echo()
