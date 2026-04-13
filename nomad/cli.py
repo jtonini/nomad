@@ -3032,23 +3032,24 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     lines.append(f"filesystems = [{fs_items}]")
     lines.append("")
 
-    # SLURM collector
+    # SLURM collector (only if HPC clusters exist)
+    has_hpc = any(c.get("type", "hpc") == "hpc" for c in clusters)
     all_parts = set()
     for c in clusters:
         if c.get("type", "hpc") == "hpc":
             all_parts.update(
                 c.get("partitions", {}).keys())
     lines.append("[collectors.slurm]")
-    lines.append("enabled = true")
+    lines.append(f"enabled = {str(has_hpc).lower()}")
     if all_parts:
         parts_items = ', '.join(
             f'"{p}"' for p in sorted(all_parts))
         lines.append(f"partitions = [{parts_items}]")
     lines.append("")
 
-    # Node state collector
+    # Node state collector (requires SLURM)
     lines.append("[collectors.node_state]")
-    lines.append("enabled = true")
+    lines.append(f"enabled = {str(has_hpc).lower()}")
     lines.append("")
 
     # System stat collectors
@@ -3062,10 +3063,10 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     lines.append("enabled = true")
     lines.append("")
     lines.append("[collectors.job_metrics]")
-    lines.append("enabled = true")
+    lines.append(f"enabled = {str(has_hpc).lower()}")
     lines.append("")
     lines.append("[collectors.groups]")
-    lines.append("enabled = true")
+    lines.append(f"enabled = {str(has_hpc).lower()}")
     lines.append("")
 
     # GPU collector
@@ -3091,6 +3092,8 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     if any_workstation:
         lines.append("[collectors.workstation]")
         lines.append("enabled = true")
+        import getpass
+        lines.append(f'ssh_user = "{getpass.getuser()}"')
         ws_list = []
         for c in clusters:
             if c.get("type") != "workstations":
