@@ -38,6 +38,7 @@ nav:
   - Getting Started:
     - Installation: installation.md
     - Quick Start: quickstart.md
+    - Setup Wizard: setup-wizard.md
     - System Install: system-install.md
     - Configuration: config.md
   - Features:
