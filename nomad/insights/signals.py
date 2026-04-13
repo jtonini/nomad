@@ -680,42 +680,99 @@ def read_cloud_signals(db_path: Path, hours: int = 24) -> list[Signal]:
 # ── Workstation signals ──────────────────────────────────────────────────
 
 def read_workstation_signals(db_path: Path, hours: int = 6) -> list[Signal]:
-    """Check workstation health."""
+    """Check workstation health from workstation_state table."""
     signals: list[Signal] = []
     conn = _get_conn(db_path)
-    cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
 
     try:
+        # Get latest reading per workstation
         rows = conn.execute("""
-            SELECT hostname,
-                   AVG(cpu_percent) as avg_cpu,
-                   AVG(memory_percent) as avg_mem,
-                   MAX(cpu_percent) as max_cpu,
-                   MAX(memory_percent) as max_mem
-            FROM workstation_state
-            WHERE timestamp >= ?
-            GROUP BY hostname
-        """, (cutoff,)).fetchall()
+            SELECT w.hostname, w.department, w.status,
+                   w.load_avg_1m, w.cpu_count,
+                   w.memory_total_mb, w.memory_used_mb,
+                   w.disk_total_gb, w.disk_used_gb,
+                   w.disk_usage_pct, w.users_logged_in,
+                   w.process_count, w.zombie_count,
+                   w.uptime_seconds, w.source_site
+            FROM workstation_state w
+            INNER JOIN (
+                SELECT hostname,
+                       COALESCE(source_site, 'local') as ss,
+                       MAX(timestamp) as max_ts
+                FROM workstation_state
+                GROUP BY hostname, COALESCE(source_site, 'local')
+            ) latest ON w.hostname = latest.hostname
+                AND w.timestamp = latest.max_ts
+                AND COALESCE(w.source_site, 'local') = latest.ss
+        """).fetchall()
 
         for r in rows:
-            if (r["avg_cpu"] or 0) > 80:
+            host = r['hostname']
+            site = r['source_site'] or 'local'
+            label = f"{site}:{host}" if site != 'local' else host
+
+            # High memory usage
+            mem_total = r['memory_total_mb'] or 1
+            mem_used = r['memory_used_mb'] or 0
+            mem_pct = (mem_used / mem_total) * 100
+            if mem_pct > 85:
+                sev = Severity.WARNING if mem_pct > 95 else Severity.NOTICE
                 signals.append(Signal(
                     signal_type=SignalType.MEMORY,
-                    severity=Severity.WARNING if r["avg_cpu"] > 90 else Severity.NOTICE,
-                    title="workstation_high_cpu",
-                    detail=f"Workstation '{r['hostname']}': avg CPU {r['avg_cpu']:.0f}% (peak {r['max_cpu']:.0f}%)",
-                    metrics={"hostname": r["hostname"], "avg_cpu": r["avg_cpu"]},
-                    affected_entities=[r["hostname"]],
+                    severity=sev,
+                    title='workstation_high_memory',
+                    detail=(
+                        f"{label}: memory at {mem_pct:.0f}% "
+                        f"({mem_used/1024:.1f}/{mem_total/1024:.1f} GB)"),
+                    metrics={'hostname': host, 'mem_pct': mem_pct},
+                    affected_entities=[label],
                 ))
 
-            if (r["avg_mem"] or 0) > 85:
+            # High CPU load
+            load = r['load_avg_1m'] or 0
+            cpus = r['cpu_count'] or 1
+            load_ratio = load / cpus
+            if load_ratio > 0.8:
+                sev = Severity.WARNING if load_ratio > 1.5 else Severity.NOTICE
                 signals.append(Signal(
                     signal_type=SignalType.MEMORY,
-                    severity=Severity.WARNING if r["avg_mem"] > 95 else Severity.NOTICE,
-                    title="workstation_high_memory",
-                    detail=f"Workstation '{r['hostname']}': avg memory {r['avg_mem']:.0f}% (peak {r['max_mem']:.0f}%)",
-                    metrics={"hostname": r["hostname"], "avg_mem": r["avg_mem"]},
-                    affected_entities=[r["hostname"]],
+                    severity=sev,
+                    title='workstation_high_cpu',
+                    detail=(
+                        f"{label}: load {load:.1f} on "
+                        f"{cpus} cores ({load_ratio:.1f}x)"),
+                    metrics={'hostname': host, 'load': load, 'cpus': cpus},
+                    affected_entities=[label],
+                ))
+
+            # High disk usage
+            disk_pct = r['disk_usage_pct'] or 0
+            if disk_pct > 80:
+                sev = Severity.CRITICAL if disk_pct > 95 else (
+                    Severity.WARNING if disk_pct > 90 else Severity.NOTICE)
+                free_gb = r['disk_free_gb'] or 0
+                signals.append(Signal(
+                    signal_type=SignalType.DISK,
+                    severity=sev,
+                    title='workstation_disk_usage',
+                    detail=(
+                        f"{label}: disk at {disk_pct:.0f}% "
+                        f"({free_gb:.0f} GB free)"),
+                    metrics={'hostname': host, 'disk_pct': disk_pct},
+                    affected_entities=[label],
+                ))
+
+            # Zombie processes
+            zombies = r['zombie_count'] or 0
+            if zombies > 5:
+                signals.append(Signal(
+                    signal_type=SignalType.MEMORY,
+                    severity=Severity.NOTICE,
+                    title='workstation_zombies',
+                    detail=(
+                        f"{label}: {zombies} zombie processes"),
+                    metrics={'hostname': host, 'zombies': zombies},
+                    affected_entities=[label],
                 ))
 
     except sqlite3.OperationalError:
