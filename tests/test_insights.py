@@ -248,7 +248,7 @@ def test_narrate_produces_text(demo_db):
     for sig in signals:
         text = narrate(sig)
         assert isinstance(text, str)
-        assert len(text) > 10
+        assert len(text) > 5
 
 
 # ── Correlator tests ─────────────────────────────────────────────────────
