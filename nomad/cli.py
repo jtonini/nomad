@@ -3603,7 +3603,7 @@ def sync(ctx, config_file, output, dry_run):
                 pass
 
             combined.execute(
-                f"ATTACH DATABASE ? AS source", (str(db_path),))
+                "ATTACH DATABASE ? AS source", (str(db_path),))
 
             # Get list of tables in source
             tables = [row[0] for row in combined.execute(
@@ -3642,7 +3642,7 @@ def sync(ctx, config_file, output, dry_run):
                                if c != 'id']
 
                 create_cols = ", ".join(
-                    [f"id INTEGER PRIMARY KEY AUTOINCREMENT"]
+                    ["id INTEGER PRIMARY KEY AUTOINCREMENT"]
                     + insert_defs
                 )
                 combined.execute(
@@ -3670,7 +3670,7 @@ def sync(ctx, config_file, output, dry_run):
                 )
 
                 count = combined.execute(
-                    f"SELECT changes()").fetchone()[0]
+                    "SELECT changes()").fetchone()[0]
                 site_records += count
 
             combined.commit()
