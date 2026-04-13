@@ -4538,6 +4538,104 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 return 'red';
             };
             
+            // Workstation cluster: show workstation cards instead of SLURM view
+            if (cluster.type === 'workstation' || nodes.length === 0) {
+                const [wsData, setWsData] = useState(null);
+                useEffect(() => {
+                    fetch("/api/workstations")
+                        .then(r => r.json())
+                        .then(setWsData);
+                }, []);
+                const siteWs = wsData ? (wsData.workstations || []).filter(
+                    w => w.source_site === clusterName || w.source_site === cluster.name
+                ) : [];
+                const online = siteWs.filter(w => w.status === 'online').length;
+                const total = siteWs.length;
+                const byDept = {};
+                siteWs.forEach(w => {
+                    const d = w.department || 'ungrouped';
+                    if (!byDept[d]) byDept[d] = [];
+                    byDept[d].push(w);
+                });
+                const memColor = (pct) => pct > 90 ? '#f87171' : pct > 70 ? '#f5a623' : '#4ade80';
+                const diskColor = (pct) => pct > 90 ? '#f87171' : pct > 80 ? '#f5a623' : '#4ade80';
+                const loadColor = (load, cpus) => {
+                    const r = load / (cpus || 1);
+                    return r > 1.5 ? '#f87171' : r > 0.8 ? '#f5a623' : '#4ade80';
+                };
+                return (
+                    <div className="content">
+                        <div className="cluster-header">
+                            <h1 className="cluster-title">{cluster.name}</h1>
+                            <p className="cluster-desc">Workstation Group</p>
+                        </div>
+                        <div className="stats-bar">
+                            <div className="stat">
+                                <div className="stat-value green">{online}</div>
+                                <div className="stat-label">Online</div>
+                            </div>
+                            <div className="stat">
+                                <div className="stat-value red">{total - online}</div>
+                                <div className="stat-label">Offline</div>
+                            </div>
+                            <div className="stat">
+                                <div className="stat-value">{total}</div>
+                                <div className="stat-label">Total</div>
+                            </div>
+                        </div>
+                        {!wsData ? (
+                            <div style={{padding: '2rem', opacity: 0.5}}>Loading workstations...</div>
+                        ) : siteWs.length === 0 ? (
+                            <div style={{padding: '2rem', opacity: 0.5}}>No workstation data yet.</div>
+                        ) : (
+                            Object.entries(byDept).map(([dept, machines]) => (
+                                <div key={dept} style={{marginBottom: '1.5rem'}}>
+                                    <div style={{fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '0.75rem', opacity: 0.8}}>
+                                        {dept} ({machines.length})
+                                    </div>
+                                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem'}}>
+                                        {machines.map(w => {
+                                            const memPct = w.memory_total_mb ? ((w.memory_used_mb / w.memory_total_mb) * 100) : 0;
+                                            return (
+                                                <div key={w.hostname} style={{
+                                                    background: 'var(--bg-secondary, #1e293b)',
+                                                    border: '1px solid var(--border)',
+                                                    borderRadius: '8px',
+                                                    padding: '1rem',
+                                                }}>
+                                                    <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem'}}>
+                                                        <span style={{fontWeight: 'bold'}}>{w.hostname}</span>
+                                                        <span style={{color: w.status === 'online' ? '#4ade80' : '#f87171', fontSize: '0.8rem', fontWeight: 'bold'}}>
+                                                            {(w.status || '').toUpperCase()}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.85rem'}}>
+                                                        <span style={{opacity: 0.6}}>CPU</span>
+                                                        <span style={{textAlign: 'right', color: loadColor(w.load_avg_1m || 0, w.cpu_count || 1)}}>
+                                                            {(w.load_avg_1m || 0).toFixed(1)} / {w.cpu_count || '?'} cores
+                                                        </span>
+                                                        <span style={{opacity: 0.6}}>Memory</span>
+                                                        <span style={{textAlign: 'right', color: memColor(memPct)}}>
+                                                            {memPct.toFixed(0)}% ({((w.memory_used_mb || 0) / 1024).toFixed(1)} GB)
+                                                        </span>
+                                                        <span style={{opacity: 0.6}}>Disk</span>
+                                                        <span style={{textAlign: 'right', color: diskColor(w.disk_usage_pct || 0)}}>
+                                                            {(w.disk_usage_pct || 0).toFixed(0)}% ({(w.disk_free_gb || 0).toFixed(0)} GB free)
+                                                        </span>
+                                                        <span style={{opacity: 0.6}}>Users</span>
+                                                        <span style={{textAlign: 'right'}}>{w.users_logged_in || 0} logged in</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                );
+            }
+            
             return (
                 <div className="content">
                     <div className="cluster-header">
