@@ -4317,7 +4317,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         setMlPredictions(data.ml_predictions);
                         setDataSource(data.data_source || 'unknown');
                         setQueueRunning(data.queue_running || {});
-                        setActiveTab(Object.keys(data.clusters)[0]);
+                        setActiveTab(Object.keys(data.clusters).find(k => data.clusters[k].type !== "workstation") || Object.keys(data.clusters)[0]);
                     });
                     
                 const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -4350,7 +4350,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         </div>
                         
                         <nav className="tabs">
-                            {Object.entries(clusters).map(([id, cluster]) => {
+                            {Object.entries(clusters).filter(([id, cluster]) => cluster.type !== "workstation").map(([id, cluster]) => {
                                 const clusterNodes = Object.values(nodes).filter(n => n.cluster === id);
                                 const downCount = clusterNodes.filter(n => n.status === 'down').length;
                                 return (
