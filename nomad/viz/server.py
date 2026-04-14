@@ -6660,6 +6660,28 @@ def generate_mobile_html(dm, stats):
 # ============================================================================
 
 
+
+def _filter_umbrella_groups(conn, groups):
+    """Exclude groups that contain >80% of all users."""
+    try:
+        total_users = conn.execute(
+            "SELECT COUNT(DISTINCT username) FROM group_membership"
+        ).fetchone()[0]
+        if total_users > 0:
+            umbrella = set()
+            for r in conn.execute(
+                "SELECT group_name, COUNT(DISTINCT username) as cnt"
+                " FROM group_membership GROUP BY group_name"
+            ).fetchall():
+                if r["cnt"] / total_users > 0.8:
+                    umbrella.add(r["group_name"])
+            if umbrella:
+                return [g for g in groups if g not in umbrella]
+    except Exception:
+        pass
+    return groups
+
+
 def query_resource_footprint(db_path, cluster='all', group='all', days=30):
     """Query resource footprint from job_accounting + group_membership."""
     import sqlite3 as _sql
@@ -6769,6 +6791,8 @@ def query_resource_footprint(db_path, cluster='all', group='all', days=30):
                 all_groups = sorted(set(
                     g for u in users
                     for g in u['groups']))
+                all_groups = _filter_umbrella_groups(
+                    conn, all_groups)
                 conn.close()
                 return {
                     'groups': groups_list,
@@ -6851,7 +6875,9 @@ def query_resource_footprint(db_path, cluster='all', group='all', days=30):
     except Exception:
         c.execute("SELECT DISTINCT cluster FROM job_accounting")
         avail_clusters = [r[0] for r in c.fetchall()]
-    avail_groups = sorted(gtotals.keys())
+    avail_groups = _filter_umbrella_groups(conn, sorted(gtotals.keys()))
+    umbrella_set = set(sorted(gtotals.keys())) - set(avail_groups)
+    glist = [g for g in glist if g["name"] not in umbrella_set]
     conn.close()
     return {
         'groups': glist[:50],
@@ -6966,12 +6992,13 @@ def query_activity_heatmap(db_path, cluster='all', group='all', days=30):
                     pass
                 all_groups = []
                 try:
-                    all_groups = sorted(set(
-                        r[0] for r in c.execute(
-                            'SELECT DISTINCT'
-                            ' group_name FROM'
-                            ' group_membership'
-                        ).fetchall()))
+                    all_groups = _filter_umbrella_groups(
+                        conn, sorted(set(
+                            r[0] for r in c.execute(
+                                'SELECT DISTINCT'
+                                ' group_name FROM'
+                                ' group_membership'
+                            ).fetchall())))
                 except Exception:
                     pass
                 conn.close()
@@ -7037,7 +7064,8 @@ def query_activity_heatmap(db_path, cluster='all', group='all', days=30):
     if 'group_membership' in tables:
         c.execute(
             "SELECT DISTINCT group_name FROM group_membership ORDER BY group_name")
-        avail_groups = [r[0] for r in c.fetchall()]
+        avail_groups = _filter_umbrella_groups(
+            conn, [r[0] for r in c.fetchall()])
     conn.close()
     return {
         'grid': grid, 'max_value': max_val, 'total_jobs': total,
