@@ -137,6 +137,25 @@ def compute_diversity(
         """
 
     rows = conn.execute(query, (cutoff.isoformat(),)).fetchall()
+
+    # Filter umbrella groups (>80% of all users)
+    if dimension == "group":
+        try:
+            total_users = conn.execute(
+                "SELECT COUNT(DISTINCT username) FROM group_membership"
+            ).fetchone()[0]
+            if total_users > 0:
+                umbrella = set()
+                for r2 in conn.execute(
+                    "SELECT group_name, COUNT(DISTINCT username) as cnt"
+                    " FROM group_membership GROUP BY group_name"
+                ).fetchall():
+                    if r2["cnt"] / total_users > 0.8:
+                        umbrella.add(r2["group_name"])
+                if umbrella:
+                    rows = [r for r in rows if r["category"] not in umbrella]
+        except Exception:
+            pass
     counts = {r["category"]: r["cnt"] for r in rows if r["category"]}
 
     h, d, j_val = _compute_diversity(counts)

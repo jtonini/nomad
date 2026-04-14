@@ -6772,13 +6772,32 @@ def query_resource_footprint(db_path, cluster='all', group='all', days=30):
                         gtotals[g]['jobs'] += u['jobs']
                         gtotals[g]['users'].add(
                             u['username'])
+                # Get umbrella groups to exclude
+                _umb = set()
+                try:
+                    _total = conn.execute(
+                        'SELECT COUNT(DISTINCT username)'
+                        ' FROM group_membership'
+                    ).fetchone()[0]
+                    if _total > 0:
+                        for _r in conn.execute(
+                            'SELECT group_name,'
+                            ' COUNT(DISTINCT username) as cnt'
+                            ' FROM group_membership'
+                            ' GROUP BY group_name'
+                        ).fetchall():
+                            if _r['cnt'] / _total > 0.8:
+                                _umb.add(_r['group_name'])
+                except Exception:
+                    pass
                 groups_list = []
                 for g in sorted(
                         gtotals.values(),
                         key=lambda x: x['jobs'],
                         reverse=True):
                     g['users'] = len(g['users'])
-                    groups_list.append(g)
+                    if g['name'] not in _umb:
+                        groups_list.append(g)
                 all_clusters = []
                 try:
                     all_clusters = sorted(set(
