@@ -4550,6 +4550,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <CloudPanel />
                         ) : activeTab === 'insights' ? (
                             <InsightsPanel />
+                        ) : activeTab === 'education' ? (
+                            <EducationPanel />
                         ) : activeTab === 'dynamics' ? (
                             <DynamicsPanel />
                         ) : activeTab === 'readiness' ? (
