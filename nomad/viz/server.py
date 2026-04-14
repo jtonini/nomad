@@ -8071,7 +8071,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                         else:
                             result = {'error': f'No trajectory data for {username} ({cnt} jobs found but outside 90-day window)'}
                     except Exception:
-                        result = {'error': f'No data for user '{username}''}
+                        result = {"error": f"No data for user {username}"}
             except Exception as e:
                 result = {"error": str(e)}
             self.wfile.write(json.dumps(result, default=str).encode())
