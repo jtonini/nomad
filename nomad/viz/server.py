@@ -3503,14 +3503,40 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             const DynamicsPanel = () => {
                 const [dynData, setDynData] = useState(null);
                 const [dynLoading, setDynLoading] = useState(true);
+                const [dynCluster, setDynCluster] = useState('all');
+                const [dynClusters, setDynClusters] = useState([]);
                 useEffect(() => {
-                    fetch('/api/dynamics?hours=168')
+                    // Get available clusters
+                    fetch('/api/data')
+                        .then(r => r.json())
+                        .then(d => {
+                            const cls = Object.keys(d.clusters || {}).filter(
+                                k => d.clusters[k].type !== 'workstation');
+                            setDynClusters(cls);
+                        }).catch(() => {});
+                }, []);
+                useEffect(() => {
+                    setDynLoading(true);
+                    const url = dynCluster === 'all'
+                        ? '/api/dynamics?hours=168'
+                        : '/api/dynamics?hours=168&cluster=' + dynCluster;
+                    fetch(url)
                         .then(r => r.json())
                         .then(d => { setDynData(d); setDynLoading(false); })
                         .catch(() => { setDynData({error: 'Failed to load'}); setDynLoading(false); });
-                }, []);
+                }, [dynCluster]);
                 if (dynLoading) return React.createElement('div', {style: {padding: 20, color: '#94a3b8'}}, 'Loading dynamics...');
                 if (!dynData || dynData.error) return React.createElement('div', {style: {padding: 20, color: '#ef4444'}}, 'Error: ' + (dynData?.error || 'unknown'));
+                const dynDropdown = React.createElement('div', {style: {marginBottom: 16, display: 'flex', gap: 8}},
+                    React.createElement('select', {
+                        value: dynCluster,
+                        onChange: e => setDynCluster(e.target.value),
+                        style: eduStyles.select
+                    },
+                        React.createElement('option', {value: 'all'}, 'All Clusters'),
+                        dynClusters.map(c => React.createElement('option', {key: c, value: c}, c))
+                    )
+                );
                 const div = dynData.diversity || {};
                 const cap = dynData.capacity || {};
                 const res = dynData.resilience || {};
