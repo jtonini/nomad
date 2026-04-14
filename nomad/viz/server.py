@@ -3662,6 +3662,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 return React.createElement('div', {style: {padding: 16, maxWidth: 900}},
                     React.createElement('h2', {style: {fontSize: 18, fontWeight: 700, marginBottom: 4}}, 'System Dynamics'),
                     React.createElement('p', {style: {fontSize: 12, color: '#64748b', marginBottom: 16}}, 'Ecological and economic frameworks applied to cluster usage patterns'),
+                    dynDropdown,
                     strip,
                     divBars,
                     capBars,
