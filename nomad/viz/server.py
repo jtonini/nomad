@@ -3587,6 +3587,23 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         React.createElement('span', {style: {width: 50, fontSize: 11, color: '#64748b', textAlign: 'right'}}, count + ' jobs')
                     ))
                 );
+                // User diversity distribution bars
+                const divUser = dynData.diversity_by_user || {};
+                const curUser = divUser.current || {};
+                const userCats = Object.entries(curUser.category_counts || {}).sort((a,b) => b[1]-a[1]).slice(0, 20);
+                const maxUserCount = userCats.length ? userCats[0][1] : 1;
+                const userColors = ['#22c55e','#f59e0b','#3b82f6','#8b5cf6','#00BACF','#B64326','#ef4444','#64748b'];
+                const userBars = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
+                    React.createElement('h3', {style: {fontSize: 13, fontWeight: 600, color: 'var(--btn-text)', marginBottom: 12}}, 
+                        'User Composition (' + (curUser.richness || 0) + ' users, H'=' + (curUser.shannon_h || 0).toFixed(3) + ')'),
+                    ...userCats.map(([name, count], i) => React.createElement('div', {key: name, style: {display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6}},
+                        React.createElement('span', {style: {width: 80, fontSize: 12, color: '#94a3b8', textAlign: 'right', flexShrink: 0}}, name),
+                        React.createElement('div', {style: {flex: 1, height: 18, background: 'var(--bg-secondary)', borderRadius: 4, overflow: 'hidden'}},
+                            React.createElement('div', {style: {width: (count/maxUserCount*100)+'%', height: '100%', background: userColors[i%userColors.length], borderRadius: 4, opacity: 0.8}})
+                        ),
+                        React.createElement('span', {style: {width: 50, fontSize: 11, color: '#64748b', textAlign: 'right'}}, count + ' jobs')
+                    ))
+                );
                 // Capacity bars
                 const dims = (cap.dimensions || []).sort((a,b) => b.current_utilization - a.current_utilization);
                 const capBars = React.createElement('div', {className: 'card', style: {padding: 16, marginBottom: 16}},
@@ -3665,6 +3682,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     dynDropdown,
                     strip,
                     divBars,
+                    userBars,
                     capBars,
                     nicheTable,
                     resCard,

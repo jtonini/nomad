@@ -78,6 +78,14 @@ class DynamicsEngine:
         return self._diversity
 
     @property
+    def diversity_by_user(self) -> DiversityResult:
+        if not hasattr(self, '_diversity_user') or self._diversity_user is None:
+            self._diversity_user = compute_diversity(
+                self.db_path, dimension="user", hours=self.hours
+            )
+        return self._diversity_user
+
+    @property
     def niche(self) -> NicheResult:
         if self._niche is None:
             self._niche = compute_niche_overlap(
@@ -114,6 +122,7 @@ class DynamicsEngine:
     def run_all(self) -> None:
         """Force computation of all dynamics metrics."""
         _ = self.diversity
+        _ = self.diversity_by_user
         _ = self.niche
         _ = self.capacity
         _ = self.resilience
@@ -163,4 +172,18 @@ class DynamicsEngine:
 
     def to_dict(self) -> dict:
         """Full dynamics report as Python dict."""
-        return json.loads(self.to_json())
+        result = json.loads(self.to_json())
+        # Add user-level diversity alongside group diversity
+        du = self.diversity_by_user
+        result['diversity_by_user'] = {
+            'dimension': 'user',
+            'current': {
+                'shannon_h': du.current.shannon_h,
+                'simpson_d': du.current.simpson_d,
+                'richness': du.current.richness,
+                'dominant_category': du.current.dominant_category,
+                'dominant_proportion': du.current.dominant_proportion,
+                'category_counts': dict(du.current.category_counts),
+            },
+        }
+        return result
