@@ -8054,7 +8054,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                         "overall_improvement": traj.overall_improvement,
                         "windows": [
                             {"start": str(w.start), "end": str(w.end),
-                             "jobs": w.jobs, "scores": w.scores}
+                             "jobs": w.job_count, "scores": w.scores}
                             for w in traj.windows
                         ] if hasattr(traj, 'windows') else [],
                     }
