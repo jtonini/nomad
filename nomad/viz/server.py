@@ -2527,7 +2527,132 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
         
         .mono { font-family: 'IBM Plex Mono', monospace; }
         
-        .header {
+        
+/* ── Sidebar Layout ─────────────────────────────── */
+.app-layout {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 220px;
+    min-width: 220px;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.sidebar-logo-text {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: #00BACF;
+}
+
+.sidebar-logo-text .oslash {
+    color: #B64326;
+}
+
+.sidebar-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    padding: 12px 16px 4px;
+    font-weight: 600;
+}
+
+.sidebar-sep {
+    height: 1px;
+    background: var(--border);
+    margin: 8px 12px;
+}
+
+.sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 13px;
+    border-radius: 6px;
+    margin: 1px 8px;
+    transition: background 0.15s, color 0.15s;
+    border: none;
+    background: none;
+    width: calc(100% - 16px);
+    text-align: left;
+}
+
+.sidebar-item:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.sidebar-item.active {
+    background: var(--bg-secondary);
+    color: #00BACF;
+    font-weight: 600;
+}
+
+.sidebar-item .badge {
+    margin-left: auto;
+    background: var(--red-muted, #3b1c1c);
+    color: var(--red, #f87171);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+.sidebar-footer {
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+}
+
+.sidebar-theme-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 13px;
+    border-radius: 6px;
+    margin: 1px 8px;
+    border: none;
+    background: none;
+    width: calc(100% - 16px);
+    text-align: left;
+}
+
+.sidebar-theme-btn:hover {
+    background: var(--bg-secondary);
+}
+
+.main-content {
+    flex: 1;
+    overflow-y: auto;
+    height: 100vh;
+}
+
+/* Hide old top nav */
+.header { display: none !important; }
+
+.header {
             background: var(--bg-surface);
             border-bottom: 1px solid var(--border);
             padding: 0 24px;
@@ -3499,7 +3624,23 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 );
             };
 
-                        // Dynamics Panel
+            
+            // Education Panel
+            const EducationPanel = () => {
+                return React.createElement("div", {style: eduStyles.panel},
+                    React.createElement("div", {style: eduStyles.section}, "Educational Analytics"),
+                    React.createElement("div", {style: {padding: "2rem", textAlign: "center", opacity: 0.6}},
+                        React.createElement("div", {style: {fontSize: "1.2rem", marginBottom: "0.5rem"}}, "Coming Soon"),
+                        React.createElement("div", null,
+                            "Job analysis, user trajectories, and group proficiency reports. ",
+                            "Use the CLI in the meantime: ",
+                            React.createElement("code", null, "nomad edu explain <job_id>")
+                        )
+                    )
+                );
+            };
+
+            // Dynamics Panel
             const DynamicsPanel = () => {
                 const [dynData, setDynData] = useState(null);
                 const [dynLoading, setDynLoading] = useState(true);
@@ -4318,6 +4459,93 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 return () => clearInterval(timer);
             }, []);
             
+
+        // ── Sidebar Component ──────────────────────────────────────
+        function Sidebar({ activeTab, setActiveTab, clusters, nodes, theme, setTheme, setSelectedNode }) {
+            const clusterEntries = Object.entries(clusters || {}).filter(([id, c]) => c.type !== 'workstation');
+            
+            const items = [
+                { type: 'label', text: 'CLUSTERS' },
+                ...clusterEntries.map(([id, cluster]) => {
+                    const clusterNodes = Object.values(nodes || {}).filter(n => n.cluster === id);
+                    const downCount = clusterNodes.filter(n => n.status === 'down').length;
+                    return { id, label: cluster.name, badge: downCount > 0 ? downCount : null };
+                }),
+                { type: 'sep' },
+                { type: 'label', text: 'ANALYTICS' },
+                { id: 'insights', label: 'Insights' },
+                { id: 'dynamics', label: 'Dynamics' },
+                { type: 'sep' },
+                { type: 'label', text: 'MONITORING' },
+                { id: 'network', label: 'Network View' },
+                { id: 'resources', label: 'Resources' },
+                { id: 'activity', label: 'Activity' },
+                { id: 'interactive', label: 'Interactive' },
+                { id: 'workstations', label: 'Workstations' },
+                { id: 'storage', label: 'Storage' },
+                { id: 'cloud', label: 'Cloud' },
+                { type: 'sep' },
+                { type: 'label', text: 'EDUCATION' },
+                { id: 'education', label: 'Education' },
+                { type: 'sep' },
+                { type: 'label', text: 'SYSTEM' },
+                { id: 'readiness', label: 'Readiness' },
+                { id: 'issue', label: 'Report Issue' },
+            ];
+
+            return (
+                <div className="sidebar">
+                    <div className="sidebar-logo">
+                        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.bg%7Bfill:%230a0a12%7D.ring%7Bfill:none;stroke:%2300BACF;stroke-width:6%7D.ring-inner%7Bfill:none;stroke:%2300BACF;stroke-width:3%7D.grid%7Bstroke:%2300BACF;stroke-width:1;opacity:.3%7D.oslash%7Bfont-family:Helvetica,Arial,sans-serif;font-size:28px;fill:%23B64326;font-weight:500%7D.needle-n%7Bfill:%23B64326%7D.needle-s%7Bfill:%2300BACF%7D.node%7Bfill:%2300BACF%7D.cardinal%7Bfont-family:Helvetica,Arial,sans-serif;font-size:10px;fill:%2300BACF;font-weight:500%7D%3C/style%3E%3C/defs%3E%3Ccircle class='bg' cx='100' cy='100' r='98'/%3E%3Ccircle class='ring' cx='100' cy='100' r='95'/%3E%3Ccircle class='ring-inner' cx='100' cy='100' r='60'/%3E%3Cg class='grid'%3E%3Cline x1='100' y1='5' x2='100' y2='195'/%3E%3Cline x1='5' y1='100' x2='195' y2='100'/%3E%3Cline x1='32' y1='32' x2='168' y2='168'/%3E%3Cline x1='168' y1='32' x2='32' y2='168'/%3E%3C/g%3E%3Ccircle class='grid' cx='100' cy='100' r='78' fill='none'/%3E%3Ccircle class='node' cx='100' cy='42' r='3'/%3E%3Ccircle class='node' cx='158' cy='100' r='3'/%3E%3Ccircle class='node' cx='100' cy='158' r='3'/%3E%3Ccircle class='node' cx='42' cy='100' r='3'/%3E%3Ctext class='cardinal' x='100' y='56' text-anchor='middle'%3EN%3C/text%3E%3Ctext class='cardinal' x='146' y='104' text-anchor='middle'%3EE%3C/text%3E%3Ctext class='cardinal' x='100' y='150' text-anchor='middle'%3ES%3C/text%3E%3Ctext class='cardinal' x='54' y='104' text-anchor='middle'%3EW%3C/text%3E%3Cg transform='rotate(45,100,100)'%3E%3Cpolygon class='needle-n' points='100,65 96,100 104,100'/%3E%3Cpolygon class='needle-s' points='100,135 104,100 96,100'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='18' fill='%230a0a12' stroke='%2300BACF' stroke-width='2'/%3E%3Ctext class='oslash' x='100' y='108' text-anchor='middle'%3E%C3%98%3C/text%3E%3C/svg%3E"
+                            style={{ width: 32, height: 32, borderRadius: 6 }}
+                            alt="NØMAÐ" />
+                        <div>
+                            <div className="sidebar-logo-text">
+                                N<span className="oslash">Ø</span>MAÐ
+                            </div>
+                            <div style={{ fontSize: 10, letterSpacing: 2, color: 'var(--text-muted)', fontWeight: 600 }}>
+                                HPC MONITOR
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+                        {items.map((item, i) => {
+                            if (item.type === 'label') {
+                                return <div key={i} className="sidebar-label">{item.text}</div>;
+                            }
+                            if (item.type === 'sep') {
+                                return <div key={i} className="sidebar-sep" />;
+                            }
+                            return (
+                                <button
+                                    key={item.id}
+                                    className={`sidebar-item ${activeTab === item.id ? 'active' : ''}`}
+                                    onClick={() => { setActiveTab(item.id); setSelectedNode(null); }}
+                                >
+                                    {item.label}
+                                    {item.badge && <span className="badge">{item.badge}</span>}
+                                </button>
+                            );
+                        })}
+                    </nav>
+                    
+                    <div className="sidebar-footer">
+                        <button
+                            className="sidebar-theme-btn"
+                            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                        >
+                            {theme === 'dark' ? '☀️' : '🌙'} {theme === 'dark' ? 'Light' : 'Dark'} Theme
+                        </button>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 16px' }}>
+                            v1.4.0 · database ({dataSource})
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+
             if (!clusters || !nodes || !jobs || !edges || !activeTab) {
                 return (
                     <div style={{
@@ -4335,7 +4563,18 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             }
             
             return (
-                <div>
+                <div className="app-layout">
+                    <Sidebar
+                        activeTab={activeTab}
+                        setActiveTab={setActiveTab}
+                        clusters={clusters}
+                        nodes={nodes}
+                        theme={theme}
+                        setTheme={setTheme}
+                        setSelectedNode={setSelectedNode}
+                        dataSource={dataSource}
+                    />
+                    <div className="main-content">
                     <header className="header">
                         <div className="logo">
                             <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.bg%7Bfill:%230a0a12%7D.ring%7Bfill:none;stroke:%2300BACF;stroke-width:6%7D.ring-inner%7Bfill:none;stroke:%2300BACF;stroke-width:3%7D.grid%7Bstroke:%2300BACF;stroke-width:1;opacity:.3%7D.oslash%7Bfont-family:Helvetica,Arial,sans-serif;font-size:28px;fill:%23B64326;font-weight:500%7D.needle-n%7Bfill:%23B64326%7D.needle-s%7Bfill:%2300BACF%7D.node%7Bfill:%2300BACF%7D.cardinal%7Bfont-family:Helvetica,Arial,sans-serif;font-size:10px;fill:%2300BACF;font-weight:500%7D%3C/style%3E%3C/defs%3E%3Ccircle class='bg' cx='100' cy='100' r='98'/%3E%3Ccircle class='ring' cx='100' cy='100' r='95'/%3E%3Ccircle class='ring-inner' cx='100' cy='100' r='60'/%3E%3Cg class='grid'%3E%3Cline x1='100' y1='5' x2='100' y2='195'/%3E%3Cline x1='5' y1='100' x2='195' y2='100'/%3E%3Cline x1='32' y1='32' x2='168' y2='168'/%3E%3Cline x1='168' y1='32' x2='32' y2='168'/%3E%3C/g%3E%3Ccircle class='grid' cx='100' cy='100' r='78' fill='none'/%3E%3Ccircle class='node' cx='100' cy='42' r='3'/%3E%3Ccircle class='node' cx='158' cy='100' r='3'/%3E%3Ccircle class='node' cx='100' cy='158' r='3'/%3E%3Ccircle class='node' cx='42' cy='100' r='3'/%3E%3Ctext class='cardinal' x='100' y='56' text-anchor='middle'%3EN%3C/text%3E%3Ctext class='cardinal' x='146' y='104' text-anchor='middle'%3EE%3C/text%3E%3Ctext class='cardinal' x='100' y='150' text-anchor='middle'%3ES%3C/text%3E%3Ctext class='cardinal' x='54' y='104' text-anchor='middle'%3EW%3C/text%3E%3Cg transform='rotate(45,100,100)'%3E%3Cpolygon class='needle-n' points='100,65 96,100 104,100'/%3E%3Cpolygon class='needle-s' points='100,135 104,100 96,100'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='18' fill='%230a0a12' stroke='%2300BACF' stroke-width='2'/%3E%3Ctext class='oslash' x='100' y='108' text-anchor='middle'%3E%C3%98%3C/text%3E%3C/svg%3E" className="logo-icon logo-dark" style={{ width: 32, height: 32, borderRadius: 6 }} alt="NØMAÐ-HPC" />
@@ -4473,7 +4712,9 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         ) : activeTab === 'issue' ? (
                             <ReportIssuePanel />
                         ) : (
-                            <>
+                        activeTab === 'education' ? (
+                            <EducationPanel />
+                        ) :                             <>
                                 <ClusterView
                                     cluster={clusters[activeTab]}
                                     clusterName={activeTab}
@@ -4486,6 +4727,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             </>
                         )}
                     </main>
+                    </div>
                 </div>
             );
         }
