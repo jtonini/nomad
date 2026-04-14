@@ -68,6 +68,53 @@ def _get_conn(db_path: Path) -> sqlite3.Connection:
 
 # ── Job signals ──────────────────────────────────────────────────────────
 
+
+def create_site_db(db_path: Path, site: str) -> Path:
+    """Create a temporary database with only one site's data.
+    
+    Copies all tables from the source database. Tables with a
+    source_site column are filtered to the specified site.
+    Tables without source_site are copied in full.
+    
+    Returns the path to the temporary database.
+    """
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    tmp_path = Path(tmp.name)
+
+    dst = sqlite3.connect(str(tmp_path))
+    dst.execute("ATTACH DATABASE ? AS src", (str(db_path),))
+
+    tables = [r[0] for r in dst.execute(
+        "SELECT name FROM src.sqlite_master"
+        " WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()]
+
+    for tbl in tables:
+        try:
+            cols = [r[1] for r in dst.execute(
+                f"PRAGMA src.table_info({tbl})"
+            ).fetchall()]
+            if "source_site" in cols:
+                dst.execute(
+                    f"CREATE TABLE {tbl} AS"
+                    f" SELECT * FROM src.{tbl}"
+                    f" WHERE source_site = ?",
+                    (site,))
+            else:
+                dst.execute(
+                    f"CREATE TABLE {tbl} AS"
+                    f" SELECT * FROM src.{tbl}")
+        except Exception:
+            pass
+
+    dst.commit()
+    dst.execute("DETACH DATABASE src")
+    dst.close()
+    return tmp_path
+
+
 def read_job_signals(db_path: Path, hours: int = 24) -> list[Signal]:
     """Analyze recent job outcomes for failure patterns."""
     signals: list[Signal] = []
@@ -990,43 +1037,7 @@ def read_dynamics_signals(db_path: Path, hours: int = 168) -> list[Signal]:
         all_signals = []
         for site in sites:
             try:
-                # Create temp DB with this site's data
-                tmp = tempfile.NamedTemporaryFile(
-                    suffix=".db", delete=False)
-                tmp.close()
-                tmp_path = Path(tmp.name)
-                dst = sqlite3.connect(str(tmp_path))
-                dst.execute("ATTACH DATABASE ? AS src",
-                            (str(db_path),))
-                # Copy jobs for this site
-                dst.execute(
-                    "CREATE TABLE jobs AS"
-                    " SELECT * FROM src.jobs"
-                    " WHERE source_site = ?",
-                    (site,))
-                # Copy supporting tables
-                for tbl in [
-                    "group_membership",
-                    "node_state", "queue_state",
-                    "gpu_stats", "iostat_device",
-                ]:
-                    try:
-                        dst.execute(
-                            f"CREATE TABLE {tbl} AS"
-                            f" SELECT * FROM src.{tbl}"
-                            f" WHERE source_site = ?",
-                            (site,))
-                    except Exception:
-                        try:
-                            dst.execute(
-                                f"CREATE TABLE {tbl} AS"
-                                f" SELECT * FROM src.{tbl}")
-                        except Exception:
-                            pass
-                dst.commit()
-                dst.execute("DETACH DATABASE src")
-                dst.close()
-                # Run dynamics on temp DB
+                tmp_path = create_site_db(db_path, site)
                 sigs = _read_dynamics_for_site(
                     tmp_path, hours, site)
                 all_signals.extend(sigs)
