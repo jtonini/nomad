@@ -3500,6 +3500,39 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             };
 
                         // Dynamics Panel
+
+            // Education Panel
+            const EducationPanel = () => {
+                return React.createElement('div', {style: {padding: 16, maxWidth: 900}},
+                    React.createElement('h2', {style: {fontSize: 18, fontWeight: 700, marginBottom: 4}}, 'Educational Analytics'),
+                    React.createElement('p', {style: {fontSize: 12, color: '#64748b', marginBottom: 16}}, 'Computational proficiency tracking and development analysis'),
+                    React.createElement('div', {className: 'card', style: {padding: 24, marginBottom: 16}},
+                        React.createElement('div', {style: {display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24}},
+                            React.createElement('div', {style: {textAlign: 'center', padding: 16, background: 'var(--bg-secondary)', borderRadius: 8}},
+                                React.createElement('div', {style: {fontSize: 24, fontWeight: 700, color: '#00BACF'}}, 'Explain'),
+                                React.createElement('div', {style: {fontSize: 12, color: '#94a3b8', marginTop: 4}}, 'Analyze any job with resource recommendations')
+                            ),
+                            React.createElement('div', {style: {textAlign: 'center', padding: 16, background: 'var(--bg-secondary)', borderRadius: 8}},
+                                React.createElement('div', {style: {fontSize: 24, fontWeight: 700, color: '#22c55e'}}, 'Trajectory'),
+                                React.createElement('div', {style: {fontSize: 12, color: '#94a3b8', marginTop: 4}}, 'Track user proficiency development over time')
+                            ),
+                            React.createElement('div', {style: {textAlign: 'center', padding: 16, background: 'var(--bg-secondary)', borderRadius: 8}},
+                                React.createElement('div', {style: {fontSize: 24, fontWeight: 700, color: '#f59e0b'}}, 'Reports'),
+                                React.createElement('div', {style: {fontSize: 12, color: '#94a3b8', marginTop: 4}}, 'Course and group proficiency reports')
+                            )
+                        ),
+                        React.createElement('div', {style: {padding: 16, background: 'var(--bg-secondary)', borderRadius: 8, textAlign: 'center'}},
+                            React.createElement('p', {style: {color: '#94a3b8', marginBottom: 8}}, 'Dashboard integration coming soon. Use the CLI:'),
+                            React.createElement('div', {style: {display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center'}},
+                                React.createElement('code', {style: {fontSize: 12, color: '#00BACF', background: 'var(--bg-primary)', padding: '4px 12px', borderRadius: 4}}, 'nomad edu explain <job_id>'),
+                                React.createElement('code', {style: {fontSize: 12, color: '#00BACF', background: 'var(--bg-primary)', padding: '4px 12px', borderRadius: 4}}, 'nomad edu trajectory <username>'),
+                                React.createElement('code', {style: {fontSize: 12, color: '#00BACF', background: 'var(--bg-primary)', padding: '4px 12px', borderRadius: 4}}, 'nomad edu report <group>')
+                            )
+                        )
+                    )
+                );
+            };
+
             const DynamicsPanel = () => {
                 const [dynData, setDynData] = useState(null);
                 const [dynLoading, setDynLoading] = useState(true);
@@ -4460,6 +4493,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 onClick={() => { setActiveTab('dynamics'); setSelectedNode(null); }}
                             >
                                 Dynamics
+                            </div>
+                            <div
+                                className={`tab ${activeTab === 'education' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('education'); setSelectedNode(null); }}
+                            >
+                                Education
                             </div>
                             <div
                                 className={`tab ${activeTab === 'issue' ? 'active' : ''}`}
