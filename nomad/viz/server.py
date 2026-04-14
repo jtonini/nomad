@@ -7681,32 +7681,15 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             dm = DashboardHandler.data_manager
             try:
                 from nomad.dynamics.engine import DynamicsEngine
-                import tempfile
+                from nomad.insights.signals import create_site_db
                 hours = int(dict(urllib.parse.parse_qsl(parsed.query)).get('hours', '168'))
                 cluster_name = dict(urllib.parse.parse_qsl(parsed.query)).get('cluster', 'all')
                 use_db = dm.db_path
                 tmp_path = None
-                # Filter by cluster if specific one selected
-                if cluster_name != 'all' and cluster_name != 'cluster':
+                if cluster_name not in ('all', 'cluster'):
                     try:
-                        tmp = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-                        tmp.close()
-                        tmp_path = tmp.name
-                        import sqlite3 as _sql
-                        dst = _sql.connect(tmp_path)
-                        dst.execute('ATTACH DATABASE ? AS src', (str(dm.db_path),))
-                        dst.execute('CREATE TABLE jobs AS SELECT * FROM src.jobs WHERE source_site = ?', (cluster_name,))
-                        for tbl in ['group_membership', 'node_state', 'queue_state', 'gpu_stats', 'iostat_device']:
-                            try:
-                                dst.execute(f'CREATE TABLE {tbl} AS SELECT * FROM src.{tbl} WHERE source_site = ?', (cluster_name,))
-                            except Exception:
-                                try:
-                                    dst.execute(f'CREATE TABLE {tbl} AS SELECT * FROM src.{tbl}')
-                                except Exception:
-                                    pass
-                        dst.commit()
-                        dst.execute('DETACH DATABASE src')
-                        dst.close()
+                        tmp_path = create_site_db(
+                            Path(str(dm.db_path)), cluster_name)
                         use_db = tmp_path
                     except Exception:
                         pass
