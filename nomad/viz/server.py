@@ -8059,7 +8059,19 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                         ] if hasattr(traj, 'windows') else [],
                     }
                 else:
-                    result = {"error": f"No data for user '{username}'"}
+                    # Check why - not enough jobs?
+                    try:
+                        conn2 = sqlite3.connect(str(dm.db_path))
+                        cnt = conn2.execute(
+                            'SELECT COUNT(*) FROM jobs WHERE user_name=?',
+                            (username,)).fetchone()[0]
+                        conn2.close()
+                        if cnt < 3:
+                            result = {'error': f'{username} has {cnt} job(s). Minimum 3 required for trajectory analysis.'}
+                        else:
+                            result = {'error': f'No trajectory data for {username} ({cnt} jobs found but outside 90-day window)'}
+                    except Exception:
+                        result = {'error': f'No data for user '{username}''}
             except Exception as e:
                 result = {"error": str(e)}
             self.wfile.write(json.dumps(result, default=str).encode())
