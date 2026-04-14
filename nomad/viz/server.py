@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 João Tonini
 """
-NOMAD Dashboard Server - Integrated Version
-Connects to TOML config, NOMAD database, and falls back to demo data.
+NØMAÐ Dashboard Server - Integrated Version
+Connects to TOML config, NØMAÐ database, and falls back to demo data.
 """
 
 import http.server
@@ -101,7 +101,7 @@ def load_config(config_path: Optional[Path] = None) -> dict:
 # ============================================================================
 
 def find_database() -> Optional[Path]:
-    """Search for NOMAD database."""
+    """Search for NØMAÐ database."""
     search_paths = [
         Path("/var/lib/nomad/nomad.db"),
         Path.home() / "nomad" / "nomad.db",
@@ -146,7 +146,7 @@ def load_clusters_from_db(db_path: Path) -> dict:
     try:
         conn = get_db_connection(db_path)
 
-        # Try NOMAD's node_state table first
+        # Try NØMAÐ's node_state table first
         try:
             rows = conn.execute("""
                 SELECT DISTINCT ns.node_name, ns.partitions, ns.gres,
@@ -380,7 +380,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
     try:
         conn = get_db_connection(db_path)
 
-        # Try NOMAD's node_state table
+        # Try NØMAÐ's node_state table
         try:
             rows = conn.execute("""
                 SELECT 
@@ -2416,7 +2416,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NOMAD - HPC Monitor</title>
+    <title>NØMAÐ - HPC Monitor</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -3729,7 +3729,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 
                 return React.createElement('div', {style:{padding:16, maxWidth:700}},
                     React.createElement('h2', {style:{fontSize:18, fontWeight:700, marginBottom:4}}, 'Report Issue'),
-                    React.createElement('p', {style:{fontSize:12, color:'#64748b', marginBottom:16}}, 'Submit bug reports, feature requests, or questions directly to the NOMAD GitHub repository'),
+                    React.createElement('p', {style:{fontSize:12, color:'#64748b', marginBottom:16}}, 'Submit bug reports, feature requests, or questions directly to the NØMAÐ GitHub repository'),
 
                     // Category selection
                     React.createElement('div', {style:{display:'flex', gap:8, marginBottom:16}},
@@ -3796,7 +3796,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     // System info preview
                     sysInfo ? React.createElement('div', {style:{...cs.card, fontSize:11, fontFamily:'monospace', color:'#64748b'}},
                         React.createElement('div', {style:{fontWeight:600, marginBottom:4, color:'#94a3b8'}}, 'Auto-included system info:'),
-                        React.createElement('div', null, 'NOMAD ' + (sysInfo.nomad_version||'?') + ' | Python ' + (sysInfo.python_version||'?') + ' | ' + (sysInfo.os_info||'?')),
+                        React.createElement('div', null, 'NØMAÐ ' + (sysInfo.nomad_version||'?') + ' | Python ' + (sysInfo.python_version||'?') + ' | ' + (sysInfo.os_info||'?')),
                         sysInfo.active_collectors && sysInfo.active_collectors.length > 0 ?
                             React.createElement('div', null, 'Collectors: ' + sysInfo.active_collectors.join(', ')) : null
                     ) : null,
@@ -4328,8 +4328,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         flexDirection: 'column',
                         gap: '16px'
                     }}>
-                        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.bg%7Bfill:%230a0a12%7D.ring%7Bfill:none;stroke:%2300BACF;stroke-width:6%7D.ring-inner%7Bfill:none;stroke:%2300BACF;stroke-width:3%7D.grid%7Bstroke:%2300BACF;stroke-width:1;opacity:.3%7D.oslash%7Bfont-family:Helvetica,Arial,sans-serif;font-size:28px;fill:%23B64326;font-weight:500%7D.needle-n%7Bfill:%23B64326%7D.needle-s%7Bfill:%2300BACF%7D.node%7Bfill:%2300BACF%7D.cardinal%7Bfont-family:Helvetica,Arial,sans-serif;font-size:10px;fill:%2300BACF;font-weight:500%7D%3C/style%3E%3C/defs%3E%3Ccircle class='bg' cx='100' cy='100' r='98'/%3E%3Ccircle class='ring' cx='100' cy='100' r='95'/%3E%3Ccircle class='ring-inner' cx='100' cy='100' r='60'/%3E%3Cg class='grid'%3E%3Cline x1='100' y1='5' x2='100' y2='195'/%3E%3Cline x1='5' y1='100' x2='195' y2='100'/%3E%3Cline x1='32' y1='32' x2='168' y2='168'/%3E%3Cline x1='168' y1='32' x2='32' y2='168'/%3E%3C/g%3E%3Ccircle class='grid' cx='100' cy='100' r='78' fill='none'/%3E%3Ccircle class='node' cx='100' cy='42' r='3'/%3E%3Ccircle class='node' cx='158' cy='100' r='3'/%3E%3Ccircle class='node' cx='100' cy='158' r='3'/%3E%3Ccircle class='node' cx='42' cy='100' r='3'/%3E%3Ctext class='cardinal' x='100' y='56' text-anchor='middle'%3EN%3C/text%3E%3Ctext class='cardinal' x='146' y='104' text-anchor='middle'%3EE%3C/text%3E%3Ctext class='cardinal' x='100' y='150' text-anchor='middle'%3ES%3C/text%3E%3Ctext class='cardinal' x='54' y='104' text-anchor='middle'%3EW%3C/text%3E%3Cg transform='rotate(45,100,100)'%3E%3Cpolygon class='needle-n' points='100,65 96,100 104,100'/%3E%3Cpolygon class='needle-s' points='100,135 104,100 96,100'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='18' fill='%230a0a12' stroke='%2300BACF' stroke-width='2'/%3E%3Ctext class='oslash' x='100' y='108' text-anchor='middle'%3EØ%3C/text%3E%3C/svg%3E" style={{ width: 48, height: 48, borderRadius: 8 }} alt="NOMAD-HPC" />
-                        <div style={{ color: 'var(--text-muted)' }}>Loading NOMAD...</div>
+                        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.bg%7Bfill:%230a0a12%7D.ring%7Bfill:none;stroke:%2300BACF;stroke-width:6%7D.ring-inner%7Bfill:none;stroke:%2300BACF;stroke-width:3%7D.grid%7Bstroke:%2300BACF;stroke-width:1;opacity:.3%7D.oslash%7Bfont-family:Helvetica,Arial,sans-serif;font-size:28px;fill:%23B64326;font-weight:500%7D.needle-n%7Bfill:%23B64326%7D.needle-s%7Bfill:%2300BACF%7D.node%7Bfill:%2300BACF%7D.cardinal%7Bfont-family:Helvetica,Arial,sans-serif;font-size:10px;fill:%2300BACF;font-weight:500%7D%3C/style%3E%3C/defs%3E%3Ccircle class='bg' cx='100' cy='100' r='98'/%3E%3Ccircle class='ring' cx='100' cy='100' r='95'/%3E%3Ccircle class='ring-inner' cx='100' cy='100' r='60'/%3E%3Cg class='grid'%3E%3Cline x1='100' y1='5' x2='100' y2='195'/%3E%3Cline x1='5' y1='100' x2='195' y2='100'/%3E%3Cline x1='32' y1='32' x2='168' y2='168'/%3E%3Cline x1='168' y1='32' x2='32' y2='168'/%3E%3C/g%3E%3Ccircle class='grid' cx='100' cy='100' r='78' fill='none'/%3E%3Ccircle class='node' cx='100' cy='42' r='3'/%3E%3Ccircle class='node' cx='158' cy='100' r='3'/%3E%3Ccircle class='node' cx='100' cy='158' r='3'/%3E%3Ccircle class='node' cx='42' cy='100' r='3'/%3E%3Ctext class='cardinal' x='100' y='56' text-anchor='middle'%3EN%3C/text%3E%3Ctext class='cardinal' x='146' y='104' text-anchor='middle'%3EE%3C/text%3E%3Ctext class='cardinal' x='100' y='150' text-anchor='middle'%3ES%3C/text%3E%3Ctext class='cardinal' x='54' y='104' text-anchor='middle'%3EW%3C/text%3E%3Cg transform='rotate(45,100,100)'%3E%3Cpolygon class='needle-n' points='100,65 96,100 104,100'/%3E%3Cpolygon class='needle-s' points='100,135 104,100 96,100'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='18' fill='%230a0a12' stroke='%2300BACF' stroke-width='2'/%3E%3Ctext class='oslash' x='100' y='108' text-anchor='middle'%3EØ%3C/text%3E%3C/svg%3E" style={{ width: 48, height: 48, borderRadius: 8 }} alt="NØMAÐ-HPC" />
+                        <div style={{ color: 'var(--text-muted)' }}>Loading NØMAÐ...</div>
                     </div>
                 );
             }
@@ -4338,8 +4338,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 <div>
                     <header className="header">
                         <div className="logo">
-                            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.bg%7Bfill:%230a0a12%7D.ring%7Bfill:none;stroke:%2300BACF;stroke-width:6%7D.ring-inner%7Bfill:none;stroke:%2300BACF;stroke-width:3%7D.grid%7Bstroke:%2300BACF;stroke-width:1;opacity:.3%7D.oslash%7Bfont-family:Helvetica,Arial,sans-serif;font-size:28px;fill:%23B64326;font-weight:500%7D.needle-n%7Bfill:%23B64326%7D.needle-s%7Bfill:%2300BACF%7D.node%7Bfill:%2300BACF%7D.cardinal%7Bfont-family:Helvetica,Arial,sans-serif;font-size:10px;fill:%2300BACF;font-weight:500%7D%3C/style%3E%3C/defs%3E%3Ccircle class='bg' cx='100' cy='100' r='98'/%3E%3Ccircle class='ring' cx='100' cy='100' r='95'/%3E%3Ccircle class='ring-inner' cx='100' cy='100' r='60'/%3E%3Cg class='grid'%3E%3Cline x1='100' y1='5' x2='100' y2='195'/%3E%3Cline x1='5' y1='100' x2='195' y2='100'/%3E%3Cline x1='32' y1='32' x2='168' y2='168'/%3E%3Cline x1='168' y1='32' x2='32' y2='168'/%3E%3C/g%3E%3Ccircle class='grid' cx='100' cy='100' r='78' fill='none'/%3E%3Ccircle class='node' cx='100' cy='42' r='3'/%3E%3Ccircle class='node' cx='158' cy='100' r='3'/%3E%3Ccircle class='node' cx='100' cy='158' r='3'/%3E%3Ccircle class='node' cx='42' cy='100' r='3'/%3E%3Ctext class='cardinal' x='100' y='56' text-anchor='middle'%3EN%3C/text%3E%3Ctext class='cardinal' x='146' y='104' text-anchor='middle'%3EE%3C/text%3E%3Ctext class='cardinal' x='100' y='150' text-anchor='middle'%3ES%3C/text%3E%3Ctext class='cardinal' x='54' y='104' text-anchor='middle'%3EW%3C/text%3E%3Cg transform='rotate(45,100,100)'%3E%3Cpolygon class='needle-n' points='100,65 96,100 104,100'/%3E%3Cpolygon class='needle-s' points='100,135 104,100 96,100'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='18' fill='%230a0a12' stroke='%2300BACF' stroke-width='2'/%3E%3Ctext class='oslash' x='100' y='108' text-anchor='middle'%3E%C3%98%3C/text%3E%3C/svg%3E" className="logo-icon logo-dark" style={{ width: 32, height: 32, borderRadius: 6 }} alt="NOMAD-HPC" />
-                            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.bg%7Bfill:%23f5f6f8%7D.ring%7Bfill:none;stroke:%2300BACF;stroke-width:6%7D.ring-inner%7Bfill:none;stroke:%2300BACF;stroke-width:3%7D.grid%7Bstroke:%2300BACF;stroke-width:1;opacity:.4%7D.oslash%7Bfont-family:Helvetica,Arial,sans-serif;font-size:28px;fill:%23B64326;font-weight:500%7D.needle-n%7Bfill:%23B64326%7D.needle-s%7Bfill:%2300BACF%7D.node%7Bfill:%2300BACF%7D.cardinal%7Bfont-family:Helvetica,Arial,sans-serif;font-size:10px;fill:%2300BACF;font-weight:500%7D%3C/style%3E%3C/defs%3E%3Ccircle class='bg' cx='100' cy='100' r='98'/%3E%3Ccircle class='ring' cx='100' cy='100' r='95'/%3E%3Ccircle class='ring-inner' cx='100' cy='100' r='60'/%3E%3Cg class='grid'%3E%3Cline x1='100' y1='5' x2='100' y2='195'/%3E%3Cline x1='5' y1='100' x2='195' y2='100'/%3E%3Cline x1='32' y1='32' x2='168' y2='168'/%3E%3Cline x1='168' y1='32' x2='32' y2='168'/%3E%3C/g%3E%3Ccircle class='grid' cx='100' cy='100' r='78' fill='none'/%3E%3Ccircle class='node' cx='100' cy='42' r='3'/%3E%3Ccircle class='node' cx='158' cy='100' r='3'/%3E%3Ccircle class='node' cx='100' cy='158' r='3'/%3E%3Ccircle class='node' cx='42' cy='100' r='3'/%3E%3Ctext class='cardinal' x='100' y='56' text-anchor='middle'%3EN%3C/text%3E%3Ctext class='cardinal' x='146' y='104' text-anchor='middle'%3EE%3C/text%3E%3Ctext class='cardinal' x='100' y='150' text-anchor='middle'%3ES%3C/text%3E%3Ctext class='cardinal' x='54' y='104' text-anchor='middle'%3EW%3C/text%3E%3Cg transform='rotate(45,100,100)'%3E%3Cpolygon class='needle-n' points='100,65 96,100 104,100'/%3E%3Cpolygon class='needle-s' points='100,135 104,100 96,100'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='18' fill='%23f5f6f8' stroke='%2300BACF' stroke-width='2'/%3E%3Ctext class='oslash' x='100' y='108' text-anchor='middle'%3E%C3%98%3C/text%3E%3C/svg%3E" className="logo-icon logo-light" style={{ width: 32, height: 32, borderRadius: 6, display: 'none' }} alt="NOMAD-HPC" />
+                            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.bg%7Bfill:%230a0a12%7D.ring%7Bfill:none;stroke:%2300BACF;stroke-width:6%7D.ring-inner%7Bfill:none;stroke:%2300BACF;stroke-width:3%7D.grid%7Bstroke:%2300BACF;stroke-width:1;opacity:.3%7D.oslash%7Bfont-family:Helvetica,Arial,sans-serif;font-size:28px;fill:%23B64326;font-weight:500%7D.needle-n%7Bfill:%23B64326%7D.needle-s%7Bfill:%2300BACF%7D.node%7Bfill:%2300BACF%7D.cardinal%7Bfont-family:Helvetica,Arial,sans-serif;font-size:10px;fill:%2300BACF;font-weight:500%7D%3C/style%3E%3C/defs%3E%3Ccircle class='bg' cx='100' cy='100' r='98'/%3E%3Ccircle class='ring' cx='100' cy='100' r='95'/%3E%3Ccircle class='ring-inner' cx='100' cy='100' r='60'/%3E%3Cg class='grid'%3E%3Cline x1='100' y1='5' x2='100' y2='195'/%3E%3Cline x1='5' y1='100' x2='195' y2='100'/%3E%3Cline x1='32' y1='32' x2='168' y2='168'/%3E%3Cline x1='168' y1='32' x2='32' y2='168'/%3E%3C/g%3E%3Ccircle class='grid' cx='100' cy='100' r='78' fill='none'/%3E%3Ccircle class='node' cx='100' cy='42' r='3'/%3E%3Ccircle class='node' cx='158' cy='100' r='3'/%3E%3Ccircle class='node' cx='100' cy='158' r='3'/%3E%3Ccircle class='node' cx='42' cy='100' r='3'/%3E%3Ctext class='cardinal' x='100' y='56' text-anchor='middle'%3EN%3C/text%3E%3Ctext class='cardinal' x='146' y='104' text-anchor='middle'%3EE%3C/text%3E%3Ctext class='cardinal' x='100' y='150' text-anchor='middle'%3ES%3C/text%3E%3Ctext class='cardinal' x='54' y='104' text-anchor='middle'%3EW%3C/text%3E%3Cg transform='rotate(45,100,100)'%3E%3Cpolygon class='needle-n' points='100,65 96,100 104,100'/%3E%3Cpolygon class='needle-s' points='100,135 104,100 96,100'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='18' fill='%230a0a12' stroke='%2300BACF' stroke-width='2'/%3E%3Ctext class='oslash' x='100' y='108' text-anchor='middle'%3E%C3%98%3C/text%3E%3C/svg%3E" className="logo-icon logo-dark" style={{ width: 32, height: 32, borderRadius: 6 }} alt="NØMAÐ-HPC" />
+                            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.bg%7Bfill:%23f5f6f8%7D.ring%7Bfill:none;stroke:%2300BACF;stroke-width:6%7D.ring-inner%7Bfill:none;stroke:%2300BACF;stroke-width:3%7D.grid%7Bstroke:%2300BACF;stroke-width:1;opacity:.4%7D.oslash%7Bfont-family:Helvetica,Arial,sans-serif;font-size:28px;fill:%23B64326;font-weight:500%7D.needle-n%7Bfill:%23B64326%7D.needle-s%7Bfill:%2300BACF%7D.node%7Bfill:%2300BACF%7D.cardinal%7Bfont-family:Helvetica,Arial,sans-serif;font-size:10px;fill:%2300BACF;font-weight:500%7D%3C/style%3E%3C/defs%3E%3Ccircle class='bg' cx='100' cy='100' r='98'/%3E%3Ccircle class='ring' cx='100' cy='100' r='95'/%3E%3Ccircle class='ring-inner' cx='100' cy='100' r='60'/%3E%3Cg class='grid'%3E%3Cline x1='100' y1='5' x2='100' y2='195'/%3E%3Cline x1='5' y1='100' x2='195' y2='100'/%3E%3Cline x1='32' y1='32' x2='168' y2='168'/%3E%3Cline x1='168' y1='32' x2='32' y2='168'/%3E%3C/g%3E%3Ccircle class='grid' cx='100' cy='100' r='78' fill='none'/%3E%3Ccircle class='node' cx='100' cy='42' r='3'/%3E%3Ccircle class='node' cx='158' cy='100' r='3'/%3E%3Ccircle class='node' cx='100' cy='158' r='3'/%3E%3Ccircle class='node' cx='42' cy='100' r='3'/%3E%3Ctext class='cardinal' x='100' y='56' text-anchor='middle'%3EN%3C/text%3E%3Ctext class='cardinal' x='146' y='104' text-anchor='middle'%3EE%3C/text%3E%3Ctext class='cardinal' x='100' y='150' text-anchor='middle'%3ES%3C/text%3E%3Ctext class='cardinal' x='54' y='104' text-anchor='middle'%3EW%3C/text%3E%3Cg transform='rotate(45,100,100)'%3E%3Cpolygon class='needle-n' points='100,65 96,100 104,100'/%3E%3Cpolygon class='needle-s' points='100,135 104,100 96,100'/%3E%3C/g%3E%3Ccircle cx='100' cy='100' r='18' fill='%23f5f6f8' stroke='%2300BACF' stroke-width='2'/%3E%3Ctext class='oslash' x='100' y='108' text-anchor='middle'%3E%C3%98%3C/text%3E%3C/svg%3E" className="logo-icon logo-light" style={{ width: 32, height: 32, borderRadius: 6, display: 'none' }} alt="NØMAÐ-HPC" />
                             <span style={{color:'#00BACF'}}>N<span style={{color:'#B64326'}}>Ø</span>MAD</span>
                         </div>
                         
@@ -6509,7 +6509,7 @@ def generate_mobile_html(dm, stats):
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>NØMAD</title>
+    <title>NØMAÐ</title>
     <style>
         :root {{ --bg:#0f172a; --bg-card:#1e293b; --bg-hover:#334155; --text:#f1f5f9; --text-muted:#94a3b8; --green:#22c55e; --yellow:#f59e0b; --red:#ef4444; --cyan:#06b6d4; --purple:#a855f7; }}
         * {{ box-sizing:border-box; margin:0; padding:0; }}
@@ -7760,7 +7760,7 @@ def serve_dashboard(host='localhost', port=8050, config_path=None, db_path=None)
     stats = data_manager.get_stats()
 
     print("=" * 60)
-    print("              NØMAD Dashboard")
+    print("              NØMAÐ Dashboard")
     print("=" * 60)
     print(f"  Server:      http://{host}:{port}")
     print(f"  Data Source: {stats['data_source']}")

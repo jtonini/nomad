@@ -1,12 +1,12 @@
-# NØMAD
+# NØMAÐ
 
 **NØde Monitoring And Diagnostics** — Lightweight HPC monitoring, visualization, and predictive analytics.
 
 > *"Travels light, adapts to its environment, and doesn't need permanent infrastructure."*
 
-## What is NØMAD?
+## What is NØMAÐ?
 
-NØMAD is a self-contained monitoring and prediction system for HPC clusters. Unlike heavyweight solutions requiring complex infrastructure, NØMAD deploys quickly, runs with minimal resources, and provides actionable insights through:
+NØMAÐ is a self-contained monitoring and prediction system for HPC clusters. Unlike heavyweight solutions requiring complex infrastructure, NØMAÐ deploys quickly, runs with minimal resources, and provides actionable insights through:
 
 - **Real-time monitoring** of disk, CPU, memory, GPU, and SLURM jobs
 - **Predictive analytics** using machine learning and similarity networks

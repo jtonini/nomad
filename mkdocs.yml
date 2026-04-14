@@ -1,4 +1,4 @@
-site_name: NØMAD-HPC Documentation
+site_name: NØMAÐ-HPC Documentation
 site_url: https://jtonini.github.io/nomad-hpc/
 site_description: Lightweight HPC monitoring, visualization, and predictive analytics
 site_author: João Tonini
@@ -63,7 +63,7 @@ nav:
     - Reference System: reference.md
   - Development:
     - Contributing: CONTRIBUTING.md
-    - Extending NØMAD: extending.md
+    - Extending NØMAÐ: extending.md
     - Roadmap: ROADMAP.md
     - Changelog: changelog.md
 

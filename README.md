@@ -1,4 +1,4 @@
-# NØMAD-HPC
+# NØMAÐ-HPC
 
 **NØde Monitoring And Diagnostics** — Lightweight HPC monitoring, visualization, and predictive analytics.
 
@@ -101,7 +101,7 @@ Toggle between light and dark themes with the Theme button.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              NØMAD                                          │
+│                              NØMAÐ                                          │
 ├───────────────┬───────────────┬───────────────┬───────────┬────────────────┤
 │  Collectors   │   Analysis    │     Viz       │  Alerts   │  Intelligence  │
 ├───────────────┼───────────────┼───────────────┼───────────┼────────────────┤
@@ -127,7 +127,7 @@ Toggle between light and dark themes with the Theme button.
 
 ## Multi-Site Deployment
 
-NØMAD supports monitoring multiple sites from a single dashboard:
+NØMAÐ supports monitoring multiple sites from a single dashboard:
 
 ```bash
 # On each site
@@ -300,7 +300,7 @@ Dual-licensed:
 ```bibtex
 @software{nomad2026,
   author = {Tonini, João Filipe Riva},
-  title = {NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction},
+  title = {NØMAÐ: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction},
   year = {2026},
   url = {https://github.com/jtonini/nomad-hpc},
   doi = {10.5281/zenodo.18614517}
@@ -308,7 +308,7 @@ Dual-licensed:
 
 @article{tonini2026nomad,
   author = {Tonini, João Filipe Riva},
-  title = {NØMAD: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction},
+  title = {NØMAÐ: Lightweight HPC Monitoring with Machine Learning-Based Failure Prediction},
   journal = {Journal of Open Research Software},
   volume = {14},
   pages = {17},
