@@ -4585,7 +4585,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             const [networkMethod, setNetworkMethod] = useState(null);
             const [clusteringQuality, setClusteringQuality] = useState(null);
             const [mlPredictions, setMlPredictions] = useState(null);
-            const [dataSource, setDataSource] = useState('loading...');
+            const [features, setFeatures] = useState({});
+                const const [dataSource, setDataSource] = useState('loading...');
             
 
 
@@ -4611,6 +4612,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         setClusteringQuality(data.clustering_quality);
                         setMlPredictions(data.ml_predictions);
                         setDataSource(data.data_source || 'unknown');
+                        setFeatures(data.features || {});
                         setQueueRunning(data.queue_running || {});
                         setActiveTab('insights');
                     });
@@ -4705,12 +4707,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             >
                                 Storage
                             </div>
-                            <div
+                            {features.cloud !== false && <div
                                 className={`tab ${activeTab === 'cloud' ? 'active' : ''}`}
                                 onClick={() => { setActiveTab('cloud'); setSelectedNode(null); }}
                             >
                                 Cloud
-                            </div>
+                            </div>}
 
                             <div
                                 className={`tab ${activeTab === 'dynamics' ? 'active' : ''}`}
@@ -7504,6 +7506,25 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 "ml_predictions": dm.ml_predictions or {"status": "not_ready"},
                 "queue_running": dm.get_queue_running(),
             }
+            # Detect which features have data
+            features = {}
+            if dm.db_path:
+                try:
+                    fconn = sqlite3.connect(str(dm.db_path))
+                    for feat, query in [
+                        ('cloud', 'SELECT 1 FROM cloud_instances LIMIT 1'),
+                        ('interactive', 'SELECT 1 FROM interactive_sessions LIMIT 1'),
+                        ('nfs', 'SELECT 1 FROM nfs_stats WHERE 1 LIMIT 1'),
+                    ]:
+                        try:
+                            r = fconn.execute(query).fetchone()
+                            features[feat] = r is not None
+                        except Exception:
+                            features[feat] = False
+                    fconn.close()
+                except Exception:
+                    pass
+            data['features'] = features
             self.wfile.write(json.dumps(data).encode())
 
         elif parsed.path == '/api/clustering':
