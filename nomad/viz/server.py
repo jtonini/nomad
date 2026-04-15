@@ -4586,7 +4586,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             const [clusteringQuality, setClusteringQuality] = useState(null);
             const [mlPredictions, setMlPredictions] = useState(null);
             const [features, setFeatures] = useState({});
-                const const [dataSource, setDataSource] = useState('loading...');
+                const [dataSource, setDataSource] = useState('loading...');
             
 
 
