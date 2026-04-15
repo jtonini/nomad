@@ -3511,13 +3511,28 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 const [trajData, setTrajData] = useState(null);
                 const [groupData, setGroupData] = useState(null);
                 const [eduLoading, setEduLoading] = useState(false);
+                const [eduCluster, setEduCluster] = useState('all');
+                const [eduClusters, setEduClusters] = useState([]);
 
                 useEffect(() => {
-                    fetch('/api/edu/users')
+                    fetch('/api/data')
+                        .then(r => r.json())
+                        .then(d => {
+                            const cls = Object.keys(d.clusters || {}).filter(
+                                k => d.clusters[k].type !== 'workstation');
+                            setEduClusters(cls);
+                        }).catch(() => {});
+                }, []);
+
+                useEffect(() => {
+                    setSelectedUser(''); setSelectedGroup('');
+                    setTrajData(null); setGroupData(null);
+                    setEduView('overview');
+                    fetch('/api/edu/users?cluster=' + eduCluster)
                         .then(r => r.json())
                         .then(d => { setEduUsers(d.users || []); setEduGroups(d.groups || []); })
                         .catch(() => {});
-                }, []);
+                }, [eduCluster]);
 
                 const loadTrajectory = (user) => {
                     setSelectedUser(user);
@@ -3551,7 +3566,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             React.createElement('h3', {style: {fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--btn-text)'}}, 'User Trajectory'),
                             React.createElement('select', {
                                 value: selectedUser,
-                                onChange: e => { if (e.target.value) loadTrajectory(e.target.value); },
+                                onChange: e => { if (e.target.value) { loadTrajectory(e.target.value); } else { setSelectedUser(''); setTrajData(null); setEduView('overview'); } },
                                 style: eduStyles.select
                             },
                                 React.createElement('option', {value: ''}, 'Select a user...'),
@@ -3564,7 +3579,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             React.createElement('h3', {style: {fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--btn-text)'}}, 'Group Report'),
                             React.createElement('select', {
                                 value: selectedGroup,
-                                onChange: e => { if (e.target.value) loadGroup(e.target.value); },
+                                onChange: e => { if (e.target.value) { loadGroup(e.target.value); } else { setSelectedGroup(''); setGroupData(null); setEduView('overview'); } },
                                 style: eduStyles.select
                             },
                                 React.createElement('option', {value: ''}, 'Select a group...'),
@@ -3700,6 +3715,16 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 return React.createElement('div', {style: {padding: 16, maxWidth: 900}},
                     React.createElement('h2', {style: {fontSize: 18, fontWeight: 700, marginBottom: 4}}, 'Educational Analytics'),
                     React.createElement('p', {style: {fontSize: 12, color: '#64748b', marginBottom: 16}}, 'Computational proficiency tracking and development analysis'),
+                    React.createElement('div', {style: {marginBottom: 16}},
+                        React.createElement('select', {
+                            value: eduCluster,
+                            onChange: e => setEduCluster(e.target.value),
+                            style: eduStyles.select
+                        },
+                            React.createElement('option', {value: 'all'}, 'All Clusters'),
+                            eduClusters.map(c => React.createElement('option', {key: c, value: c}, c))
+                        )
+                    ),
                     eduLoading ? React.createElement('div', {style: {padding: 20, color: '#94a3b8'}}, 'Loading...') :
                     eduView === 'trajectory' ? trajectoryView :
                     eduView === 'group' ? groupView :
@@ -8018,9 +8043,15 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 conn = sqlite3.connect(str(dm.db_path))
                 conn.row_factory = sqlite3.Row
-                users = [r[0] for r in conn.execute(
-                    "SELECT DISTINCT user_name FROM jobs ORDER BY user_name"
-                ).fetchall()]
+                edu_cluster = dict(urllib.parse.parse_qsl(parsed.query)).get('cluster', 'all')
+                if edu_cluster and edu_cluster != 'all':
+                    users = [r[0] for r in conn.execute(
+                        "SELECT DISTINCT user_name FROM jobs WHERE source_site=? ORDER BY user_name",
+                        (edu_cluster,)).fetchall()]
+                else:
+                    users = [r[0] for r in conn.execute(
+                        "SELECT DISTINCT user_name FROM jobs ORDER BY user_name"
+                    ).fetchall()]
                 groups = []
                 try:
                     groups = [r[0] for r in conn.execute(
