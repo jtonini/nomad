@@ -85,7 +85,7 @@ class GPUCollector(BaseCollector):
 
         self._gpu_available = None  # Lazy check
         # SSH mode config: gpu_nodes list and ssh_user
-        gpu_config = self.config.get('collectors', {}).get('gpu', {})
+        gpu_config = self.config
         self._gpu_nodes = gpu_config.get('gpu_nodes', [])
         self._ssh_user = gpu_config.get('ssh_user', os.getenv('USER', ''))
         if self._gpu_nodes:
