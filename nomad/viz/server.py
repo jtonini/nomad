@@ -529,7 +529,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                         "gpu_util": 0,  # Will be updated from gpu_stats
                         "gpu_name": row['gres'] if has_gpu else None,
                         "cpu_util": int(row['cpu_alloc_percent'] or 0),
-                        "mem_util": int(row['memory_alloc_percent'] or 0),
+                        "mem_util": int(((row["memory_total_mb"] - row["memory_free_mb"]) / row["memory_total_mb"] * 100) if row["memory_total_mb"] and row["memory_total_mb"] > 0 else 0),
                         "load_avg": row['cpu_load'] or 0,
                         "drain_reason": row['reason'],
                         "last_seen": datetime.now().isoformat()
