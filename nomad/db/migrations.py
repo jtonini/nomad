@@ -47,6 +47,9 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX IF NOT EXISTS idx_node_state_cluster
             ON node_state(cluster);
     """),
+    (5, "Add node_name to gpu_stats for SSH mode", """
+        ALTER TABLE gpu_stats ADD COLUMN node_name TEXT DEFAULT '';
+    """),
 ]
 
 
