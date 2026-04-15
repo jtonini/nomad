@@ -10,6 +10,8 @@ Gracefully skips if no GPUs available.
 """
 
 import logging
+import os
+import socket
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -82,19 +84,84 @@ class GPUCollector(BaseCollector):
         super().__init__(config, db_path)
 
         self._gpu_available = None  # Lazy check
+        # SSH mode config: gpu_nodes list and ssh_user
+        gpu_config = self.config.get('collectors', {}).get('gpu', {})
+        self._gpu_nodes = gpu_config.get('gpu_nodes', [])
+        self._ssh_user = gpu_config.get('ssh_user', os.getenv('USER', ''))
+        if self._gpu_nodes:
+            logger.info(f"GPUCollector SSH mode: {len(self._gpu_nodes)} nodes configured")
         logger.info("GPUCollector initialized")
 
+
+    def _run_command_ssh(self, cmd: str, host: str) -> str | None:
+        """Run a command on a remote host via SSH.
+
+        Uses BatchMode=yes to fail fast if key auth is not set up.
+        Modeled on WorkstationCollector.run_command().
+        """
+        ssh_cmd = [
+            'ssh',
+            '-o', 'BatchMode=yes',
+            '-o', 'ConnectTimeout=10',
+            '-o', 'StrictHostKeyChecking=no',
+            f'{self._ssh_user}@{host}',
+            cmd
+        ]
+        try:
+            result = subprocess.run(
+                ssh_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+            if result.returncode != 0:
+                logger.debug(f"SSH to {host} failed (rc={result.returncode}): {result.stderr.strip()}")
+            return None
+        except subprocess.TimeoutExpired:
+            logger.warning(f"SSH to {host} timed out after 30s")
+            return None
+        except Exception as e:
+            logger.debug(f"SSH to {host} error: {e}")
+            return None
+
+    def _get_nvidia_smi_cmd(self) -> str:
+        """Return the nvidia-smi query command string."""
+        nvidia_path = self.config.get('collectors', {}).get('gpu', {}).get(
+            'nvidia_smi_path', 'nvidia-smi'
+        )
+        return (
+            f"{nvidia_path} --query-gpu="
+            "index,name,utilization.gpu,utilization.memory,"
+            "memory.used,memory.total,memory.free,"
+            "temperature.gpu,power.draw,power.limit "
+            "--format=csv,noheader,nounits"
+        )
+
     def _check_gpu_available(self) -> bool:
-        """Check if nvidia-smi is available and GPUs are present."""
+        """Check if GPUs are available locally or via SSH nodes."""
         if self._gpu_available is not None:
             return self._gpu_available
 
+        # SSH mode: verify connectivity to at least one GPU node
+        if self._gpu_nodes:
+            cmd = self._get_nvidia_smi_cmd()
+            for node in self._gpu_nodes:
+                output = self._run_command_ssh(cmd, node)
+                if output:
+                    self._gpu_available = True
+                    logger.info(f"GPU SSH mode verified via {node}")
+                    return True
+            self._gpu_available = False
+            logger.warning(f"GPU SSH mode: none of {self._gpu_nodes} responded to nvidia-smi")
+            return False
+
+        # Local mode: try running nvidia-smi directly
         try:
             result = subprocess.run(
                 ['nvidia-smi', '--query-gpu=count', '--format=csv,noheader'],
-                capture_output=True,
-                text=True,
-                timeout=5,
+                capture_output=True, text=True, timeout=5
             )
             self._gpu_available = result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -102,67 +169,45 @@ class GPUCollector(BaseCollector):
 
         if not self._gpu_available:
             logger.info("No NVIDIA GPUs detected - GPU collector will be skipped")
-
         return self._gpu_available
 
     def collect(self) -> list[dict[str, Any]]:
-        """Collect GPU statistics from nvidia-smi."""
-
+        """Collect GPU statistics from nvidia-smi, locally or via SSH."""
         if not self._check_gpu_available():
-            return []  # Gracefully return empty
-
-        try:
-            # Query GPU stats in CSV format
-            query = ','.join([
-                'index',
-                'name',
-                'utilization.gpu',
-                'utilization.memory',
-                'memory.used',
-                'memory.total',
-                'memory.free',
-                'temperature.gpu',
-                'power.draw',
-                'power.limit',
-            ])
-
-            result = subprocess.run(
-                ['nvidia-smi', f'--query-gpu={query}', '--format=csv,noheader,nounits'],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if result.returncode != 0:
-                logger.warning(f"nvidia-smi failed: {result.stderr}")
-                return []
-
-            records = self._parse_nvidia_output(result.stdout)
-
-            # Also get process count per GPU
-            proc_result = subprocess.run(
-                ['nvidia-smi', '--query-compute-apps=gpu_uuid', '--format=csv,noheader'],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            # Count processes (simple line count for now)
-            if proc_result.returncode == 0:
-                proc_count = len([l for l in proc_result.stdout.strip().split('\n') if l.strip()])
-                for record in records:
-                    record['compute_processes'] = proc_count
-
-            return records
-
-        except subprocess.TimeoutExpired:
-            logger.warning("nvidia-smi timed out")
-            return []
-        except Exception as e:
-            logger.warning(f"GPU collection failed: {e}")
             return []
 
-    def _parse_nvidia_output(self, output: str) -> list[dict[str, Any]]:
+        all_records = []
+
+        if self._gpu_nodes:
+            # SSH mode: collect from each configured GPU node
+            cmd = self._get_nvidia_smi_cmd()
+            for node in self._gpu_nodes:
+                output = self._run_command_ssh(cmd, node)
+                if output:
+                    records = self._parse_nvidia_output(output, hostname=node)
+                    all_records.extend(records)
+                    logger.debug(f"Collected {len(records)} GPU records from {node}")
+                else:
+                    logger.warning(f"Failed to collect GPU data from {node}")
+        else:
+            # Local mode: run nvidia-smi directly
+            try:
+                result = subprocess.run(
+                    self._get_nvidia_smi_cmd().split(),
+                    capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    hostname = socket.gethostname().split('.')[0]
+                    all_records = self._parse_nvidia_output(
+                        result.stdout, hostname=hostname
+                    )
+            except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+                logger.error(f"nvidia-smi failed: {e}")
+                self._gpu_available = False
+
+        return all_records
+
+    def _parse_nvidia_output(self, output: str, hostname: str = '') -> list[dict[str, Any]]:
         """Parse nvidia-smi CSV output."""
         records = []
         timestamp = datetime.now()
@@ -193,6 +238,7 @@ class GPUCollector(BaseCollector):
                 records.append({
                     'type': 'gpu',
                     'timestamp': timestamp.isoformat(),
+                    'node_name': hostname,
                     **stats.to_dict()
                 })
 
@@ -240,7 +286,7 @@ class GPUCollector(BaseCollector):
                     conn.execute(
                         """
                         INSERT INTO gpu_stats 
-                        (timestamp, gpu_index, gpu_name, gpu_util_percent, memory_util_percent,
+                        (timestamp, node_name, gpu_index, gpu_name, gpu_util_percent, memory_util_percent,
                          memory_used_mb, memory_total_mb, memory_free_mb,
                          temperature_c, power_draw_w, power_limit_w, compute_processes)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

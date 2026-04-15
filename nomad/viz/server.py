@@ -541,8 +541,34 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                         SELECT gpu_name, gpu_util_percent
                         FROM gpu_stats
                         WHERE timestamp = (SELECT MAX(timestamp) FROM gpu_stats)
-                    """).fetchall()
-                    # TODO: map GPU stats to nodes
+                    """).fetchall()# GPU stats mapped to nodes
+gpu_by_node = {}
+try:
+    gpu_rows = db.execute("""
+        SELECT node_name, gpu_index, gpu_name,
+               gpu_util_percent, memory_util_percent,
+               memory_used_mb, memory_total_mb,
+               temperature_c, power_draw_w
+        FROM gpu_stats
+        WHERE timestamp = (SELECT MAX(timestamp) FROM gpu_stats)
+        ORDER BY node_name, gpu_index
+    """).fetchall()
+    for row in gpu_rows:
+        node = row['node_name'] or 'unknown'
+        if node not in gpu_by_node:
+            gpu_by_node[node] = []
+        gpu_by_node[node].append({
+            'index': row['gpu_index'],
+            'name': row['gpu_name'],
+            'util_pct': row['gpu_util_percent'],
+            'mem_util_pct': row['memory_util_percent'],
+            'mem_used_mb': row['memory_used_mb'],
+            'mem_total_mb': row['memory_total_mb'],
+            'temp_c': row['temperature_c'],
+            'power_w': row['power_draw_w'],
+        })
+except Exception as e:
+    logger.debug(f"GPU stats query failed: {e}")
                 except:
                     pass
 
