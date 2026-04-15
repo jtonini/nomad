@@ -4588,7 +4588,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         setMlPredictions(data.ml_predictions);
                         setDataSource(data.data_source || 'unknown');
                         setQueueRunning(data.queue_running || {});
-                        setActiveTab(Object.keys(data.clusters).find(k => data.clusters[k].type !== "workstation") || Object.keys(data.clusters)[0]);
+                        setActiveTab('insights');
                     });
                     
                 const timer = setInterval(() => setCurrentTime(new Date()), 1000);
