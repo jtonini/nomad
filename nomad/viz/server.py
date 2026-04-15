@@ -5026,7 +5026,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 ? Math.round(online.reduce((s, n) => s + (n.mem_util || 0), 0) / online.length)
                                 : 0;
                             const avgGpu = hasGpu && online.length > 0
-                                ? Math.round(online.filter(n => n.has_gpu).reduce((s, n) => s + (n.gpu_percent || 0), 0) / online.filter(n => n.has_gpu).length)
+                                ? Math.round(online.filter(n => n.has_gpu).reduce((s, n) => s + (n.gpu_util || 0), 0) / online.filter(n => n.has_gpu).length)
                                 : 0;
                             
                             // Job stats for this partition
