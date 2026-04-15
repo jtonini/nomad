@@ -4645,6 +4645,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         </div>
                         
                         <nav className="tabs">
+                            <div
+                                className={`tab ${activeTab === 'insights' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('insights'); setSelectedNode(null); }}
+                            >
+                                Insights
+                            </div>
                             {Object.entries(clusters).filter(([id, cluster]) => cluster.type !== "workstation").map(([id, cluster]) => {
                                 const clusterNodes = Object.values(nodes).filter(n => n.cluster === id);
                                 const downCount = clusterNodes.filter(n => n.status === 'down').length;
@@ -4705,12 +4711,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             >
                                 Cloud
                             </div>
-                            <div
-                                className={`tab ${activeTab === 'insights' ? 'active' : ''}`}
-                                onClick={() => { setActiveTab('insights'); setSelectedNode(null); }}
-                            >
-                                Insights
-                            </div>
+
                             <div
                                 className={`tab ${activeTab === 'dynamics' ? 'active' : ''}`}
                                 onClick={() => { setActiveTab('dynamics'); setSelectedNode(null); }}
@@ -5055,7 +5056,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                         </div>
                                         <div className="partition-stats">
                                             <span className="partition-jobs">
-                                                {totalRunning > 0 ? <><span style={{color: '#3b82f6'}}>{totalRunning} running</span>{'  '}</> : ''}{okJobs > 0 ? <><span style={{color: '#22c55e'}}>{okJobs} ok</span>{'  '}</> : ''}{failJobs > 0 ? <span style={{color: '#ef4444'}}>{failJobs} fail</span> : ''}{totalRunning === 0 && okJobs === 0 && failJobs === 0 ? '0 jobs' : ''}
+                                                {totalRunning > 0 ? <><span style={{color: '#3b82f6'}}>{totalRunning} running</span>{'  '}</> : ''}{okJobs > 0 ? <><span style={{color: '#22c55e'}}>{okJobs} succeeded</span>{'  '}</> : ''}{failJobs > 0 ? <span style={{color: '#ef4444'}}>{failJobs} fail</span> : ''}{totalRunning === 0 && okJobs === 0 && failJobs === 0 ? '0 jobs' : ''}
                                             </span>
                                         </div>
                                         <div className="partition-bars">
