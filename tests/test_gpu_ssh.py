@@ -20,26 +20,20 @@ NVIDIA_SSH_OUTPUT = """0, NVIDIA RTX 6000 Ada Generation, 45.2, 38, 12288, 49152
 def gpu_config_ssh():
     """Config with SSH GPU nodes."""
     return {
-        'collectors': {
-            'gpu': {
-                'enabled': True,
-                'gpu_nodes': ['node51', 'node52', 'node53'],
-                'ssh_user': 'zeus',
-            }
-        }
+        'enabled': True,
+        'gpu_nodes': ['node51', 'node52', 'node53'],
+        'ssh_user': 'zeus',
     }
+
 
 
 @pytest.fixture
 def gpu_config_local():
     """Config without SSH (local mode)."""
     return {
-        'collectors': {
-            'gpu': {
-                'enabled': True,
-            }
-        }
+        'enabled': True,
     }
+
 
 
 class TestGPUSSHMode:

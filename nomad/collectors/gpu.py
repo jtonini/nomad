@@ -289,10 +289,11 @@ class GPUCollector(BaseCollector):
                         (timestamp, node_name, gpu_index, gpu_name, gpu_util_percent, memory_util_percent,
                          memory_used_mb, memory_total_mb, memory_free_mb,
                          temperature_c, power_draw_w, power_limit_w, compute_processes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             record['timestamp'],
+                            record.get('node_name', ''),
                             record['gpu_index'],
                             record['gpu_name'],
                             record['gpu_util_percent'],
