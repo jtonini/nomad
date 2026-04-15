@@ -544,7 +544,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                                temperature_c, power_draw_w
                         FROM gpu_stats
                         WHERE timestamp >= (
-                            SELECT datetime(MAX(timestamp), '-30 seconds')
+                            SELECT datetime(MAX(timestamp), '-10 minutes')
                             FROM gpu_stats
                         )
                         ORDER BY node_name, gpu_index
