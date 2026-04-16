@@ -76,6 +76,45 @@ def _wrap(text: str, prefix_len: int = 0, indent: str = "        ", width: int =
     return result
 
 
+def _signal_display_name(title: str) -> str:
+    """Convert signal title to human-readable display name."""
+    display_names = {
+        "gpu_oom":                      "GPU Out of Memory",
+        "gpu_job_failure_rate":         "GPU Job Failures",
+        "gpu_util_gap":                 "GPU Utilization Gap",
+        "gpu_workload_pattern":         "GPU Workload Pattern",
+        "gpu_hardware_health":          "GPU Hardware Health",
+        "job_success_rate":             "Job Success Rate",
+        "partition_failure_concentration": "Partition Failures",
+        "oom_failures":                 "Memory Failures (OOM)",
+        "timeout_failures":             "Job Timeouts",
+        "job_rate_trend":               "Job Rate Trend",
+        "filesystem_usage":             "Filesystem Usage",
+        "disk_fill_projection":         "Disk Fill Projection",
+        "queue_pressure":               "Queue Pressure",
+        "high_wait_time":               "High Wait Time",
+        "high_network_latency":         "Network Latency",
+        "packet_loss":                  "Packet Loss",
+        "active_alerts":                "Active Alerts",
+        "flapping_alert":               "Flapping Alert",
+        "cloud_cost_summary":           "Cloud Cost",
+        "underutilized_cloud_instance": "Underutilized Instance",
+        "workstation_high_cpu":         "Workstation High CPU",
+        "workstation_high_memory":      "Workstation High Memory",
+        "workstation_disk_usage":       "Workstation Disk Usage",
+        "workstation_zombies":          "Workstation Zombie Processes",
+        "diversity_fragility":          "Workload Diversity Fragility",
+        "diversity_declining":          "Workload Diversity Declining",
+        "capacity_binding_constraint":  "Capacity Binding Constraint",
+        "capacity_saturation_imminent": "Capacity Saturation Imminent",
+        "niche_contention_risk":        "Resource Contention Risk",
+        "resilience_low":               "Cluster Resilience Low",
+        "resilience_degrading":         "Cluster Resilience Degrading",
+        "externality_detected":         "Inter-group Externality",
+    }
+    return display_names.get(title, title.replace('_', ' ').title())
+
+
 def format_cli_brief(
     narratives: list[tuple[Signal, str]],
     insights: list[Insight],
@@ -185,7 +224,7 @@ def format_cli_detail(
         for i, ins in enumerate(insights, 1):
             color = _CLI_COLORS[ins.severity]
             label = _SEVERITY_LABELS[ins.severity]
-            lines.append(f"\n  {color}{_BOLD}[{label}] {ins.title.replace('_', ' ').title()}{_RESET}")
+            lines.append(f"\n  {color}{_BOLD}[{label}] {_signal_display_name(ins.title)}{_RESET}")
             lines.append(f"  Category: {ins.category}")
             lines.append(f"  Signals combined: {ins.signal_count}")
             lines.append(f"\n  {ins.narrative}")
@@ -201,7 +240,7 @@ def format_cli_detail(
     for sig, narr in sorted_narr:
         color = _CLI_COLORS[sig.severity]
         label = _SEVERITY_LABELS[sig.severity]
-        lines.append(f"\n  {color}[{label}]{_RESET} {_BOLD}{sig.title.replace('_', ' ').title()}{_RESET}")
+        lines.append(f"\n  {color}[{label}]{_RESET} {_BOLD}{_signal_display_name(sig.title)}{_RESET}")
         lines.append(f"  Type: {sig.signal_type.value}")
         lines.append(f"  {narr}")
         if sig.affected_entities:
@@ -381,7 +420,7 @@ def format_email_digest(
         body_parts.append("-" * 50)
         for ins in insights:
             label = _SEVERITY_LABELS[ins.severity]
-            body_parts.append(f"\n[{label}] {ins.title.replace('_', ' ').title()}")
+            body_parts.append(f"\n[{label}] {_signal_display_name(ins.title)}")
             body_parts.append(ins.narrative)
             if ins.recommendation:
                 body_parts.append(f"Recommendation: {ins.recommendation}")

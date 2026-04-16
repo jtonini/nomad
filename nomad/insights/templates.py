@@ -161,6 +161,93 @@ def narrate_disk_fill_projection(sig: Signal) -> str:
     )
 
 
+def narrate_gpu_util_gap(sig: Signal) -> str:
+    m = sig.metrics
+    node = m["node"]
+    smi = m["avg_smi_util"]
+    real = m["avg_real_util"]
+    gap = m["avg_gap"]
+    pattern_hint = ""
+    if gap > 35:
+        pattern_hint = (
+            " The pipeline stages show significant idle time despite kernel "
+            "activity — consider larger batch sizes, kernel fusion, or "
+            "data prefetching."
+        )
+    return (
+        f"{node} shows a {gap:.0f}-point gap between nvidia-smi utilization "
+        f"({smi:.0f}%) and Real Utilization ({real:.0f}%). "
+        f"The GPU appears busy but the compute pipeline is underused."
+        f"{pattern_hint}"
+    )
+
+
+def narrate_gpu_workload_pattern(sig: Signal) -> str:
+    m = sig.metrics
+    node = m["node"]
+    wclass = m["workload_class"]
+    pct = m["dominant_pct"]
+    ptype = m.get("pattern_type", "")
+
+    if ptype == "memory-bound":
+        return (
+            f"{node} has been running memory-bound workloads {pct:.0f}% of the time. "
+            f"GPU compute pipeline is underutilized relative to memory bandwidth. "
+            f"Possible improvements: increase batch size, optimize data layout, "
+            f"or use prefetching to overlap compute and data transfer."
+        )
+    if ptype == "idle":
+        return (
+            f"{node} GPU has been idle {pct:.0f}% of the sampled window. "
+            f"Consider whether allocated jobs are actually using the GPU, "
+            f"or whether this node could serve additional workloads."
+        )
+    # productive
+    return (
+        f"{node} is running {wclass} workloads {pct:.0f}% of the time — "
+        f"GPU resources are being used effectively."
+    )
+
+
+def narrate_gpu_hardware_health(sig: Signal) -> str:
+    m = sig.metrics
+    node = m["node"]
+    gpu_id = m["gpu_id"]
+    status = m["health_status"]
+
+    if status == "CRIT":
+        remap = m.get("row_remap_failure", 0)
+        ecc = m.get("ecc_uncorrectable", 0)
+        if remap:
+            return (
+                f"{node} GPU {gpu_id} has a row remap failure — HBM memory is "
+                f"permanently degraded. This GPU should be removed from production "
+                f"and scheduled for replacement."
+            )
+        if ecc:
+            return (
+                f"{node} GPU {gpu_id} has {ecc} uncorrectable ECC error(s). "
+                f"Memory integrity cannot be guaranteed. Remove from production "
+                f"and investigate hardware."
+            )
+        return f"{node} GPU {gpu_id} is in a critical hardware state. Investigate immediately."
+
+    if status == "HOT":
+        return (
+            f"{node} GPU {gpu_id} temperature is at or above the warning threshold. "
+            f"Check cooling, airflow, and workload intensity. Sustained high "
+            f"temperatures accelerate hardware degradation."
+        )
+
+    # WARN — PCIe
+    rate = m.get("pcie_replay_rate", 0)
+    return (
+        f"{node} GPU {gpu_id} is logging PCIe replay errors ({rate:.3f}/s). "
+        f"This indicates link instability — check the PCIe slot, riser card, "
+        f"or cable. Left unaddressed, this typically escalates to link failure."
+    )
+
+
 def narrate_gpu_failure_rate(sig: Signal) -> str:
     m = sig.metrics
     rate = m["fail_rate"]
@@ -407,6 +494,9 @@ _TEMPLATE_MAP: dict[str, callable] = {
     "disk_fill_projection": narrate_disk_fill_projection,
     "gpu_job_failure_rate": narrate_gpu_failure_rate,
     "gpu_oom": narrate_gpu_oom,
+    "gpu_util_gap": narrate_gpu_util_gap,
+    "gpu_workload_pattern": narrate_gpu_workload_pattern,
+    "gpu_hardware_health": narrate_gpu_hardware_health,
     "queue_pressure": narrate_queue_pressure,
     "high_wait_time": narrate_high_wait_time,
     "high_network_latency": narrate_network_latency,
