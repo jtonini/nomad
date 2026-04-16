@@ -335,7 +335,7 @@ class WorkstationCollector(BaseCollector):
 
         # Get CPU model
         try:
-            cpu_model_out = run_command("grep 'model name' /proc/cpuinfo | head -1", hostname)
+            cpu_model_out = run_command('grep "model name" /proc/cpuinfo | head -1', hostname)
             if ':' in cpu_model_out:
                 stats.cpu_model = cpu_model_out.split(':', 1)[1].strip()
         except CollectionError:
