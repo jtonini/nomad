@@ -3652,6 +3652,11 @@ def sync(ctx, config_file, output, dry_run):
                     f"CREATE TABLE IF NOT EXISTS {table} "
                     f"({create_cols})"
                 )
+                # Migrate schema: add any columns present in source but missing in combined
+                existing_cols = {r[1] for r in combined.execute(f"PRAGMA table_info({table})").fetchall()}
+                for col_def, col_name in zip(all_defs, all_cols):
+                    if col_name != "id" and col_name not in existing_cols:
+                        combined.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
 
                 # Build insert query
                 src_cols = [c for c in col_names if c != 'id']
