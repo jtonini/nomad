@@ -236,7 +236,59 @@ is a future initiative (ROCm).
 
 ---
 
-## Database Schema
+## Insight Engine Integration
+
+GPU signals are automatically included in `nomad insights brief`, `nomad insights detail`,
+and the dashboard Insights tab. No configuration is required — signals fire when
+the relevant data is present in the database.
+
+### Signals
+
+| Signal | Severity | Condition | Requires DCGM |
+|--------|----------|-----------|---------------|
+| **GPU Job Failures** | WARNING | > 20% of GPU jobs failing | No |
+| **GPU Out of Memory** | WARNING/NOTICE | Any GPU jobs hit VRAM limit | No |
+| **GPU Utilization Gap** | WARNING/NOTICE | nvidia-smi avg > 30%, Real Util lags > 20 pts | Yes |
+| **GPU Workload Pattern** | NOTICE | memory-bound ≥ 50% or idle ≥ 70% of samples | Yes |
+| **GPU Workload Pattern** | INFO | tensor-heavy or FP64 dominant ≥ 60% | Yes |
+| **GPU Hardware Health** | CRITICAL | Row remap failure or uncorrectable ECC | Yes |
+| **GPU Hardware Health** | WARNING | Temperature at or above model threshold | Yes |
+| **GPU Hardware Health** | NOTICE | PCIe replay errors detected | Yes |
+
+### Example narratives
+
+**GPU Utilization Gap (NOTICE):**
+> node51 shows a 30-point gap between nvidia-smi utilization (54%) and Real
+> Utilization (24%). The GPU appears busy but the compute pipeline is underused.
+> Consider larger batch sizes, kernel fusion, or data prefetching.
+
+**GPU Workload Pattern — memory-bound (NOTICE):**
+> node51 has been running memory-bound workloads 65% of the time. GPU compute
+> pipeline is underutilized relative to memory bandwidth. Possible improvements:
+> increase batch size, optimize data layout, or use prefetching to overlap
+> compute and data transfer.
+
+**GPU Workload Pattern — productive (INFO):**
+> spdr16 is running tensor-heavy compute workloads 72% of the time — GPU
+> resources are being used effectively.
+
+**GPU Hardware Health — CRITICAL:**
+> node51 GPU 2 has a row remap failure — HBM memory is permanently degraded.
+> This GPU should be removed from production and scheduled for replacement.
+
+**GPU Hardware Health — NOTICE:**
+> spdr17 GPU 0 is logging PCIe replay errors (0.023/s). This indicates link
+> instability — check the PCIe slot, riser card, or cable. Left unaddressed,
+> this typically escalates to link failure.
+
+### Signal thresholds
+
+Utilization gap and workload pattern signals require at least 3 samples within
+the analysis window before firing, avoiding false positives from transient
+conditions. Hardware health signals fire on any occurrence within the window —
+PCIe errors and ECC events are always worth flagging.
+
+
 
 ```sql
 -- Extended gpu_stats table
