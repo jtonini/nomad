@@ -538,27 +538,17 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                 # Get GPU stats mapped to nodes
                 try:
                     gpu_rows = conn.execute("""
-                        SELECT g.node_name, g.gpu_index, g.gpu_name,
-                               g.gpu_util_percent, g.memory_util_percent,
-                               g.memory_used_mb, g.memory_total_mb,
-                               g.temperature_c, g.power_draw_w,
-                               g.real_util_pct, g.workload_class,
-                               g.data_source,
-                               h.health_status
-                        FROM gpu_stats g
-                        LEFT JOIN (
-                            SELECT node, gpu_id, health_status
-                            FROM gpu_health
-                            WHERE timestamp >= (
-                                SELECT datetime(MAX(timestamp), '-30 minutes')
-                                FROM gpu_health
-                            )
-                        ) h ON h.node = g.node_name AND h.gpu_id = g.gpu_index
-                        WHERE g.timestamp >= (
+                        SELECT node_name, gpu_index, gpu_name,
+                               gpu_util_percent, memory_util_percent,
+                               memory_used_mb, memory_total_mb,
+                               temperature_c, power_draw_w,
+                               power_limit_w, compute_processes
+                        FROM gpu_stats
+                        WHERE timestamp >= (
                             SELECT datetime(MAX(timestamp), '-10 minutes')
                             FROM gpu_stats
                         )
-                        ORDER BY g.node_name, g.gpu_index
+                        ORDER BY node_name, gpu_index
                     """).fetchall()
                     for gpu_row in gpu_rows:
                         node = gpu_row['node_name'] or 'unknown'
@@ -574,10 +564,8 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                                 'mem_total_mb': gpu_row['memory_total_mb'],
                                 'temp_c': gpu_row['temperature_c'],
                                 'power_w': gpu_row['power_draw_w'],
-                                'real_util_pct': gpu_row['real_util_pct'],
-                                'workload_class': gpu_row['workload_class'],
-                                'data_source': gpu_row['data_source'] or 'nvidia-smi',
-                                'health_status': gpu_row['health_status'] or 'OK',
+
+
                             })
                             nodes[node]['gpu_util'] = int(
                                 sum(g['util_pct'] for g in nodes[node]['gpus']) / len(nodes[node]['gpus'])
@@ -585,16 +573,13 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                             # Use actual GPU model name from nvidia-smi/DCGM
                             nodes[node]['gpu_name'] = nodes[node]['gpus'][0]['name']
                             # Aggregate real_util and workload at node level
-                            real_utils = [g['real_util_pct'] for g in nodes[node]['gpus'] if g['real_util_pct'] is not None]
-                            nodes[node]['gpu_real_util'] = int(sum(real_utils) / len(real_utils)) if real_utils else None
+                            nodes[node]['gpu_real_util'] = None
                             # Dominant workload class across GPUs (most common non-idle)
-                            wclasses = [g['workload_class'] for g in nodes[node]['gpus'] if g['workload_class'] and g['workload_class'] != 'idle']
-                            nodes[node]['gpu_workload'] = max(set(wclasses), key=wclasses.count) if wclasses else (nodes[node]['gpus'][0]['workload_class'] if nodes[node]['gpus'] else None)
-                            nodes[node]['gpu_data_source'] = nodes[node]['gpus'][0]['data_source'] if nodes[node]['gpus'] else 'nvidia-smi'
+                            nodes[node]['gpu_workload'] = None
+                            nodes[node]['gpu_data_source'] = 'nvidia-smi'
                             # Worst health status across GPUs
                             rank = {'OK': 0, 'WARN': 1, 'HOT': 2, 'CRIT': 3}
-                            statuses = [g['health_status'] for g in nodes[node]['gpus']]
-                            nodes[node]['gpu_health'] = max(statuses, key=lambda s: rank.get(s, 0)) if statuses else 'OK'
+                            nodes[node]['gpu_health'] = 'OK'
                 except:
                     pass
 
