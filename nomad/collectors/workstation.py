@@ -53,6 +53,8 @@ class WorkstationStats:
     department: str | None = None
 
     # System info
+    os_version: str = ''
+    cpu_model: str = ''
     uptime_seconds: int = 0
     load_avg_1m: float = 0.0
     load_avg_5m: float = 0.0
@@ -95,6 +97,8 @@ class WorkstationStats:
         return {
             'hostname': self.hostname,
             'department': self.department,
+            'os_version': self.os_version,
+            'cpu_model': self.cpu_model,
             'uptime_seconds': self.uptime_seconds,
             'load_avg_1m': self.load_avg_1m,
             'load_avg_5m': self.load_avg_5m,
@@ -319,6 +323,24 @@ class WorkstationCollector(BaseCollector):
         except (CollectionError, ValueError):
             stats.cpu_count = 1
 
+        # Get OS version
+        try:
+            os_out = run_command('cat /etc/os-release', hostname)
+            for line in os_out.strip().split(chr(10)):
+                if line.startswith('PRETTY_NAME='):
+                    stats.os_version = line.split('=', 1)[1].strip().strip('"')
+                    break
+        except CollectionError:
+            pass
+
+        # Get CPU model
+        try:
+            cpu_model_out = run_command("grep 'model name' /proc/cpuinfo | head -1", hostname)
+            if ':' in cpu_model_out:
+                stats.cpu_model = cpu_model_out.split(':', 1)[1].strip()
+        except CollectionError:
+            pass
+
         # Get memory info
         try:
             mem_out = run_command('cat /proc/meminfo', hostname)
@@ -384,6 +406,8 @@ class WorkstationCollector(BaseCollector):
                 hostname TEXT NOT NULL,
                 department TEXT,
                 status TEXT,
+                os_version TEXT,
+                cpu_model TEXT,
                 uptime_seconds INTEGER,
                 load_avg_1m REAL,
                 load_avg_5m REAL,
@@ -418,18 +442,21 @@ class WorkstationCollector(BaseCollector):
             cursor.execute("""
                 INSERT INTO workstation_state (
                     timestamp, hostname, department, status,
+                    os_version, cpu_model,
                     uptime_seconds, load_avg_1m, load_avg_5m, load_avg_15m,
                     cpu_count, cpu_user_pct, cpu_system_pct, cpu_idle_pct, cpu_iowait_pct,
                     memory_total_mb, memory_used_mb, memory_free_mb, memory_cached_mb,
                     swap_total_mb, swap_used_mb,
                     disk_total_gb, disk_used_gb, disk_free_gb, disk_usage_pct,
                     users_logged_in, process_count, zombie_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 timestamp,
                 record.get('hostname'),
                 record.get('department'),
                 record.get('status', 'unknown'),
+                record.get('os_version', ''),
+                record.get('cpu_model', ''),
                 record.get('uptime_seconds', 0),
                 record.get('load_avg_1m', 0),
                 record.get('load_avg_5m', 0),

@@ -288,7 +288,9 @@ def _correlate_capacity_and_niche(signals: list[Signal]) -> list[Insight]:
             f"The binding resource ({cap.metrics['label']}) is at "
             f"{cap.metrics['utilization']:.0%} utilization while "
             f"{niche.metrics['high_overlap_count']} group pair(s) compete "
-            f"for the same resources. This combination amplifies contention — "
+            f"for the same resources. Highest overlap: "
+            f"{niche.metrics.get('top_pair_a', '?')} and {niche.metrics.get('top_pair_b', '?')} "
+            f"(O={niche.metrics.get('top_overlap', 0):.2f}). This combination amplifies contention — "
             f"groups with overlapping resource profiles will experience "
             f"disproportionate degradation as the binding constraint tightens."
         ),

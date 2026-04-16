@@ -3480,6 +3480,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                     React.createElement("tr", null,
                                         React.createElement("th", {style: eduStyles.th}, "Hostname"),
                                         React.createElement("th", {style: eduStyles.th}, "Status"),
+                                        React.createElement("th", {style: eduStyles.th}, "OS"),
+                                        React.createElement("th", {style: eduStyles.th}, "CPU Model"),
                                         React.createElement("th", {style: eduStyles.th}, "CPU Load"),
                                         React.createElement("th", {style: eduStyles.th}, "Memory"),
                                         React.createElement("th", {style: eduStyles.th}, "Disk"),
@@ -3492,6 +3494,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                         React.createElement("td", {style: eduStyles.td},
                                             React.createElement("span", {style: {color: statusColor(w.status)}}, w.status)
                                         ),
+                                        React.createElement("td", {style: {...eduStyles.td, fontSize: "0.75rem", maxWidth: 120}}, w.os_version || "-"),
+                                        React.createElement("td", {style: {...eduStyles.td, fontSize: "0.75rem", maxWidth: 160}}, w.cpu_model || "-"),
                                         React.createElement("td", {style: eduStyles.td}, (w.load_avg_1m || 0).toFixed(2) + " / " + (w.cpu_count || "?")),
                                         React.createElement("td", {style: eduStyles.td}, 
                                             w.memory_total_mb ? Math.round(w.memory_used_mb / w.memory_total_mb * 100) + "%" : "N/A"
