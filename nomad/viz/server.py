@@ -530,7 +530,7 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                         "gpu_name": row['gres'] if has_gpu else None,
                         "cpu_util": int(row['cpu_alloc_percent'] or 0),
                         "mem_util": int(((row["memory_total_mb"] - row["memory_free_mb"]) / row["memory_total_mb"] * 100) if row["memory_total_mb"] and row["memory_total_mb"] > 0 else 0),
-                        "load_avg": row['cpu_load'] or 0,
+                        "load_avg": round(float(row['cpu_load'] or 0), 2),
                         "drain_reason": row['reason'],
                         "last_seen": datetime.now().isoformat()
                     }
@@ -582,6 +582,8 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                             nodes[node]['gpu_util'] = int(
                                 sum(g['util_pct'] for g in nodes[node]['gpus']) / len(nodes[node]['gpus'])
                             )
+                            # Use actual GPU model name from nvidia-smi/DCGM
+                            nodes[node]['gpu_name'] = nodes[node]['gpus'][0]['name']
                             # Aggregate real_util and workload at node level
                             real_utils = [g['real_util_pct'] for g in nodes[node]['gpus'] if g['real_util_pct'] is not None]
                             nodes[node]['gpu_real_util'] = int(sum(real_utils) / len(real_utils)) if real_utils else None
@@ -2301,8 +2303,27 @@ class DataManager:
                     logger.info("No completed jobs in database — network view empty")
                 return
 
-        # Fall back to demo data
-        logger.info("Using demo data")
+        # No database found — generate demo database and reload
+        demo_db = Path.home() / "nomad_demo.db"
+        logger.info("No database found — generating demo database...")
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["nomad", "demo", "--no-launch"],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0 and demo_db.exists():
+                logger.info("Demo database generated — reloading from nomad_demo.db")
+                self.db_path = demo_db
+                self.data_source = "database"
+                self._load_data()
+                return
+            else:
+                logger.warning(f"Demo generation failed: {result.stderr.strip()}")
+        except Exception as e:
+            logger.warning(f"Could not generate demo database: {e}")
+        # Final fallback to in-memory demo if generation failed
+        logger.info("Using in-memory demo data")
         self.data_source = "demo"
         self._clusters = generate_demo_clusters()
         self._nodes = generate_demo_node_data(self._clusters)
