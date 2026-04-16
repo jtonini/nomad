@@ -118,7 +118,7 @@
   - [ ] Prolog script (job start)
   - [ ] Epilog script (job end)
   - [ ] cgroup metrics extraction
-  - [ ] GPU metrics (nvidia-smi)
+  - [x] GPU metrics (nvidia-smi + DCGM, Real Util, workload classification, hardware health)
   - [ ] I/O metrics (from /proc or cgroup)
 
 - [ ] **Job Data Model**

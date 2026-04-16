@@ -43,6 +43,7 @@ nav:
     - Configuration: config.md
   - Features:
     - Dashboard: dashboard.md
+  - GPU Monitoring: gpu.md
     - Educational Analytics: edu.md
     - Alerts: alerts.md
     - Interactive Sessions: interactive.md

@@ -142,3 +142,44 @@ Topics cover all commands, configuration, concepts, and mathematical foundations
 When a GitHub token is configured in `nomad.toml` under `[issue_reporting]`, issues
 are submitted directly via the GitHub API with auto-labeling. Without a token,
 opens a pre-filled GitHub issue form in the browser.
+
+### `nomad diag gpu`
+
+GPU diagnostic report: utilization summary, workload distribution, temperature
+status, and hardware health.
+
+```
+nomad diag gpu                    # All nodes, last 24h
+nomad diag gpu --node node51      # Specific node
+nomad diag gpu --hours 48         # Extended window
+nomad diag gpu --health           # Hardware health only (PCIe, ECC, row remap)
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--node TEXT` | Limit to a specific node |
+| `--hours INT` | History window in hours (default: 24) |
+| `--health` | Show hardware health report only |
+| `--db PATH` | Database path override |
+
+### `nomad insights gpu`
+
+Narrative summary of GPU usage patterns and health concerns. Highlights workload
+classification, the utilization gap between nvidia-smi and Real Util, and any
+DCGM health alerts.
+
+```
+nomad insights gpu
+nomad insights gpu --hours 12
+nomad insights gpu --node spdr16
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--node TEXT` | Limit to a specific node |
+| `--hours INT` | History window in hours (default: 6) |
+| `--db PATH` | Database path override |
