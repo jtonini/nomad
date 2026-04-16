@@ -4318,6 +4318,185 @@ def diag_network(ctx, source, dest, db_path, hours, output_json):
     else:
         click.echo(format_diagnostic(diag))
 
+@diag.command('gpu')
+@click.option('--node', '-n', default=None, help='Limit to a specific node.')
+@click.option('--health', is_flag=True, default=False, help='Show hardware health only (PCIe, ECC, remap).')
+@click.option('--hours', default=24, type=int, show_default=True, help='Hours of history to analyze.')
+@click.option('--db', 'db_path', default=None, type=click.Path(), help='Database path override.')
+@click.pass_context
+def diag_gpu(ctx, node, health, hours, db_path):
+    """GPU diagnostic report: current state, workload patterns, hardware health.
+ 
+    Without --health, shows utilization summary, workload classification
+    distribution, and temperature status for all GPUs (or a specific node).
+ 
+    With --health, focuses on PCIe replay counters, ECC errors, and row
+    remap status — the early-warning signals for hardware degradation.
+ 
+    Examples:
+ 
+      nomad diag gpu
+ 
+      nomad diag gpu --node node51
+ 
+      nomad diag gpu --health
+ 
+      nomad diag gpu --hours 48
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+ 
+    db_path = db_path or get_db_path(ctx.obj.get("config", {}) if ctx.obj else {})
+    if not Path(db_path).exists():
+        raise click.ClickException(f"Database not found: {db_path}")
+ 
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+ 
+    # ------------------------------------------------------------------
+    # Health-focused report
+    # ------------------------------------------------------------------
+    if health:
+        click.echo(click.style(f"\nGPU Hardware Health ({hours}h window)", bold=True))
+        click.echo("=" * 56)
+ 
+        try:
+            q = "SELECT * FROM gpu_health WHERE timestamp >= ? ORDER BY timestamp DESC"
+            params = [cutoff]
+            if node:
+                q = "SELECT * FROM gpu_health WHERE timestamp >= ? AND node = ? ORDER BY timestamp DESC"
+                params = [cutoff, node]
+            rows = conn.execute(q, params).fetchall()
+        except sqlite3.OperationalError:
+            click.echo("  No gpu_health table found — DCGM not yet active on this cluster.")
+            conn.close()
+            return
+ 
+        if not rows:
+            click.echo("  No health data in the requested window.")
+            conn.close()
+            return
+ 
+        # Summarise per (node, gpu_id): latest status + worst seen
+        summary: dict[tuple, dict] = {}
+        for row in rows:
+            key = (row['node'], row['gpu_id'])
+            if key not in summary:
+                summary[key] = dict(row)
+                summary[key]['worst_status'] = row['health_status']
+            else:
+                # Escalate worst status
+                rank = {'OK': 0, 'WARN': 1, 'HOT': 2, 'CRIT': 3}
+                if rank.get(row['health_status'], 0) > rank.get(summary[key]['worst_status'], 0):
+                    summary[key]['worst_status'] = row['health_status']
+ 
+        status_colors = {'OK': 'green', 'WARN': 'yellow', 'HOT': 'yellow', 'CRIT': 'red'}
+        for (node_name, gpu_id), s in sorted(summary.items()):
+            color = status_colors.get(s['worst_status'], 'white')
+            badge = click.style(f"[{s['worst_status']:4s}]", fg=color, bold=True)
+            click.echo(f"\n  {badge}  {node_name} GPU {gpu_id}")
+            if s['pcie_replay_count'] > 0:
+                rate = s.get('pcie_replay_rate_per_sec', 0)
+                click.echo(f"         PCIe replay: {s['pcie_replay_count']} total  ({rate:.3f}/s)")
+            if s['ecc_correctable_total'] > 0:
+                click.echo(f"         ECC correctable: {s['ecc_correctable_total']}")
+            if s['ecc_uncorrectable_total'] > 0:
+                click.echo(click.style(
+                    f"         ECC uncorrectable: {s['ecc_uncorrectable_total']}  (investigate)", fg='red'
+                ))
+            if s['row_remap_failure'] > 0:
+                click.echo(click.style(
+                    f"         Row remap failure — remove from production", fg='red', bold=True
+                ))
+ 
+        conn.close()
+        return
+ 
+    # ------------------------------------------------------------------
+    # Standard diagnostic report
+    # ------------------------------------------------------------------
+    click.echo(click.style(f"\nGPU Diagnostic ({hours}h window)", bold=True))
+    if node:
+        click.echo(f"Node filter: {node}")
+    click.echo("=" * 56)
+ 
+    try:
+        q = """
+            SELECT node_name, gpu_index, gpu_name,
+                   AVG(gpu_util_percent) AS avg_util,
+                   MAX(gpu_util_percent) AS max_util,
+                   AVG(real_util_pct)    AS avg_real_util,
+                   AVG(temperature_c)    AS avg_temp,
+                   MAX(temperature_c)    AS max_temp,
+                   AVG(memory_used_mb)   AS avg_mem_used,
+                   MAX(memory_total_mb)  AS mem_total,
+                   data_source,
+                   COUNT(*) AS samples
+            FROM gpu_stats
+            WHERE timestamp >= ?
+        """
+        params: list = [cutoff]
+        if node:
+            q += " AND node_name = ?"
+            params.append(node)
+        q += " GROUP BY node_name, gpu_index ORDER BY node_name, gpu_index"
+        rows = conn.execute(q, params).fetchall()
+    except sqlite3.OperationalError as e:
+        click.echo(f"  Database error: {e}")
+        conn.close()
+        return
+ 
+    if not rows:
+        click.echo("  No GPU data in the requested window.")
+        conn.close()
+        return
+ 
+    for row in rows:
+        avg_util = row['avg_util'] or 0
+        avg_real = row['avg_real_util']
+        avg_temp = row['avg_temp'] or 0
+        max_temp = row['max_temp'] or 0
+        mem_pct = (row['avg_mem_used'] / row['mem_total'] * 100) if row['mem_total'] else 0
+        source = row['data_source'] or 'nvidia-smi'
+ 
+        click.echo(f"\n  {row['node_name']}  GPU {row['gpu_index']}  {row['gpu_name']}")
+        click.echo(f"    Data source : {source}  ({row['samples']} samples)")
+        click.echo(f"    Util (smi)  : avg {avg_util:5.1f}%  max {row['max_util'] or 0:5.1f}%")
+        if avg_real is not None:
+            click.echo(f"    Real Util   : avg {avg_real:5.1f}%")
+        click.echo(f"    Memory      : {mem_pct:5.1f}% avg used")
+        temp_color = 'red' if max_temp >= 93 else ('yellow' if max_temp >= 85 else 'green')
+        click.echo(f"    Temperature : avg {avg_temp:4.0f}°C  max {click.style(f'{max_temp}°C', fg=temp_color)}")
+ 
+    # Workload classification distribution
+    try:
+        wq = """
+            SELECT node_name, workload_class, COUNT(*) AS n
+            FROM gpu_stats
+            WHERE timestamp >= ? AND workload_class IS NOT NULL
+        """
+        wparams: list = [cutoff]
+        if node:
+            wq += " AND node_name = ?"
+            wparams.append(node)
+        wq += " GROUP BY node_name, workload_class ORDER BY node_name, n DESC"
+        wrows = conn.execute(wq, wparams).fetchall()
+    except sqlite3.OperationalError:
+        wrows = []
+ 
+    if wrows:
+        click.echo(click.style("\n  Workload distribution", bold=True))
+        current_node = None
+        for wr in wrows:
+            if wr['node_name'] != current_node:
+                current_node = wr['node_name']
+                click.echo(f"\n    {current_node}")
+            click.echo(f"      {wr['workload_class']:30s}  {wr['n']:4d} samples")
+ 
+    conn.close()
+ 
+
 # =============================================================================
 # INSIGHT ENGINE COMMANDS
 # =============================================================================
@@ -4486,6 +4665,183 @@ def insights_digest(ctx, db_path, hours, cluster, period, email_addr):
     click.echo(f"Subject: {subject}")
     click.echo("")
     click.echo(body)
+
+@insights.command('gpu')
+@click.option('--node', '-n', default=None, help='Limit to a specific node.')
+@click.option('--hours', default=6, type=int, show_default=True, help='Hours of history to summarize.')
+@click.option('--db', 'db_path', default=None, type=click.Path(), help='Database path override.')
+@click.pass_context
+def insights_gpu(ctx, node, hours, db_path):
+    """Narrative summary of GPU usage patterns and health concerns.
+ 
+    Produces a human-readable summary of what the cluster's GPUs have
+    been doing over the specified window. Highlights workload patterns,
+    potential inefficiency (high nvidia-smi util but low Real Util),
+    and any hardware health concerns from DCGM.
+ 
+    Examples:
+ 
+      nomad insights gpu
+ 
+      nomad insights gpu --hours 12
+ 
+      nomad insights gpu --node spdr16
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+ 
+    db_path = db_path or get_db_path(ctx.obj.get("config", {}) if ctx.obj else {})
+    if not Path(db_path).exists():
+        raise click.ClickException(f"Database not found: {db_path}")
+ 
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+ 
+    try:
+        q = """
+            SELECT node_name, gpu_index, gpu_name,
+                   AVG(gpu_util_percent) AS avg_smi_util,
+                   AVG(real_util_pct)    AS avg_real_util,
+                   AVG(temperature_c)    AS avg_temp,
+                   MAX(temperature_c)    AS max_temp,
+                   data_source
+            FROM gpu_stats
+            WHERE timestamp >= ?
+        """
+        params: list = [cutoff]
+        if node:
+            q += " AND node_name = ?"
+            params.append(node)
+        q += " GROUP BY node_name, gpu_index"
+        rows = conn.execute(q, params).fetchall()
+    except sqlite3.OperationalError:
+        click.echo("No GPU data found.")
+        conn.close()
+        return
+ 
+    if not rows:
+        click.echo(f"No GPU data in the last {hours}h.")
+        conn.close()
+        return
+ 
+    # Dominant workload per node
+    try:
+        wq = """
+            SELECT node_name, gpu_index, workload_class, COUNT(*) AS n
+            FROM gpu_stats
+            WHERE timestamp >= ? AND workload_class IS NOT NULL
+        """
+        wparams: list = [cutoff]
+        if node:
+            wq += " AND node_name = ?"
+            wparams.append(node)
+        wq += " GROUP BY node_name, gpu_index, workload_class ORDER BY n DESC"
+        wrows = conn.execute(wq, wparams).fetchall()
+        dominant: dict[tuple, str] = {}
+        seen: set = set()
+        for wr in wrows:
+            key = (wr['node_name'], wr['gpu_index'])
+            if key not in seen:
+                dominant[key] = wr['workload_class']
+                seen.add(key)
+    except sqlite3.OperationalError:
+        dominant = {}
+ 
+    # Health summary
+    try:
+        hrows = conn.execute(
+            "SELECT node, gpu_id, health_status FROM gpu_health "
+            "WHERE timestamp >= ? ORDER BY timestamp DESC",
+            [cutoff]
+        ).fetchall()
+        health_latest: dict[tuple, str] = {}
+        for hr in hrows:
+            key = (hr['node'], hr['gpu_id'])
+            if key not in health_latest:
+                health_latest[key] = hr['health_status']
+    except sqlite3.OperationalError:
+        health_latest = {}
+ 
+    # ------------------------------------------------------------------
+    # Generate narrative
+    # ------------------------------------------------------------------
+    click.echo(click.style(f"\nGPU Insights — last {hours}h", bold=True))
+    if node:
+        click.echo(f"Scope: {node}")
+    click.echo()
+ 
+    issues: list[str] = []
+    narratives: list[str] = []
+ 
+    for row in rows:
+        node_name = row['node_name']
+        gpu_id = row['gpu_index']
+        gpu_name = row['gpu_name']
+        avg_smi = row['avg_smi_util'] or 0
+        avg_real = row['avg_real_util']
+        avg_temp = row['avg_temp'] or 0
+        max_temp = row['max_temp'] or 0
+        source = row['data_source'] or 'nvidia-smi'
+        key = (node_name, gpu_id)
+        workload = dominant.get(key)
+        health = health_latest.get(key, 'OK')
+ 
+        # Build narrative sentence
+        if workload and workload != 'idle':
+            narrative = f"{node_name} GPU {gpu_id} has been running {workload}"
+        elif avg_smi > 5:
+            narrative = f"{node_name} GPU {gpu_id} is active ({avg_smi:.0f}% avg utilization)"
+        else:
+            narrative = f"{node_name} GPU {gpu_id} is idle"
+ 
+        narratives.append(f"  {narrative}.")
+ 
+        # Flag utilization gap (nvidia-smi high, Real Util low — suggests idle tensor cores)
+        if avg_real is not None and avg_smi > 40 and avg_real < avg_smi * 0.6:
+            gap = avg_smi - avg_real
+            issues.append(
+                f"  {node_name} GPU {gpu_id}: nvidia-smi reports {avg_smi:.0f}% but "
+                f"Real Util is {avg_real:.0f}% — {gap:.0f}pt gap suggests kernel-launch overhead "
+                f"or idle pipeline stages."
+            )
+ 
+        # Temperature warning
+        if max_temp >= 90:
+            issues.append(f"  {node_name} GPU {gpu_id}: peak temperature {max_temp}°C.")
+ 
+        # Health issues
+        if health == 'CRIT':
+            issues.append(click.style(
+                f"  {node_name} GPU {gpu_id}: CRITICAL health status — row remap failure or "
+                f"uncorrectable ECC errors. Remove from production.", fg='red', bold=True
+            ))
+        elif health == 'HOT':
+            issues.append(f"  {node_name} GPU {gpu_id}: HOT — temperature at or above warning threshold.")
+        elif health == 'WARN':
+            issues.append(f"  {node_name} GPU {gpu_id}: PCIe replay errors detected — monitor link health.")
+ 
+    for line in narratives:
+        click.echo(line)
+ 
+    if issues:
+        click.echo(click.style("\n  Attention:", bold=True))
+        for issue in issues:
+            click.echo(issue)
+    else:
+        click.echo(click.style("\n  No issues detected.", fg='green'))
+ 
+    # DCGM coverage note
+    sources = {row['data_source'] for row in rows if row['data_source']}
+    if 'dcgm' not in sources:
+        click.echo(
+            "\n  Note: DCGM is not active on this cluster. Real Util, workload classification,\n"
+            "  and hardware health metrics are unavailable. Install dcgm and set dcgmi in PATH\n"
+            "  on GPU nodes to enable enhanced metrics."
+        )
+ 
+    conn.close()
+ 
 
 # =============================================================================
 # DYNAMICS COMMANDS
