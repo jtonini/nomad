@@ -490,24 +490,79 @@ class DemoDatabase:
         conn.close()
 
     def write_gpu_stats(self):
-        """Write GPU stats for GPU monitoring."""
+        """Write GPU stats for GPU monitoring including DCGM-style enhanced metrics."""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         now = datetime.now()
 
-        # Get GPU nodes
+        # Ensure new columns exist (migration-safe)
+        for col, col_type in [
+            ("real_util_pct", "REAL"), ("workload_class", "TEXT"),
+            ("data_source", "TEXT"), ("node_name", "TEXT"),
+        ]:
+            try:
+                c.execute(f"ALTER TABLE gpu_stats ADD COLUMN {col} {col_type}")
+            except Exception:
+                pass
+
+        # Workload profiles: (name, smi_range, real_ratio, workload_class, temp_range)
+        # real_ratio: Real Util as fraction of nvidia-smi util (DCGM gap effect)
+        workload_profiles = [
+            ("tensor-heavy compute", (70, 98), 0.90, (65, 82)),
+            ("tensor compute",       (50, 80), 0.75, (58, 75)),
+            ("FP64 / HPC compute",   (60, 90), 0.85, (60, 78)),
+            ("compute-active",       (40, 75), 0.65, (50, 70)),
+            ("memory-bound",         (30, 60), 0.50, (48, 65)),
+            ("idle",                 (0,  10), 0.20, (35, 45)),
+        ]
+
         gpu_nodes = [n for n in DEMO_CLUSTER["nodes"] if n["gpus"] > 0]
         for node in gpu_nodes:
             for gpu_idx in range(node["gpus"]):
+                profile_name, smi_range, real_ratio, temp_range = random.choice(workload_profiles)
+                smi_util = round(random.uniform(*smi_range), 1)
+                real_util = round(smi_util * real_ratio + random.gauss(0, 3), 1)
+                real_util = max(0.0, min(100.0, real_util))
+                mem_used = random.randint(8000, 38000) if smi_util > 10 else random.randint(512, 2000)
+
                 c.execute("""INSERT INTO gpu_stats
                     (timestamp, node_name, gpu_index, gpu_name, gpu_util_percent,
                      memory_util_percent, memory_used_mb, memory_total_mb,
-                     temperature_c, power_draw_w)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (now.isoformat(), node["name"], gpu_idx, "NVIDIA A100",
-                     random.uniform(10, 95), random.uniform(20, 80),
-                     random.randint(8000, 32000), 40960,
-                     random.randint(35, 75), random.uniform(100, 300)))
+                     temperature_c, power_draw_w,
+                     real_util_pct, workload_class, data_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (now.isoformat(), node["name"], gpu_idx, "NVIDIA A100-SXM4-40GB",
+                     smi_util, round(mem_used / 40960 * 100, 1),
+                     mem_used, 40960,
+                     random.randint(*temp_range), round(random.uniform(100, 380), 1),
+                     real_util, profile_name, "dcgm"))
+
+        # Also write gpu_health records
+        try:
+            c.execute("""CREATE TABLE IF NOT EXISTS gpu_health (
+                timestamp DATETIME NOT NULL, node TEXT NOT NULL, gpu_id INTEGER NOT NULL,
+                pcie_replay_count INTEGER DEFAULT 0, pcie_replay_rate_per_sec REAL DEFAULT 0,
+                ecc_correctable_total INTEGER DEFAULT 0, ecc_uncorrectable_total INTEGER DEFAULT 0,
+                rows_remapped_correctable INTEGER DEFAULT 0, rows_remapped_uncorrectable INTEGER DEFAULT 0,
+                rows_remapped_pending INTEGER DEFAULT 0, row_remap_failure INTEGER DEFAULT 0,
+                health_status TEXT DEFAULT 'OK',
+                PRIMARY KEY (timestamp, node, gpu_id)
+            )""")
+            for node in gpu_nodes:
+                for gpu_idx in range(node["gpus"]):
+                    # Mostly OK, occasional WARN for realism
+                    health = random.choices(
+                        ["OK", "WARN", "HOT"],
+                        weights=[85, 10, 5]
+                    )[0]
+                    pcie_rate = round(random.uniform(0.01, 0.5), 3) if health == "WARN" else 0.0
+                    c.execute("""INSERT OR REPLACE INTO gpu_health
+                        (timestamp, node, gpu_id, pcie_replay_rate_per_sec, health_status)
+                        VALUES (?, ?, ?, ?, ?)""",
+                        (now.isoformat(), node["name"], gpu_idx, pcie_rate, health))
+        except Exception:
+            pass
+
         conn.commit()
         conn.close()
 

@@ -538,16 +538,27 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                 # Get GPU stats mapped to nodes
                 try:
                     gpu_rows = conn.execute("""
-                        SELECT node_name, gpu_index, gpu_name,
-                               gpu_util_percent, memory_util_percent,
-                               memory_used_mb, memory_total_mb,
-                               temperature_c, power_draw_w
-                        FROM gpu_stats
-                        WHERE timestamp >= (
+                        SELECT g.node_name, g.gpu_index, g.gpu_name,
+                               g.gpu_util_percent, g.memory_util_percent,
+                               g.memory_used_mb, g.memory_total_mb,
+                               g.temperature_c, g.power_draw_w,
+                               g.real_util_pct, g.workload_class,
+                               g.data_source,
+                               h.health_status
+                        FROM gpu_stats g
+                        LEFT JOIN (
+                            SELECT node, gpu_id, health_status
+                            FROM gpu_health
+                            WHERE timestamp >= (
+                                SELECT datetime(MAX(timestamp), '-30 minutes')
+                                FROM gpu_health
+                            )
+                        ) h ON h.node = g.node_name AND h.gpu_id = g.gpu_index
+                        WHERE g.timestamp >= (
                             SELECT datetime(MAX(timestamp), '-10 minutes')
                             FROM gpu_stats
                         )
-                        ORDER BY node_name, gpu_index
+                        ORDER BY g.node_name, g.gpu_index
                     """).fetchall()
                     for gpu_row in gpu_rows:
                         node = gpu_row['node_name'] or 'unknown'
@@ -563,10 +574,25 @@ def load_node_data_from_db(db_path: Path, clusters: dict) -> dict:
                                 'mem_total_mb': gpu_row['memory_total_mb'],
                                 'temp_c': gpu_row['temperature_c'],
                                 'power_w': gpu_row['power_draw_w'],
+                                'real_util_pct': gpu_row['real_util_pct'],
+                                'workload_class': gpu_row['workload_class'],
+                                'data_source': gpu_row['data_source'] or 'nvidia-smi',
+                                'health_status': gpu_row['health_status'] or 'OK',
                             })
                             nodes[node]['gpu_util'] = int(
                                 sum(g['util_pct'] for g in nodes[node]['gpus']) / len(nodes[node]['gpus'])
                             )
+                            # Aggregate real_util and workload at node level
+                            real_utils = [g['real_util_pct'] for g in nodes[node]['gpus'] if g['real_util_pct'] is not None]
+                            nodes[node]['gpu_real_util'] = int(sum(real_utils) / len(real_utils)) if real_utils else None
+                            # Dominant workload class across GPUs (most common non-idle)
+                            wclasses = [g['workload_class'] for g in nodes[node]['gpus'] if g['workload_class'] and g['workload_class'] != 'idle']
+                            nodes[node]['gpu_workload'] = max(set(wclasses), key=wclasses.count) if wclasses else (nodes[node]['gpus'][0]['workload_class'] if nodes[node]['gpus'] else None)
+                            nodes[node]['gpu_data_source'] = nodes[node]['gpus'][0]['data_source'] if nodes[node]['gpus'] else 'nvidia-smi'
+                            # Worst health status across GPUs
+                            rank = {'OK': 0, 'WARN': 1, 'HOT': 2, 'CRIT': 3}
+                            statuses = [g['health_status'] for g in nodes[node]['gpus']]
+                            nodes[node]['gpu_health'] = max(statuses, key=lambda s: rank.get(s, 0)) if statuses else 'OK'
                 except:
                     pass
 
@@ -1549,6 +1575,21 @@ def generate_demo_node_data(clusters):
 
                 has_gpu = node_name in cluster.get("gpu_nodes", [])
 
+                # GPU workload profile for demo nodes
+                gpu_workload_profiles = [
+                    ("tensor-heavy compute", 0.90),
+                    ("tensor compute",       0.75),
+                    ("FP64 / HPC compute",   0.85),
+                    ("compute-active",       0.65),
+                    ("memory-bound",         0.50),
+                    ("idle",                 0.20),
+                ]
+                gpu_util = random.randint(60, 98) if has_gpu else 0
+                gpu_workload, real_ratio = random.choice(gpu_workload_profiles) if has_gpu else (None, 0)
+                gpu_real_util = round(gpu_util * real_ratio + random.gauss(0, 2), 1) if has_gpu else None
+                gpu_real_util = max(0, min(100, gpu_real_util)) if gpu_real_util is not None else None
+                gpu_health = random.choices(["OK", "WARN", "HOT"], weights=[85, 10, 5])[0] if has_gpu else None
+
                 nodes[node_name] = {
                     "name": node_name,
                     "cluster": cluster_id,
@@ -1560,8 +1601,12 @@ def generate_demo_node_data(clusters):
                     "failures": failures,
                     "top_users": top_users[:5],
                     "has_gpu": has_gpu,
-                    "gpu_util": random.randint(60, 98) if has_gpu else 0,
-                    "gpu_name": "NVIDIA RTX 6000 Ada" if has_gpu else None,
+                    "gpu_util": gpu_util,
+                    "gpu_name": "NVIDIA A100-SXM4-40GB" if has_gpu else None,
+                    "gpu_real_util": gpu_real_util,
+                    "gpu_workload": gpu_workload,
+                    "gpu_data_source": "dcgm" if has_gpu else None,
+                    "gpu_health": gpu_health,
                     "cpu_util": random.randint(40, 95),
                     "mem_util": random.randint(30, 85),
                     "load_avg": round(random.uniform(0.5, 16.0), 2),
@@ -2783,6 +2828,22 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                     .util-fill.cpu { background: linear-gradient(90deg, #22c55e, #4ade80); }
                     .util-fill.mem { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
                     .util-fill.gpu { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+                    .util-fill.gpu-real { background: linear-gradient(90deg, #0072B2, #56B4E9); }
+                    /* Okabe-Ito workload badge colors */
+                    .workload-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: 500; margin-top: 2px; }
+                    .workload-badge.tensor-heavy { background: rgba(0,114,178,0.15); color: #0072B2; border: 1px solid rgba(0,114,178,0.3); }
+                    .workload-badge.tensor       { background: rgba(86,180,233,0.15); color: #0072B2; border: 1px solid rgba(86,180,233,0.3); }
+                    .workload-badge.fp64         { background: rgba(0,158,115,0.15); color: #009E73; border: 1px solid rgba(0,158,115,0.3); }
+                    .workload-badge.memory       { background: rgba(230,159,0,0.15); color: #b87a00; border: 1px solid rgba(230,159,0,0.3); }
+                    .workload-badge.compute      { background: rgba(204,121,167,0.15); color: #CC79A7; border: 1px solid rgba(204,121,167,0.3); }
+                    .workload-badge.io           { background: rgba(213,94,0,0.15); color: #D55E00; border: 1px solid rgba(213,94,0,0.3); }
+                    .workload-badge.idle         { background: rgba(128,128,128,0.1); color: #888; border: 1px solid rgba(128,128,128,0.2); }
+                    .workload-badge.other        { background: rgba(128,128,128,0.1); color: #888; border: 1px solid rgba(128,128,128,0.2); }
+                    .health-badge { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+                    .health-badge.WARN { background: rgba(230,159,0,0.2); color: #b87a00; border: 1px solid rgba(230,159,0,0.4); }
+                    .health-badge.HOT  { background: rgba(213,94,0,0.2);  color: #D55E00; border: 1px solid rgba(213,94,0,0.4); }
+                    .health-badge.CRIT { background: rgba(204,0,0,0.2);   color: #cc0000; border: 1px solid rgba(204,0,0,0.4); }
+                    .dcgm-badge { font-size: 9px; font-weight: 600; padding: 1px 4px; border-radius: 3px; margin-left: 4px; background: rgba(0,114,178,0.1); color: #0072B2; border: 1px solid rgba(0,114,178,0.25); vertical-align: middle; letter-spacing: 0.03em; }
                     .util-value {
                         font-size: 12px;
                         color: #a0a0a0;
@@ -5209,20 +5270,39 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                         />
                                     </div>
                                 </div>
-                                {node.has_gpu && (
-                                    <div className="detail-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '4px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span className="detail-label">GPU ({node.gpu_name || 'GPU'})</span>
-                                            <span className="detail-value">{node.gpu_util || 0}%</span>
-                                        </div>
-                                        <div className="progress-bar">
-                                            <div 
-                                                className="progress-fill purple"
-                                                style={{ width: `${node.gpu_util || 0}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
+                                {node.has_gpu && (() => {
+                                    const healthBadge = node.gpu_health && node.gpu_health !== "OK"
+                                        ? React.createElement("span", {className: "health-badge " + node.gpu_health}, node.gpu_health)
+                                        : null;
+                                    const dcgmBadge = node.gpu_data_source === "dcgm"
+                                        ? React.createElement("span", {className: "dcgm-badge", title: "Enhanced metrics via DCGM"}, "DCGM")
+                                        : null;
+                                    const wc = node.gpu_workload || "";
+                                    const workloadClass = wc.includes("tensor-heavy") ? "tensor-heavy" : wc.includes("tensor") ? "tensor" : (wc.includes("FP64") || wc.includes("HPC")) ? "fp64" : wc.includes("memory") ? "memory" : wc.includes("compute") ? "compute" : (wc.includes("I/O") || wc.includes("data")) ? "io" : wc === "idle" ? "idle" : "other";
+                                    return React.createElement(React.Fragment, null,
+                                        React.createElement("div", {className: "detail-row", style: {flexDirection: "column", alignItems: "stretch", gap: "4px"}},
+                                            React.createElement("div", {style: {display: "flex", justifyContent: "space-between", alignItems: "center"}},
+                                                React.createElement("span", {className: "detail-label"}, "GPU (" + (node.gpu_name || "GPU") + ")", healthBadge, dcgmBadge),
+                                                React.createElement("span", {className: "detail-value"}, (node.gpu_util || 0) + "%")
+                                            ),
+                                            React.createElement("div", {className: "progress-bar"},
+                                                React.createElement("div", {className: "progress-fill purple", style: {width: (node.gpu_util || 0) + "%"}})
+                                            )
+                                        ),
+                                        node.gpu_real_util != null && React.createElement("div", {className: "detail-row", style: {flexDirection: "column", alignItems: "stretch", gap: "4px"}},
+                                            React.createElement("div", {style: {display: "flex", justifyContent: "space-between"}},
+                                                React.createElement("span", {className: "detail-label", style: {color: "var(--text-muted)", fontSize: "11px"}}, "Real Util"),
+                                                React.createElement("span", {className: "detail-value", style: {fontSize: "11px"}}, node.gpu_real_util + "%")
+                                            ),
+                                            React.createElement("div", {className: "progress-bar", style: {height: "4px"}},
+                                                React.createElement("div", {className: "progress-fill", style: {width: node.gpu_real_util + "%", background: "linear-gradient(90deg, #0072B2, #56B4E9)"}})
+                                            )
+                                        ),
+                                        node.gpu_workload && React.createElement("div", {className: "detail-row", style: {paddingTop: "2px"}},
+                                            React.createElement("span", {className: "workload-badge " + workloadClass}, node.gpu_workload)
+                                        )
+                                    );
+                                })()}
                                 <div className="detail-row">
                                     <span className="detail-label">Load Average</span>
                                     <span className="detail-value">{node.load_avg || 0}</span>
