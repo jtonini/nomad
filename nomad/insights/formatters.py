@@ -232,10 +232,16 @@ def format_json(
     now = datetime.now().isoformat()
 
     all_severities = [s.severity for s, _ in narratives] + [i.severity for i in insights]
-    worst = "info"
+    worst = "good"
     if all_severities:
-        worst = max(all_severities,
-                    key=lambda s: [Severity.INFO, Severity.NOTICE, Severity.WARNING, Severity.CRITICAL].index(s)).value
+        worst_sev = max(all_severities,
+                    key=lambda s: [Severity.INFO, Severity.NOTICE, Severity.WARNING, Severity.CRITICAL].index(s))
+        worst = {
+            Severity.INFO: "good",
+            Severity.NOTICE: "nominal",
+            Severity.WARNING: "degraded",
+            Severity.CRITICAL: "impaired",
+        }.get(worst_sev, "good")
 
     data: dict[str, Any] = {
         "timestamp": now,
