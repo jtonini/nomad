@@ -7957,7 +7957,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 tables = {}
                 table_names = [r[0] for r in c.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'v_%' "
+                    "AND name NOT LIKE 'sqlite_%' "
                     "AND name NOT LIKE 'schema_%' ORDER BY name"
                 ).fetchall()]
                 for t in table_names:
