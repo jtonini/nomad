@@ -4222,6 +4222,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                 const formatAge = (ts) => {
                     if (!ts) return "—";
                     const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+                    if (diff < 0) return "just now";
                     if (diff < 60) return Math.round(diff) + "s ago";
                     if (diff < 3600) return Math.round(diff/60) + "m ago";
                     if (diff < 86400) return Math.round(diff/3600) + "h ago";
@@ -7969,7 +7970,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                     "vmstat": ("vmstat", "timestamp"),
                     "gpu": ("gpu_stats", "timestamp"),
                     "nfs": ("nfs_stats", "timestamp"),
-                    "jobs": ("jobs", "start_time"),
+                    "jobs": ("jobs", "submit_time"),
                     "groups": ("group_membership", "timestamp" if "timestamp" in
                         [r[1] for r in c.execute("PRAGMA table_info(group_membership)").fetchall()]
                         else None),
