@@ -8191,9 +8191,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                     ).fetchall()]
                 groups = []
                 try:
-                    groups = [r[0] for r in conn.execute(
-                        "SELECT DISTINCT group_name FROM group_membership ORDER BY group_name"
-                    ).fetchall()]
+                    if edu_cluster and edu_cluster != "all":
+                        groups = [r[0] for r in conn.execute(
+                            "SELECT DISTINCT group_name FROM group_membership WHERE cluster=? ORDER BY group_name",
+                            (edu_cluster,)).fetchall()]
+                    else:
+                        groups = [r[0] for r in conn.execute(
+                            "SELECT DISTINCT group_name FROM group_membership ORDER BY group_name"
+                        ).fetchall()]
                 except Exception:
                     pass
                 conn.close()
