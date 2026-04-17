@@ -3667,6 +3667,10 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 React.createElement('option', {value: ''}, 'Select a user...'),
                                 eduUsers.map(u => React.createElement('option', {key: u, value: u}, u))
                             ),
+                            selectedUser && React.createElement('button', {
+                                onClick: () => loadTrajectory(selectedUser),
+                                style: {marginTop: 8, padding: '6px 16px', background: '#00BACF', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12}
+                            }, 'View Report'),
                             React.createElement('p', {style: {fontSize: 11, color: '#64748b', marginTop: 8}},
                                 eduUsers.length + ' users with job history')
                         ),
@@ -3680,6 +3684,10 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 React.createElement('option', {value: ''}, 'Select a group...'),
                                 eduGroups.map(g => React.createElement('option', {key: g, value: g}, g))
                             ),
+                            selectedGroup && React.createElement('button', {
+                                onClick: () => loadGroup(selectedGroup),
+                                style: {marginTop: 8, padding: '6px 16px', background: '#00BACF', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12}
+                            }, 'View Report'),
                             React.createElement('p', {style: {fontSize: 11, color: '#64748b', marginTop: 8}},
                                 eduGroups.length + ' groups available')
                         )
