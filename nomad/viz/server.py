@@ -4302,7 +4302,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 )
                             ),
                             React.createElement("tbody", null,
-                                ...collectorOrder.filter(k => cs[k]).map((k, i) =>
+                                ...collectorOrder.filter(k => cs[k] && !(cs[k].status === "empty" && cs[k].rows === 0)).map((k, i) =>
                                     React.createElement("tr", {key: k, style: {borderBottom: i < collectorOrder.length-1 ? "1px solid var(--border, #222)" : "none"}},
                                         React.createElement("td", {style: {padding: "10px 16px", fontWeight: 500}}, k),
                                         React.createElement("td", {style: {padding: "10px 16px", textAlign: "center"}},
