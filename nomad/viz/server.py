@@ -4199,6 +4199,191 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
 
             // Insights Panel
 
+
+            // ═══════════════════════════════════════════════════════════
+            // Reference Panel
+            // ═══════════════════════════════════════════════════════════
+            const ReferencePanel = () => {
+                const [refData, setRefData] = useState(null);
+                const [refView, setRefView] = useState('index');
+                const [refTopic, setRefTopic] = useState(null);
+                const [refSearch, setRefSearch] = useState('');
+                const [refResults, setRefResults] = useState(null);
+                const [refLoading, setRefLoading] = useState(false);
+
+                useEffect(() => {
+                    fetch('/api/ref')
+                        .then(r => r.json())
+                        .then(d => setRefData(d))
+                        .catch(() => setRefData({categories: {}}));
+                }, []);
+
+                const loadTopic = (key) => {
+                    setRefLoading(true);
+                    fetch('/api/ref?action=topic&key=' + encodeURIComponent(key))
+                        .then(r => r.json())
+                        .then(d => { setRefTopic(d); setRefView('topic'); setRefLoading(false); })
+                        .catch(() => setRefLoading(false));
+                };
+
+                const doSearch = () => {
+                    if (!refSearch.trim()) return;
+                    setRefLoading(true);
+                    fetch('/api/ref?action=search&q=' + encodeURIComponent(refSearch))
+                        .then(r => r.json())
+                        .then(d => { setRefResults(d); setRefView('search'); setRefLoading(false); })
+                        .catch(() => setRefLoading(false));
+                };
+
+                if (!refData) return React.createElement("div", {style: {padding: "40px", textAlign: "center"}}, "Loading reference...");
+
+                const catLabels = {commands: "Commands", concepts: "Concepts", config: "Configuration", collectors: "Collectors", alerts: "Alerts", other: "Other"};
+                const catColors = {commands: "#00BACF", concepts: "#a78bfa", config: "#f59e0b", collectors: "#22c55e", alerts: "#f87171", other: "#64748b"};
+
+                const cardStyle = {background: "var(--bg-secondary, #1e293b)", borderRadius: "10px", padding: "16px", marginBottom: "12px", cursor: "pointer", transition: "border-color 0.2s", border: "1px solid transparent"};
+                const tagStyle = {display: "inline-block", padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 600, marginRight: "6px"};
+
+                // Search bar
+                const searchBar = React.createElement("div", {style: {display: "flex", gap: "8px", marginBottom: "20px"}},
+                    React.createElement("input", {
+                        type: "text", value: refSearch, placeholder: "Search reference...",
+                        onChange: e => setRefSearch(e.target.value),
+                        onKeyDown: e => { if (e.key === 'Enter') doSearch(); },
+                        style: {flex: 1, padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border, #333)", background: "var(--bg-secondary, #1e293b)", color: "inherit", fontSize: "14px", outline: "none"}
+                    }),
+                    React.createElement("button", {
+                        onClick: doSearch,
+                        style: {padding: "10px 20px", borderRadius: "8px", border: "none", background: "#00BACF", color: "#fff", cursor: "pointer", fontSize: "13px", fontWeight: 600}
+                    }, "Search")
+                );
+
+                // Index view
+                if (refView === 'index') {
+                    const cats = refData.categories || {};
+                    return React.createElement("div", {style: {padding: "20px", maxWidth: "900px"}},
+                        React.createElement("h2", {style: {fontSize: "20px", fontWeight: 600, marginBottom: "6px"}}, "Reference"),
+                        React.createElement("p", {style: {fontSize: "13px", color: "#64748b", marginBottom: "20px"}}, "Browse NOMAD documentation, commands, and concepts"),
+                        searchBar,
+                        ...Object.entries(cats).sort().map(([cat, entries]) =>
+                            React.createElement("div", {key: cat, style: {marginBottom: "24px"}},
+                                React.createElement("div", {style: {fontSize: "13px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: catColors[cat] || "#64748b", marginBottom: "10px"}},
+                                    (catLabels[cat] || cat) + " (" + entries.length + ")"),
+                                ...entries.map(e =>
+                                    React.createElement("div", {
+                                        key: e.key,
+                                        style: {...cardStyle},
+                                        onClick: () => loadTopic(e.key),
+                                        onMouseEnter: ev => ev.currentTarget.style.borderColor = catColors[cat] || "#64748b",
+                                        onMouseLeave: ev => ev.currentTarget.style.borderColor = "transparent"
+                                    },
+                                        React.createElement("div", {style: {fontSize: "14px", fontWeight: 600, marginBottom: "4px"}}, e.title),
+                                        e.summary && React.createElement("div", {style: {fontSize: "12px", color: "#94a3b8"}}, e.summary)
+                                    )
+                                )
+                            )
+                        )
+                    );
+                }
+
+                // Search results view
+                if (refView === 'search') {
+                    const results = (refResults && refResults.results) || [];
+                    return React.createElement("div", {style: {padding: "20px", maxWidth: "900px"}},
+                        React.createElement("button", {onClick: () => setRefView('index'), style: {background: "none", border: "none", color: "#00BACF", cursor: "pointer", fontSize: "12px", marginBottom: "12px"}}, "< Back to index"),
+                        searchBar,
+                        React.createElement("div", {style: {fontSize: "13px", color: "#64748b", marginBottom: "16px"}},
+                            results.length + ' result(s) for "' + (refResults.query || '') + '"'),
+                        ...results.map(r =>
+                            React.createElement("div", {
+                                key: r.key, style: {...cardStyle}, onClick: () => loadTopic(r.key),
+                                onMouseEnter: ev => ev.currentTarget.style.borderColor = catColors[r.category] || "#64748b",
+                                onMouseLeave: ev => ev.currentTarget.style.borderColor = "transparent"
+                            },
+                                React.createElement("div", {style: {display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px"}},
+                                    React.createElement("span", {style: {...tagStyle, background: (catColors[r.category] || "#64748b") + "22", color: catColors[r.category] || "#64748b"}}, r.category),
+                                    React.createElement("span", {style: {fontSize: "14px", fontWeight: 600}}, r.title)
+                                ),
+                                r.summary && React.createElement("div", {style: {fontSize: "12px", color: "#94a3b8"}}, r.summary)
+                            )
+                        ),
+                        results.length === 0 && React.createElement("div", {style: {textAlign: "center", padding: "40px", color: "#64748b"}}, "No results found. Try different keywords.")
+                    );
+                }
+
+                // Topic detail view
+                if (refView === 'topic' && refTopic && !refTopic.error) {
+                    const t = refTopic;
+                    const sectionStyle = {marginBottom: "16px"};
+                    const sectionTitle = {fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b", marginBottom: "6px"};
+                    const codeBlock = {background: "var(--bg-primary, #0f172a)", borderRadius: "6px", padding: "12px", fontSize: "12px", fontFamily: "monospace", whiteSpace: "pre-wrap", overflowX: "auto", lineHeight: 1.5};
+
+                    return React.createElement("div", {style: {padding: "20px", maxWidth: "900px"}},
+                        React.createElement("button", {onClick: () => setRefView('index'), style: {background: "none", border: "none", color: "#00BACF", cursor: "pointer", fontSize: "12px", marginBottom: "12px"}}, "< Back to index"),
+                        React.createElement("div", {style: {background: "var(--bg-secondary, #1e293b)", borderRadius: "12px", padding: "24px"}},
+                            React.createElement("div", {style: {display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px"}},
+                                React.createElement("span", {style: {...tagStyle, background: (catColors[t.category] || "#64748b") + "22", color: catColors[t.category] || "#64748b"}}, t.category),
+                                React.createElement("code", {style: {fontSize: "11px", color: "#64748b"}}, t.key)
+                            ),
+                            React.createElement("h2", {style: {fontSize: "22px", fontWeight: 700, marginBottom: "8px"}}, t.title),
+                            t.summary && React.createElement("p", {style: {fontSize: "14px", color: "#94a3b8", marginBottom: "16px", lineHeight: 1.5}}, t.summary),
+                            t.description && React.createElement("div", {style: sectionStyle},
+                                React.createElement("div", {style: sectionTitle}, "Description"),
+                                React.createElement("div", {style: {fontSize: "13px", lineHeight: 1.6, whiteSpace: "pre-wrap"}}, t.description)
+                            ),
+                            t.math && React.createElement("div", {style: sectionStyle},
+                                React.createElement("div", {style: sectionTitle}, "Formula"),
+                                React.createElement("div", {style: codeBlock}, t.math)
+                            ),
+                            t.examples && t.examples.length > 0 && React.createElement("div", {style: sectionStyle},
+                                React.createElement("div", {style: sectionTitle}, "Examples"),
+                                ...t.examples.map((ex, i) => React.createElement("div", {key: i, style: codeBlock, marginBottom: "8px"}, ex))
+                            ),
+                            t.config_section && React.createElement("div", {style: sectionStyle},
+                                React.createElement("div", {style: sectionTitle}, "Configuration"),
+                                React.createElement("code", {style: {fontSize: "12px"}}, t.config_section),
+                                t.config_keys && t.config_keys.length > 0 && React.createElement("div", {style: {marginTop: "8px", fontSize: "12px", color: "#94a3b8"}},
+                                    "Keys: " + t.config_keys.join(", "))
+                            ),
+                            t.source_files && t.source_files.length > 0 && React.createElement("div", {style: sectionStyle},
+                                React.createElement("div", {style: sectionTitle}, "Source Files"),
+                                React.createElement("div", {style: {fontSize: "12px", color: "#94a3b8"}}, t.source_files.join(", "))
+                            ),
+                            (t.related && t.related.length > 0 || t.see_also && t.see_also.length > 0) && React.createElement("div", {style: sectionStyle},
+                                React.createElement("div", {style: sectionTitle}, "Related Topics"),
+                                React.createElement("div", {style: {display: "flex", flexWrap: "wrap", gap: "6px"}},
+                                    ...(t.see_also || []).concat(t.related || []).map(r =>
+                                        React.createElement("span", {
+                                            key: r, onClick: (e) => { e.stopPropagation(); loadTopic(r); },
+                                            style: {padding: "4px 10px", borderRadius: "6px", background: "var(--bg-primary, #0f172a)", fontSize: "12px", cursor: "pointer", color: "#00BACF"}
+                                        }, r)
+                                    )
+                                )
+                            ),
+                            t.children && t.children.length > 0 && React.createElement("div", {style: {marginTop: "16px"}},
+                                React.createElement("div", {style: sectionTitle}, "Subtopics"),
+                                ...t.children.map(c =>
+                                    React.createElement("div", {
+                                        key: c.key, style: {...cardStyle, marginBottom: "8px"}, onClick: () => loadTopic(c.key),
+                                        onMouseEnter: ev => ev.currentTarget.style.borderColor = "#00BACF",
+                                        onMouseLeave: ev => ev.currentTarget.style.borderColor = "transparent"
+                                    },
+                                        React.createElement("div", {style: {fontSize: "13px", fontWeight: 600}}, c.title),
+                                        c.summary && React.createElement("div", {style: {fontSize: "12px", color: "#94a3b8"}}, c.summary)
+                                    )
+                                )
+                            )
+                        )
+                    );
+                }
+
+                // Error or loading
+                if (refLoading) return React.createElement("div", {style: {padding: "40px", textAlign: "center"}}, "Loading...");
+                return React.createElement("div", {style: {padding: "40px"}},
+                    React.createElement("button", {onClick: () => setRefView('index'), style: {background: "none", border: "none", color: "#00BACF", cursor: "pointer", fontSize: "12px", marginBottom: "12px"}}, "< Back to index"),
+                    React.createElement("div", {style: {color: "#f87171"}}, refTopic && refTopic.error ? refTopic.error : "Topic not found")
+                );
+            };
+
             const ReadinessPanel = () => {
                 const [data, setData] = useState(null);
                 const [loading, setLoading] = useState(true);
@@ -4807,6 +4992,12 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                 Education
                             </div>
                             <div
+                                className={`tab ${activeTab === 'reference' ? 'active' : ''}`}
+                                onClick={() => { setActiveTab('reference'); setSelectedNode(null); }}
+                            >
+                                Reference
+                            </div>
+                            <div
                                 className={`tab ${activeTab === 'issue' ? 'active' : ''}`}
                                 onClick={() => { setActiveTab('issue'); setSelectedNode(null); }}
                             >
@@ -4860,6 +5051,8 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                             <EducationPanel />
                         ) : activeTab === 'dynamics' ? (
                             <DynamicsPanel />
+                        ) : activeTab === 'reference' ? (
+                            <ReferencePanel />
                         ) : activeTab === 'readiness' ? (
                             <ReadinessPanel />
                         ) : activeTab === 'issue' ? (
@@ -7933,6 +8126,54 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
             self.wfile.write(json.dumps({'devices': devices, 'summary': summary}).encode())
 
+
+        elif parsed.path == '/api/ref':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            try:
+                from nomad.reference import KnowledgeBase
+                kb = KnowledgeBase()
+                params = dict(urllib.parse.parse_qsl(parsed.query))
+                action = params.get('action', 'index')
+                if action == 'topic':
+                    key = params.get('key', '')
+                    entry = kb.get(key)
+                    if entry:
+                        children = kb.get_children(key)
+                        result = {
+                            "key": entry.key, "title": entry.title,
+                            "summary": entry.summary, "description": entry.description,
+                            "examples": entry.examples, "math": entry.math,
+                            "related": entry.related, "see_also": entry.see_also,
+                            "tags": entry.tags, "category": entry.category,
+                            "config_section": entry.config_section,
+                            "config_keys": entry.config_keys,
+                            "source_files": entry.source_files,
+                            "children": [{"key": c.key, "title": c.title, "summary": c.summary} for c in children],
+                        }
+                    else:
+                        result = {"error": f"Topic '{key}' not found"}
+                elif action == 'search':
+                    query = params.get('q', '')
+                    results = kb.search(query, max_results=15)
+                    result = {"query": query, "results": [
+                        {"key": r.key, "title": r.title, "summary": r.summary, "category": r.category}
+                        for r in results
+                    ]}
+                else:
+                    topics = kb.list_topics()
+                    cats = {}
+                    for t in topics:
+                        c = t.category or "other"
+                        if c not in cats:
+                            cats[c] = []
+                        cats[c].append({"key": t.key, "title": t.title, "summary": t.summary})
+                    result = {"categories": cats}
+            except Exception as e:
+                result = {"error": str(e)}
+            self.wfile.write(json.dumps(result).encode())
 
         elif parsed.path == '/api/readiness':
             self.send_response(200)
