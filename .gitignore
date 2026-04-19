@@ -91,3 +91,12 @@ BUSINESS_NOTES.md
 *.blg
 patch_dashboard_insights.py
 ruff-fixes.patch
+# Patch-script safety backups (e.g., from apply_migration_v6.py, edit_*.py, fix_demo_py.py)
+*.bak
+
+# Sync lock files
+*.lock
+
+# Editor swap files we may have missed
+*.kate-swp
+.#*
