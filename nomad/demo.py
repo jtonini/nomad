@@ -818,7 +818,12 @@ class DemoDatabase:
         print(f"    Network samples: {336 * len(network_paths)} (2 paths x 7 days)")
 
     def write_workstation_state(self):
-        """Write demo workstation monitoring data."""
+        """Write demo workstation monitoring data.
+
+        Generates data matching the production schema used by
+        WorkstationCollector.store() — 29 columns. This schema is also
+        what gets synced from jonimitchell.db into combined.db on mingus.
+        """
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("""
@@ -827,109 +832,184 @@ class DemoDatabase:
                 timestamp DATETIME NOT NULL,
                 hostname TEXT NOT NULL,
                 department TEXT,
-                location TEXT,
-                status TEXT DEFAULT 'online',
-                cpu_percent REAL,
-                memory_percent REAL,
-                disk_percent REAL,
-                users_logged_in INTEGER DEFAULT 0,
-                load_1m REAL,
-                load_5m REAL,
-                load_15m REAL,
+                status TEXT,
+                os_version TEXT,
+                cpu_model TEXT,
                 uptime_seconds INTEGER,
-                last_user TEXT,
-                os_version TEXT
+                load_avg_1m REAL,
+                load_avg_5m REAL,
+                load_avg_15m REAL,
+                cpu_count INTEGER,
+                cpu_user_pct REAL,
+                cpu_system_pct REAL,
+                cpu_idle_pct REAL,
+                cpu_iowait_pct REAL,
+                memory_total_mb INTEGER,
+                memory_used_mb INTEGER,
+                memory_free_mb INTEGER,
+                memory_cached_mb INTEGER,
+                swap_total_mb INTEGER,
+                swap_used_mb INTEGER,
+                disk_total_gb REAL,
+                disk_used_gb REAL,
+                disk_free_gb REAL,
+                disk_usage_pct REAL,
+                users_logged_in INTEGER,
+                process_count INTEGER,
+                zombie_count INTEGER
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_ws_hostname ON workstation_state(hostname)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_ws_timestamp ON workstation_state(timestamp)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ws_dept ON workstation_state(department)")
 
-        # Demo workstations by department
+        # Demo workstations by department. Each has stable characteristics
+        # (cpu_count, cpu_model, ram_gb, disk_gb) so time-series data looks
+        # realistic rather than randomly re-rolled every sample.
         workstations = [
             # Chemistry department
-            {"hostname": "chem-ws01", "department": "Chemistry", "location": "Gottwald B102", "os": "Ubuntu 22.04"},
-            {"hostname": "chem-ws02", "department": "Chemistry", "location": "Gottwald B102", "os": "Ubuntu 22.04"},
-            {"hostname": "chem-ws03", "department": "Chemistry", "location": "Gottwald B104", "os": "Ubuntu 22.04"},
-            {"hostname": "chem-ws04", "department": "Chemistry", "location": "Gottwald B104", "os": "Rocky 9.2"},
+            {"hostname": "chem-ws01", "department": "Chemistry", "os": "Ubuntu 22.04",
+             "cpu_count": 8,  "cpu_model": "Intel Xeon E5-2620 v4", "ram_gb": 32, "disk_gb": 500},
+            {"hostname": "chem-ws02", "department": "Chemistry", "os": "Ubuntu 22.04",
+             "cpu_count": 8,  "cpu_model": "Intel Xeon E5-2620 v4", "ram_gb": 32, "disk_gb": 500},
+            {"hostname": "chem-ws03", "department": "Chemistry", "os": "Ubuntu 22.04",
+             "cpu_count": 16, "cpu_model": "AMD EPYC 7302P",        "ram_gb": 64, "disk_gb": 1000},
+            {"hostname": "chem-ws04", "department": "Chemistry", "os": "Rocky 9.2",
+             "cpu_count": 16, "cpu_model": "AMD EPYC 7302P",        "ram_gb": 64, "disk_gb": 1000},
             # Biology department
-            {"hostname": "bio-ws01", "department": "Biology", "location": "ISC 201", "os": "Ubuntu 22.04"},
-            {"hostname": "bio-ws02", "department": "Biology", "location": "ISC 201", "os": "Ubuntu 22.04"},
-            {"hostname": "bio-ws03", "department": "Biology", "location": "ISC 203", "os": "Rocky 9.2"},
+            {"hostname": "bio-ws01",  "department": "Biology",   "os": "Ubuntu 22.04",
+             "cpu_count": 4,  "cpu_model": "Intel Core i7-10700",   "ram_gb": 16, "disk_gb": 500},
+            {"hostname": "bio-ws02",  "department": "Biology",   "os": "Ubuntu 22.04",
+             "cpu_count": 4,  "cpu_model": "Intel Core i7-10700",   "ram_gb": 16, "disk_gb": 500},
+            {"hostname": "bio-ws03",  "department": "Biology",   "os": "Rocky 9.2",
+             "cpu_count": 8,  "cpu_model": "Intel Xeon W-2145",     "ram_gb": 32, "disk_gb": 1000},
             # Physics department
-            {"hostname": "phys-ws01", "department": "Physics", "location": "Jepson 102", "os": "Ubuntu 22.04"},
-            {"hostname": "phys-ws02", "department": "Physics", "location": "Jepson 102", "os": "Rocky 9.2"},
-            {"hostname": "phys-ws03", "department": "Physics", "location": "Jepson 104", "os": "Ubuntu 22.04"},
+            {"hostname": "phys-ws01", "department": "Physics",   "os": "Ubuntu 22.04",
+             "cpu_count": 8,  "cpu_model": "Intel Xeon W-2145",     "ram_gb": 32, "disk_gb": 500},
+            {"hostname": "phys-ws02", "department": "Physics",   "os": "Rocky 9.2",
+             "cpu_count": 16, "cpu_model": "AMD EPYC 7302P",        "ram_gb": 64, "disk_gb": 1000},
+            {"hostname": "phys-ws03", "department": "Physics",   "os": "Ubuntu 22.04",
+             "cpu_count": 8,  "cpu_model": "Intel Xeon W-2145",     "ram_gb": 32, "disk_gb": 500},
             # Math/CS department
-            {"hostname": "mathcs-ws01", "department": "Math/CS", "location": "JPSN 218", "os": "Ubuntu 22.04"},
-            {"hostname": "mathcs-ws02", "department": "Math/CS", "location": "JPSN 218", "os": "Ubuntu 22.04"},
-            {"hostname": "mathcs-ws03", "department": "Math/CS", "location": "JPSN 220", "os": "Rocky 9.2"},
-            {"hostname": "mathcs-ws04", "department": "Math/CS", "location": "JPSN 220", "os": "Ubuntu 22.04"},
+            {"hostname": "mathcs-ws01","department": "Math/CS",  "os": "Ubuntu 22.04",
+             "cpu_count": 4,  "cpu_model": "Intel Core i5-10500",   "ram_gb": 16, "disk_gb": 500},
+            {"hostname": "mathcs-ws02","department": "Math/CS",  "os": "Ubuntu 22.04",
+             "cpu_count": 4,  "cpu_model": "Intel Core i5-10500",   "ram_gb": 16, "disk_gb": 500},
+            {"hostname": "mathcs-ws03","department": "Math/CS",  "os": "Rocky 9.2",
+             "cpu_count": 8,  "cpu_model": "Intel Xeon W-2145",     "ram_gb": 32, "disk_gb": 500},
+            {"hostname": "mathcs-ws04","department": "Math/CS",  "os": "Ubuntu 22.04",
+             "cpu_count": 8,  "cpu_model": "Intel Xeon W-2145",     "ram_gb": 32, "disk_gb": 500},
         ]
 
-        demo_users = ["alice", "bob", "charlie", "diana", "eve", "frank"]
         base_time = datetime.now() - timedelta(days=7)
 
         for ws in workstations:
+            ram_mb = ws["ram_gb"] * 1024
+            disk_gb_total = ws["disk_gb"]
+            cpu_count = ws["cpu_count"]
+
             # Each workstation gets samples every 5 minutes for 7 days
             for i in range(2016):  # 7 days * 288 samples/day (every 5 min)
                 sample_time = base_time + timedelta(minutes=i * 5)
                 hour = sample_time.hour
                 weekday = sample_time.weekday()
 
-                # Status - most online, some degraded or offline
+                # Status distribution: mostly online, some degraded, rare offline
                 if random.random() < 0.02:
                     status = "offline"
-                    cpu = memory = disk = load1 = load5 = load15 = 0
+                    # Offline: everything zero
+                    cpu_user = cpu_system = cpu_iowait = 0.0
+                    cpu_idle = 100.0
+                    mem_used_pct = 0.0
+                    disk_used_pct = 0.0
+                    load1 = load5 = load15 = 0.0
                     users = 0
                     uptime = 0
+                    procs = 0
+                    zombies = 0
                 elif random.random() < 0.05:
                     status = "degraded"
-                    cpu = random.uniform(85, 99)
-                    memory = random.uniform(85, 98)
-                    disk = random.uniform(60, 90)
-                    load1 = random.uniform(8, 16)
-                    load5 = random.uniform(6, 12)
-                    load15 = random.uniform(4, 10)
-                    users = random.randint(1, 3)
+                    cpu_user   = random.uniform(60, 80)
+                    cpu_system = random.uniform(15, 25)
+                    cpu_iowait = random.uniform(2, 8)
+                    cpu_idle   = max(0.0, 100 - cpu_user - cpu_system - cpu_iowait)
+                    mem_used_pct  = random.uniform(85, 98)
+                    disk_used_pct = random.uniform(60, 90)
+                    load1  = random.uniform(cpu_count * 1.5, cpu_count * 3)
+                    load5  = load1 * random.uniform(0.8, 1.0)
+                    load15 = load5 * random.uniform(0.8, 1.0)
+                    users  = random.randint(1, 3)
                     uptime = random.randint(3600, 86400 * 30)
+                    procs  = random.randint(200, 400)
+                    zombies = random.randint(0, 5)
                 else:
                     status = "online"
-                    # Higher usage during work hours
+                    # Higher usage during work hours on weekdays
                     if weekday < 5 and 9 <= hour < 17:
-                        cpu = random.uniform(20, 70)
-                        memory = random.uniform(30, 75)
-                        users = random.randint(0, 2)
-                        load1 = random.uniform(0.5, 4)
+                        cpu_user   = random.uniform(15, 50)
+                        cpu_system = random.uniform(3, 10)
+                        cpu_iowait = random.uniform(0.5, 3)
+                        mem_used_pct = random.uniform(30, 75)
+                        users  = random.randint(0, 2)
+                        load1  = random.uniform(0.5, cpu_count * 0.7)
                     else:
-                        cpu = random.uniform(1, 15)
-                        memory = random.uniform(20, 40)
-                        users = random.randint(0, 1) if random.random() > 0.7 else 0
-                        load1 = random.uniform(0.1, 1)
-                    disk = random.uniform(30, 70)
-                    load5 = load1 * random.uniform(0.8, 1.1)
+                        cpu_user   = random.uniform(0.5, 10)
+                        cpu_system = random.uniform(0.3, 3)
+                        cpu_iowait = random.uniform(0.1, 1)
+                        mem_used_pct = random.uniform(20, 40)
+                        users  = random.randint(0, 1) if random.random() > 0.7 else 0
+                        load1  = random.uniform(0.05, 1)
+                    cpu_idle = max(0.0, 100 - cpu_user - cpu_system - cpu_iowait)
+                    disk_used_pct = random.uniform(30, 70)
+                    load5  = load1 * random.uniform(0.8, 1.1)
                     load15 = load5 * random.uniform(0.8, 1.0)
                     uptime = random.randint(86400, 86400 * 90)
+                    procs  = random.randint(150, 300)
+                    zombies = 0 if random.random() > 0.05 else random.randint(1, 3)
 
-                last_user = random.choice(demo_users) if users > 0 else None
+                # Derive absolute memory values from the percentage
+                mem_used_mb   = int(ram_mb * mem_used_pct / 100)
+                mem_cached_mb = int(ram_mb * random.uniform(0.10, 0.25))
+                mem_free_mb   = max(0, ram_mb - mem_used_mb - mem_cached_mb)
+
+                # Swap: usually barely used
+                swap_total_mb = ws["ram_gb"] * 512   # convention: swap = RAM/2 in MB
+                swap_used_mb  = int(swap_total_mb * random.uniform(0, 0.1))
+
+                # Derive absolute disk values from the percentage
+                disk_used_gb  = round(disk_gb_total * disk_used_pct / 100, 1)
+                disk_free_gb  = round(disk_gb_total - disk_used_gb, 1)
 
                 c.execute("""
                     INSERT INTO workstation_state (
-                        timestamp, hostname, department, location, status,
-                        cpu_percent, memory_percent, disk_percent,
-                        users_logged_in, load_1m, load_5m, load_15m,
-                        uptime_seconds, last_user, os_version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        timestamp, hostname, department, status,
+                        os_version, cpu_model,
+                        uptime_seconds, load_avg_1m, load_avg_5m, load_avg_15m,
+                        cpu_count, cpu_user_pct, cpu_system_pct, cpu_idle_pct, cpu_iowait_pct,
+                        memory_total_mb, memory_used_mb, memory_free_mb, memory_cached_mb,
+                        swap_total_mb, swap_used_mb,
+                        disk_total_gb, disk_used_gb, disk_free_gb, disk_usage_pct,
+                        users_logged_in, process_count, zombie_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     sample_time.isoformat(),
-                    ws["hostname"], ws["department"], ws["location"], status,
-                    round(cpu, 1), round(memory, 1), round(disk, 1),
-                    users, round(load1, 2), round(load5, 2), round(load15, 2),
-                    uptime, last_user, ws["os"]
+                    ws["hostname"], ws["department"], status,
+                    ws["os"], ws["cpu_model"],
+                    uptime,
+                    round(load1, 2), round(load5, 2), round(load15, 2),
+                    cpu_count,
+                    round(cpu_user, 2), round(cpu_system, 2),
+                    round(cpu_idle, 2), round(cpu_iowait, 2),
+                    ram_mb, mem_used_mb, mem_free_mb, mem_cached_mb,
+                    swap_total_mb, swap_used_mb,
+                    float(disk_gb_total), disk_used_gb, disk_free_gb, round(disk_used_pct, 2),
+                    users, procs, zombies,
                 ))
 
         conn.commit()
         conn.close()
-        print(f"    Workstations: {len(workstations)} machines, {2016 * len(workstations)} samples")
+        print(f"    Workstation samples: {2016 * len(workstations)} (14 hosts x 7 days)")
+
 
     def write_storage_state(self):
         """Write demo storage/NAS monitoring data."""
