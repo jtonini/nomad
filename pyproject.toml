@@ -101,6 +101,7 @@ nomad = [
     "db/*.sql",
     "viz/static/**/*",
     "hooks/*.py",
+    "reference/entries/*.yaml",
 ]
 
 # ============================================
