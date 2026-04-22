@@ -38,6 +38,9 @@ from nomad.collectors import pacct as _pacct
 WORKSTATION_PROBE_PATH = "/usr/local/lib/nomad/cgroup_probe.py"
 WORKSTATION_PROBE_FALLBACK = "/tmp/nomad_cgroup_probe.py"
 DEFAULT_PACCT_PATH = "/var/account/pacct"
+# Mount monitoring probe. Same deployment pattern as the cgroup probe.
+WORKSTATION_MOUNT_PROBE_PATH = "/usr/local/lib/nomad/mount_probe.py"
+WORKSTATION_MOUNT_PROBE_FALLBACK = "/tmp/nomad_mount_probe.py"
 COLLECTOR_VERSION = "1.0"
 
 
@@ -112,6 +115,7 @@ class WorkstationStats:
     # Per-user data (populated when cgroup v2 / pacct are available on the host)
     user_snapshots: list = field(default_factory=list)
     process_records: list = field(default_factory=list)
+    mount_snapshots: list = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -144,6 +148,7 @@ class WorkstationStats:
             'status': self.status,
             'user_snapshots': [asdict(s) for s in self.user_snapshots],
             'process_records': [asdict(r) for r in self.process_records],
+            'mount_snapshots': list(self.mount_snapshots),
         }
 
     @property
@@ -484,7 +489,48 @@ class WorkstationCollector(BaseCollector):
         # level metrics are unaffected by per-user probe problems.
         self._collect_per_user(hostname, stats)
 
+        # Mount monitoring. Same non-fatal guarantee.
+        self._collect_mounts(hostname, stats)
+
         return stats
+
+    def _collect_mounts(
+        self,
+        hostname: str,
+        stats: "WorkstationStats",
+    ) -> None:
+        """Collect mount-point state for one host via mount_probe.py.
+
+        Failures here are non-fatal — machine-level metrics are
+        unaffected if the probe isn't deployed, times out, or returns
+        bad JSON. Same design as _collect_per_user.
+        """
+        try:
+            probe_cmd = (
+                f"if [ -f {WORKSTATION_MOUNT_PROBE_PATH} ]; then "
+                f"  python3 {WORKSTATION_MOUNT_PROBE_PATH}; "
+                f"elif [ -f {WORKSTATION_MOUNT_PROBE_FALLBACK} ]; then "
+                f"  python3 {WORKSTATION_MOUNT_PROBE_FALLBACK}; "
+                f"fi"
+            )
+            probe_out = run_command(probe_cmd, hostname, timeout=30)
+            for line in probe_out.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        f"{hostname}: bad mount probe JSON: {e}: {line[:80]}"
+                    )
+                    continue
+                # Normalize hostname to the collector's view.
+                d["hostname"] = hostname
+                stats.mount_snapshots.append(d)
+        except CollectionError as e:
+            # Probe not deployed yet, or SSH failed. Not an error.
+            logger.debug(f"{hostname}: mount probe unavailable: {e}")
 
     def _collect_per_user(
         self,
@@ -772,6 +818,40 @@ class WorkstationCollector(BaseCollector):
                     COLLECTOR_VERSION,
                     snap.get('source', 'cgroup_v2'),
                 ))
+
+        # ---------------------------------------------------------------
+        # Mount snapshots (workstation_mount_state)
+        # ---------------------------------------------------------------
+        # Append-only time series, same as user_snapshots. No dedup needed
+        # because we expect mount_probe to run per collection cycle.
+        for record in data:
+            hostname = record.get('hostname')
+            for m in record.get('mount_snapshots', []):
+                try:
+                    cursor.execute("""
+                        INSERT INTO workstation_mount_state (
+                            timestamp, hostname, mountpoint, fstype, source,
+                            is_mounted, is_responsive, response_ms,
+                            collected_at, probe_version, collector_version
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        timestamp,
+                        hostname,
+                        m.get('mountpoint'),
+                        m.get('fstype'),
+                        m.get('source'),
+                        m.get('is_mounted'),
+                        m.get('is_responsive'),
+                        m.get('response_ms'),
+                        m.get('collected_at'),
+                        m.get('probe_version'),
+                        COLLECTOR_VERSION,
+                    ))
+                except sqlite3.OperationalError:
+                    # workstation_mount_state table doesn't exist yet
+                    # (migration v7 not applied on this DB). Skip
+                    # silently; user sees other data.
+                    break
 
         # ---------------------------------------------------------------
         # Process records from pacct (workstation_process_record)

@@ -3414,12 +3414,72 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             // ═══════════════════════════════════════════════════════════
             const WorkstationsPanel = () => {
                 const [workstations, setWorkstations] = useState(null);
+                const [expandedWorkstations, setExpandedWorkstations] = useState({});
+                const [userDataByHost, setUserDataByHost] = useState({});
+                const [hideSystemByHost, setHideSystemByHost] = useState({});
+                const [mountDataByHost, setMountDataByHost] = useState({});
+                const [hideLocalMountsByHost, setHideLocalMountsByHost] = useState({});
+                const isNetworkMount = (m) => {
+                    const fs = (m.fstype || "").toLowerCase();
+                    if (fs.startsWith("nfs")) return true;
+                    if (fs.startsWith("cifs")) return true;
+                    if (fs.startsWith("smb")) return true;
+                    if (fs.startsWith("fuse.")) return true;
+                    if ((m.source || "").indexOf(":") !== -1) return true;
+                    return false;
+                };
                 useEffect(() => {
                     fetch("/api/workstations")
                         .then(r => r.json())
                         .then(setWorkstations)
                         .catch(() => setWorkstations({workstations: [], summary: {}}));
                 }, []);
+                const toggleExpandWs = (hostname) => {
+                    const isOpening = !expandedWorkstations[hostname];
+                    setExpandedWorkstations(prev => ({...prev, [hostname]: isOpening}));
+                    if (isOpening && !userDataByHost[hostname]) {
+                        fetch("/api/workstation_users?hostname=" + encodeURIComponent(hostname))
+                            .then(r => r.json())
+                            .then(d => setUserDataByHost(prev => ({...prev, [hostname]: d.users || []})))
+                            .catch(() => setUserDataByHost(prev => ({...prev, [hostname]: []})));
+                    }
+                    if (isOpening && !mountDataByHost[hostname]) {
+                        fetch("/api/workstation_mounts?hostname=" + encodeURIComponent(hostname))
+                            .then(r => r.json())
+                            .then(d => setMountDataByHost(prev => ({...prev, [hostname]: d.mounts || []})))
+                            .catch(() => setMountDataByHost(prev => ({...prev, [hostname]: []})));
+                    }
+                };
+                const mountStatusLabel = (m) => {
+                    if (m.is_mounted === 0) return {text: "unmounted", color: "#f87171"};
+                    if (m.is_responsive === 0) return {text: "stale", color: "#f5a623"};
+                    if (m.response_ms !== null && m.response_ms !== undefined && m.response_ms > 500) {
+                        return {text: "slow", color: "#f5a623"};
+                    }
+                    return {text: "ok", color: "#4ade80"};
+                };
+                const isSystemUserWs = (u) => {
+                    if (u.uid !== null && u.uid !== undefined && u.uid < 1000) return true;
+                    const systemNames = ['root','daemon','bin','sys','sync','games','man','lp','mail','news','uucp','proxy','www-data','backup','list','irc','gnats','nobody','systemd-network','systemd-resolve','systemd-timesync','messagebus','sshd','polkitd','chrony','avahi','colord','rtkit','pulse','gdm','lightdm','dnsmasq','tcpdump','uuidd','named','postfix','cockpit-ws','cockpit-wsinstance','nm-openvpn','nm-openconnect'];
+                    return systemNames.indexOf(u.username) !== -1;
+                };
+                const humanBytesWs = (b) => {
+                    if (!b && b !== 0) return '—';
+                    if (b < 1024) return b + ' B';
+                    if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+                    if (b < 1024*1024*1024) return (b/(1024*1024)).toFixed(1) + ' MB';
+                    return (b/(1024*1024*1024)).toFixed(2) + ' GB';
+                };
+                const humanAgeWs = (epochSec) => {
+                    if (!epochSec) return '—';
+                    const now = Math.floor(Date.now() / 1000);
+                    const age = now - epochSec;
+                    if (age < 0) return 'future?';
+                    if (age < 60) return age + 's';
+                    if (age < 3600) return Math.floor(age/60) + 'm';
+                    if (age < 86400) return Math.floor(age/3600) + 'h ' + Math.floor((age%3600)/60) + 'm';
+                    return Math.floor(age/86400) + 'd ' + Math.floor((age%86400)/3600) + 'h';
+                };
                 if (!workstations) return React.createElement("div", {style: eduStyles.loading}, "Loading workstations...");
                 const {workstations: ws = [], summary = {}} = workstations;
                 
@@ -3474,20 +3534,163 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                     )
                                 ),
                                 React.createElement("tbody", null,
-                                    machines.map((w, i) => React.createElement("tr", {key: i},
-                                        React.createElement("td", {style: eduStyles.td}, w.hostname),
-                                        React.createElement("td", {style: eduStyles.td},
-                                            React.createElement("span", {style: {color: statusColor(w.status)}}, w.status)
-                                        ),
-                                        React.createElement("td", {style: {...eduStyles.td, fontSize: "0.75rem", maxWidth: 120}}, w.os_version || "-"),
-                                        React.createElement("td", {style: {...eduStyles.td, fontSize: "0.75rem", maxWidth: 160}}, w.cpu_model || "-"),
-                                        React.createElement("td", {style: eduStyles.td}, (w.load_avg_1m || 0).toFixed(2) + " / " + (w.cpu_count || "?")),
-                                        React.createElement("td", {style: eduStyles.td}, 
-                                            w.memory_total_mb ? Math.round(w.memory_used_mb / w.memory_total_mb * 100) + "%" : "N/A"
-                                        ),
-                                        React.createElement("td", {style: eduStyles.td}, (w.disk_usage_pct || 0).toFixed(1) + "%"),
-                                        React.createElement("td", {style: eduStyles.td}, w.users_logged_in || 0)
-                                    ))
+                                    machines.flatMap((w, i) => {
+                                        const isExpanded = !!expandedWorkstations[w.hostname];
+                                        const chevron = isExpanded ? "▼" : "▶";
+                                        const mainRow = React.createElement("tr", {
+                                            key: "row-" + i,
+                                            style: {cursor: "pointer"},
+                                            onClick: () => toggleExpandWs(w.hostname),
+                                        },
+                                            React.createElement("td", {style: eduStyles.td},
+                                                React.createElement("span", {style: {marginRight: "0.4rem", opacity: 0.6, fontSize: "0.75rem"}}, chevron),
+                                                w.hostname
+                                            ),
+                                            React.createElement("td", {style: eduStyles.td},
+                                                React.createElement("span", {style: {color: statusColor(w.status)}}, w.status)
+                                            ),
+                                            React.createElement("td", {style: {...eduStyles.td, fontSize: "0.75rem", maxWidth: 120}}, w.os_version || "-"),
+                                            React.createElement("td", {style: {...eduStyles.td, fontSize: "0.75rem", maxWidth: 160}}, w.cpu_model || "-"),
+                                            React.createElement("td", {style: eduStyles.td}, (w.load_avg_1m || 0).toFixed(2) + " / " + (w.cpu_count || "?")),
+                                            React.createElement("td", {style: eduStyles.td},
+                                                w.memory_total_mb ? Math.round(w.memory_used_mb / w.memory_total_mb * 100) + "%" : "N/A"
+                                            ),
+                                            React.createElement("td", {style: eduStyles.td}, (w.disk_usage_pct || 0).toFixed(1) + "%"),
+                                            React.createElement("td", {style: eduStyles.td}, w.users_logged_in || 0)
+                                        );
+                                        if (!isExpanded) return [mainRow];
+                                        const users = userDataByHost[w.hostname];
+                                        const hideSystem = hideSystemByHost[w.hostname] !== false;
+                                        let content;
+                                        if (!users) {
+                                            content = React.createElement("div", {style: {padding: "0.5rem", opacity: 0.6, fontSize: "0.8rem"}}, "Loading per-user data...");
+                                        } else if (users.length === 0) {
+                                            // Truly no rows for this host. Probe not deployed or collector
+                                            // hasn't captured anything yet.
+                                            content = React.createElement("div", {style: {padding: "0.5rem", opacity: 0.6, fontSize: "0.8rem"}}, "No per-user data recorded yet. Probe may not be deployed on " + w.hostname + ", or the collector hasn't run since deploy.");
+                                        } else {
+                                            const visible = hideSystem ? users.filter(u => !isSystemUserWs(u)) : users;
+                                            const sysCount = users.filter(isSystemUserWs).length;
+                                            const thStyle = {...eduStyles.th, padding: "0.35rem 0.5rem", fontSize: "0.72rem"};
+                                            const tdStyle = {...eduStyles.td, padding: "0.35rem 0.5rem", fontSize: "0.8rem"};
+                                            const mounts = mountDataByHost[w.hostname];
+                                            const hideLocal = hideLocalMountsByHost[w.hostname] !== false;
+                                            const netMounts = mounts ? mounts.filter(isNetworkMount) : null;
+                                            const localMountCount = mounts ? (mounts.length - (netMounts ? netMounts.length : 0)) : 0;
+                                            const visibleMounts = !mounts
+                                                ? null
+                                                : (hideLocal ? netMounts : mounts);
+                                            const staleCount = mounts ? mounts.filter(m => m.is_mounted && !m.is_responsive).length : 0;
+                                            const mountsSection = React.createElement("div", {style: {marginBottom: "0.75rem"}},
+                                                React.createElement("div", {style: {display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem", fontSize: "0.8rem", opacity: 0.75}},
+                                                    React.createElement("span", null,
+                                                        mounts === undefined
+                                                            ? "Loading mounts..."
+                                                            : mounts.length === 0
+                                                                ? "Mounts: (no data; mount probe may not be deployed)"
+                                                                : (
+                                                                    "Mounts on " + w.hostname + ": "
+                                                                    + (visibleMounts ? visibleMounts.length : 0)
+                                                                    + (hideLocal && localMountCount > 0 ? " (+ " + localMountCount + " local hidden)" : "")
+                                                                    + (staleCount > 0 ? " — " + staleCount + " unresponsive" : "")
+                                                                )
+                                                    ),
+                                                    mounts && mounts.length > 0 && React.createElement("label", {style: {cursor: "pointer", fontSize: "0.75rem"}, onClick: (e) => e.stopPropagation()},
+                                                        React.createElement("input", {
+                                                            type: "checkbox",
+                                                            checked: !hideLocal,
+                                                            onChange: (e) => setHideLocalMountsByHost(prev => ({...prev, [w.hostname]: e.target.checked})),
+                                                            style: {marginRight: "0.3rem"}
+                                                        }),
+                                                        "show local mounts"
+                                                    )
+                                                ),
+                                                visibleMounts && visibleMounts.length > 0 && React.createElement("table", {style: {...eduStyles.table, marginTop: 0, fontSize: "0.8rem"}},
+                                                    React.createElement("thead", null,
+                                                        React.createElement("tr", null,
+                                                            React.createElement("th", {style: thStyle}, "Mountpoint"),
+                                                            React.createElement("th", {style: thStyle}, "Type"),
+                                                            React.createElement("th", {style: thStyle}, "Source"),
+                                                            React.createElement("th", {style: thStyle}, "Status"),
+                                                            React.createElement("th", {style: thStyle}, "Latency")
+                                                        )
+                                                    ),
+                                                    React.createElement("tbody", null,
+                                                        visibleMounts.map((m, k) => {
+                                                            const st = mountStatusLabel(m);
+                                                            return React.createElement("tr", {key: "m-" + k},
+                                                                React.createElement("td", {style: tdStyle}, m.mountpoint),
+                                                                React.createElement("td", {style: tdStyle}, m.fstype || "-"),
+                                                                React.createElement("td", {style: {...tdStyle, fontSize: "0.72rem", opacity: 0.75, maxWidth: 220}}, m.source || "-"),
+                                                                React.createElement("td", {style: tdStyle},
+                                                                    React.createElement("span", {style: {color: st.color}}, st.text)
+                                                                ),
+                                                                React.createElement("td", {style: tdStyle}, (m.response_ms !== null && m.response_ms !== undefined) ? m.response_ms.toFixed(1) + " ms" : "-")
+                                                            );
+                                                        })
+                                                    )
+                                                ),
+                                                mounts && mounts.length > 0 && visibleMounts && visibleMounts.length === 0 && React.createElement("div", {style: {opacity: 0.5, fontSize: "0.8rem", padding: "0.25rem 0"}},
+                                                    hideLocal && localMountCount > 0
+                                                        ? ("No network mounts on this host (" + localMountCount + " local mount" + (localMountCount === 1 ? "" : "s") + " hidden — toggle above to view).")
+                                                        : "No mounts to display."
+                                                )
+                                            );
+                                            content = React.createElement("div", null,
+                                                mountsSection,
+                                                React.createElement("div", {style: {display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem", fontSize: "0.8rem", opacity: 0.75}},
+                                                    React.createElement("span", null, "Users on " + w.hostname + ": " + visible.length + (hideSystem && sysCount > 0 ? " (+ " + sysCount + " system hidden)" : "")),
+                                                    React.createElement("label", {style: {cursor: "pointer", fontSize: "0.75rem"}, onClick: (e) => e.stopPropagation()},
+                                                        React.createElement("input", {
+                                                            type: "checkbox",
+                                                            checked: !hideSystem,
+                                                            onChange: (e) => setHideSystemByHost(prev => ({...prev, [w.hostname]: e.target.checked})),
+                                                            style: {marginRight: "0.3rem"}
+                                                        }),
+                                                        "show system users"
+                                                    )
+                                                ),
+                                                visible.length === 0
+                                                    ? React.createElement("div", {style: {opacity: 0.5, fontSize: "0.8rem", padding: "0.5rem 0"}},
+                                                        hideSystem && sysCount > 0
+                                                            ? "No human users logged in (" + sysCount + " system user" + (sysCount === 1 ? "" : "s") + " hidden — toggle above to view)."
+                                                            : "No user sessions on this host right now."
+                                                      )
+                                                    : React.createElement("table", {style: {...eduStyles.table, marginTop: 0, fontSize: "0.8rem"}},
+                                                        React.createElement("thead", null,
+                                                            React.createElement("tr", null,
+                                                                React.createElement("th", {style: thStyle}, "User"),
+                                                                React.createElement("th", {style: thStyle}, "UID"),
+                                                                React.createElement("th", {style: thStyle}, "Memory"),
+                                                                React.createElement("th", {style: thStyle}, "Peak Memory"),
+                                                                React.createElement("th", {style: thStyle}, "PIDs"),
+                                                                React.createElement("th", {style: thStyle}, "Session Age")
+                                                            )
+                                                        ),
+                                                        React.createElement("tbody", null,
+                                                            visible.map((u, j) => React.createElement("tr", {key: "u-" + j},
+                                                                React.createElement("td", {style: tdStyle},
+                                                                    u.username,
+                                                                    isSystemUserWs(u) ? React.createElement("span", {style: {marginLeft: "0.4rem", fontSize: "0.7rem", opacity: 0.5}}, "sys") : null
+                                                                ),
+                                                                React.createElement("td", {style: tdStyle}, u.uid),
+                                                                React.createElement("td", {style: tdStyle}, humanBytesWs(u.memory_current_bytes)),
+                                                                React.createElement("td", {style: tdStyle}, humanBytesWs(u.memory_peak_bytes)),
+                                                                React.createElement("td", {style: tdStyle}, u.pids_current),
+                                                                React.createElement("td", {style: tdStyle}, humanAgeWs(u.session_epoch))
+                                                            ))
+                                                        )
+                                                    )
+                                            );
+                                        }
+                                        const expandedRow = React.createElement("tr", {key: "exp-" + i},
+                                            React.createElement("td", {
+                                                colSpan: 8,
+                                                style: {...eduStyles.td, padding: "0.75rem 1rem", background: "rgba(255,255,255,0.02)", borderTop: "none"}
+                                            }, content)
+                                        );
+                                        return [mainRow, expandedRow];
+                                    })
                                 )
                             )
                         )
@@ -5120,11 +5323,45 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             // Workstation cluster: show workstation cards instead of SLURM view
             if (cluster.type === 'workstation' || nodes.length === 0) {
                 const [wsData, setWsData] = useState(null);
+                const [expandedHosts, setExpandedHosts] = useState({});
+                const [userDataByHost, setUserDataByHost] = useState({});
+                const [hideSystemByHost, setHideSystemByHost] = useState({});
                 useEffect(() => {
                     fetch("/api/workstations")
                         .then(r => r.json())
                         .then(setWsData);
                 }, []);
+                const toggleExpand = (hostname) => {
+                    const isOpening = !expandedHosts[hostname];
+                    setExpandedHosts(prev => ({...prev, [hostname]: isOpening}));
+                    if (isOpening && !userDataByHost[hostname]) {
+                        fetch("/api/workstation_users?hostname=" + encodeURIComponent(hostname))
+                            .then(r => r.json())
+                            .then(d => setUserDataByHost(prev => ({...prev, [hostname]: d.users || []})));
+                    }
+                };
+                const isSystemUser = (u) => {
+                    if (u.uid !== null && u.uid !== undefined && u.uid < 1000) return true;
+                    const systemNames = ['root','daemon','bin','sys','sync','games','man','lp','mail','news','uucp','proxy','www-data','backup','list','irc','gnats','nobody','systemd-network','systemd-resolve','systemd-timesync','messagebus','sshd','polkitd','chrony','avahi','colord','rtkit','pulse','gdm','lightdm','dnsmasq','tcpdump','uuidd','named','postfix','cockpit-ws','cockpit-wsinstance','nm-openvpn','nm-openconnect'];
+                    return systemNames.indexOf(u.username) !== -1;
+                };
+                const humanBytes = (b) => {
+                    if (!b && b !== 0) return '—';
+                    if (b < 1024) return b + ' B';
+                    if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+                    if (b < 1024*1024*1024) return (b/(1024*1024)).toFixed(1) + ' MB';
+                    return (b/(1024*1024*1024)).toFixed(2) + ' GB';
+                };
+                const humanAge = (epochSec) => {
+                    if (!epochSec) return '—';
+                    const now = Math.floor(Date.now() / 1000);
+                    const age = now - epochSec;
+                    if (age < 0) return 'future?';
+                    if (age < 60) return age + 's';
+                    if (age < 3600) return Math.floor(age/60) + 'm';
+                    if (age < 86400) return Math.floor(age/3600) + 'h ' + Math.floor((age%3600)/60) + 'm';
+                    return Math.floor(age/86400) + 'd ' + Math.floor((age%86400)/3600) + 'h';
+                };
                 const siteWs = wsData ? (wsData.workstations || []).filter(
                     w => w.source_site === clusterName || w.source_site === cluster.name
                 ) : [];
@@ -5204,6 +5441,63 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                                                         <span style={{opacity: 0.6}}>Users</span>
                                                         <span style={{textAlign: 'right'}}>{w.users_logged_in || 0} logged in</span>
                                                     </div>
+                                                    {/* Expand / per-user section */}
+                                                    <div
+                                                        onClick={(e) => { e.stopPropagation(); toggleExpand(w.hostname); }}
+                                                        style={{
+                                                            marginTop: '0.5rem',
+                                                            paddingTop: '0.5rem',
+                                                            borderTop: '1px solid var(--border)',
+                                                            cursor: 'pointer',
+                                                            opacity: 0.7,
+                                                            fontSize: '0.8rem',
+                                                            textAlign: 'center',
+                                                        }}
+                                                    >
+                                                        {expandedHosts[w.hostname] ? '∧ hide users' : '∨ show users'}
+                                                    </div>
+                                                    {expandedHosts[w.hostname] && (() => {
+                                                        const users = userDataByHost[w.hostname];
+                                                        if (!users) return (<div style={{padding:'0.5rem',opacity:0.5,fontSize:'0.8rem'}}>Loading...</div>);
+                                                        if (users.length === 0) return (<div style={{padding:'0.5rem',opacity:0.5,fontSize:'0.8rem'}}>No per-user data. Probe may not be deployed on this host.</div>);
+                                                        const hideSystem = hideSystemByHost[w.hostname] !== false;
+                                                        const visible = hideSystem ? users.filter(u => !isSystemUser(u)) : users;
+                                                        const sysCount = users.filter(isSystemUser).length;
+                                                        return (
+                                                            <div style={{marginTop:'0.5rem',fontSize:'0.8rem'}}>
+                                                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'0.35rem',opacity:0.7}}>
+                                                                    <span>Users ({visible.length}{hideSystem && sysCount > 0 ? ' + ' + sysCount + ' system' : ''})</span>
+                                                                    <label style={{cursor:'pointer',fontSize:'0.75rem'}}>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={!hideSystem}
+                                                                            onChange={(e) => { e.stopPropagation(); setHideSystemByHost(prev => ({...prev, [w.hostname]: e.target.checked})); }}
+                                                                            style={{marginRight:'0.25rem'}}
+                                                                        />
+                                                                        show system
+                                                                    </label>
+                                                                </div>
+                                                                {visible.length === 0 ? (
+                                                                    <div style={{opacity:0.5,padding:'0.25rem 0'}}>No human users active.</div>
+                                                                ) : (
+                                                                    <div style={{display:'grid',gridTemplateColumns:'1fr auto auto',gap:'0.15rem 0.5rem'}}>
+                                                                        <span style={{fontWeight:'bold',opacity:0.6,fontSize:'0.72rem'}}>USER</span>
+                                                                        <span style={{fontWeight:'bold',opacity:0.6,fontSize:'0.72rem',textAlign:'right'}}>MEM</span>
+                                                                        <span style={{fontWeight:'bold',opacity:0.6,fontSize:'0.72rem',textAlign:'right'}}>PIDS</span>
+                                                                        {visible.map(u => (
+                                                                            <React.Fragment key={u.username}>
+                                                                                <span title={'UID ' + u.uid + ' · session ' + humanAge(u.session_epoch) + ' ago'}>
+                                                                                    {u.username}{isSystemUser(u) ? ' · sys' : ''}
+                                                                                </span>
+                                                                                <span style={{textAlign:'right'}}>{humanBytes(u.memory_current_bytes)}</span>
+                                                                                <span style={{textAlign:'right'}}>{u.pids_current}</span>
+                                                                            </React.Fragment>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             );
                                         })}
@@ -7987,6 +8281,96 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 workstations, summary = [], {}
             self.wfile.write(json.dumps({'workstations': workstations, 'summary': summary}).encode())
+
+        elif parsed.path == '/api/workstation_users':
+            # Per-user snapshot data for a single workstation.
+            # Query string: ?hostname=<name>
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            from urllib.parse import parse_qs as _parse_qs
+            qs = _parse_qs(parsed.query or '')
+            hostname = (qs.get('hostname') or [''])[0]
+            users = []
+            if hostname:
+                dm = DashboardHandler.data_manager
+                try:
+                    import sqlite3 as _sql
+                    conn = _sql.connect(str(dm.db_path))
+                    conn.row_factory = _sql.Row
+                    c = conn.cursor()
+                    # Most recent snapshot per (hostname, username)
+                    c.execute("""
+                        SELECT u.username, u.uid, u.session_epoch, u.timestamp,
+                               u.cpu_usage_usec, u.cpu_user_usec, u.cpu_system_usec,
+                               u.memory_current_bytes, u.memory_peak_bytes,
+                               u.pids_current, u.source
+                        FROM workstation_user_snapshot u
+                        INNER JOIN (
+                            SELECT hostname, username, MAX(timestamp) AS max_ts
+                            FROM workstation_user_snapshot
+                            WHERE hostname = ?
+                            GROUP BY hostname, username
+                        ) latest
+                          ON u.hostname = latest.hostname
+                         AND u.username = latest.username
+                         AND u.timestamp = latest.max_ts
+                        WHERE u.hostname = ?
+                        ORDER BY u.memory_current_bytes DESC
+                    """, (hostname, hostname))
+                    users = [dict(r) for r in c.fetchall()]
+                    conn.close()
+                except Exception as e:
+                    users = []
+            self.wfile.write(json.dumps({
+                'hostname': hostname,
+                'users': users,
+            }).encode())
+
+        elif parsed.path == '/api/workstation_mounts':
+            # Mount-state snapshot per (hostname, mountpoint).
+            # Query string: ?hostname=<n>
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            from urllib.parse import parse_qs as _parse_qs_m
+            qs = _parse_qs_m(parsed.query or '')
+            hostname = (qs.get('hostname') or [''])[0]
+            mounts = []
+            if hostname:
+                dm = DashboardHandler.data_manager
+                try:
+                    import sqlite3 as _sql
+                    conn = _sql.connect(str(dm.db_path))
+                    conn.row_factory = _sql.Row
+                    c = conn.cursor()
+                    c.execute("""
+                        SELECT m.mountpoint, m.fstype, m.source,
+                               m.is_mounted, m.is_responsive,
+                               m.response_ms, m.timestamp, m.collected_at
+                        FROM workstation_mount_state m
+                        INNER JOIN (
+                            SELECT hostname, mountpoint, MAX(timestamp) AS max_ts
+                            FROM workstation_mount_state
+                            WHERE hostname = ?
+                            GROUP BY hostname, mountpoint
+                        ) latest
+                          ON m.hostname = latest.hostname
+                         AND m.mountpoint = latest.mountpoint
+                         AND m.timestamp = latest.max_ts
+                        WHERE m.hostname = ?
+                        ORDER BY m.mountpoint
+                    """, (hostname, hostname))
+                    mounts = [dict(r) for r in c.fetchall()]
+                    conn.close()
+                except Exception:
+                    mounts = []
+            self.wfile.write(json.dumps({
+                'hostname': hostname,
+                'mounts': mounts,
+            }).encode())
 
         elif parsed.path == '/api/cloud':
             self.send_response(200)

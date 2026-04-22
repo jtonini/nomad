@@ -125,6 +125,34 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             records_ingested_total  INTEGER DEFAULT 0
         );
     """),
+    (7, "Add workstation_mount_state table", """
+        -- Per-host per-mountpoint mount monitoring. Populated by
+        -- nomad/collectors/mount_probe.py. Detects dead NFS mounts
+        -- where the mount still appears in /proc/mounts but stat()
+        -- hangs or times out.
+        CREATE TABLE IF NOT EXISTS workstation_mount_state (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp               DATETIME NOT NULL,
+            hostname                TEXT    NOT NULL,
+            mountpoint              TEXT    NOT NULL,
+            fstype                  TEXT,
+            -- Full "server:/export" for NFS; device path for local.
+            source                  TEXT,
+            is_mounted              INTEGER NOT NULL,
+            is_responsive           INTEGER NOT NULL,
+            -- Milliseconds stat() took; equal to timeout_ms on timeout.
+            response_ms             REAL,
+            collected_at            INTEGER,
+            probe_version           TEXT,
+            collector_version       TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_wms_host_ts
+            ON workstation_mount_state(hostname, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_wms_mountpoint
+            ON workstation_mount_state(hostname, mountpoint);
+        CREATE INDEX IF NOT EXISTS idx_wms_responsive
+            ON workstation_mount_state(hostname, mountpoint, is_responsive);
+    """),
 ]
 
 
