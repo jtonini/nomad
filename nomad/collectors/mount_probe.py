@@ -89,7 +89,7 @@ def _parse_proc_mounts():
     escapes (\\040 for space in mountpoint names) are decoded.
     """
     try:
-        with open("/proc/mounts", "r") as f:
+        with open("/proc/mounts") as f:
             for line in f:
                 parts = line.rstrip("\n").split()
                 if len(parts) < 4:

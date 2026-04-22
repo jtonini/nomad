@@ -4470,7 +4470,7 @@ def diag_gpu(ctx, node, health, hours, db_path):
                 ))
             if s['row_remap_failure'] > 0:
                 click.echo(click.style(
-                    f"         Row remap failure — remove from production", fg='red', bold=True
+                    "         Row remap failure — remove from production", fg='red', bold=True
                 ))
  
         conn.close()

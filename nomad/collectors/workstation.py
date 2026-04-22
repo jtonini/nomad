@@ -497,7 +497,7 @@ class WorkstationCollector(BaseCollector):
     def _collect_mounts(
         self,
         hostname: str,
-        stats: "WorkstationStats",
+        stats: WorkstationStats,
     ) -> None:
         """Collect mount-point state for one host via mount_probe.py.
 
@@ -535,7 +535,7 @@ class WorkstationCollector(BaseCollector):
     def _collect_per_user(
         self,
         hostname: str,
-        stats: "WorkstationStats",
+        stats: WorkstationStats,
     ) -> None:
         """Collect per-user cgroup snapshots and pacct records for one host.
 
@@ -623,7 +623,7 @@ class WorkstationCollector(BaseCollector):
         hostname: str,
         since: int | None,
         pacct_path: str = DEFAULT_PACCT_PATH,
-    ) -> list["ProcessAcctRecord"]:
+    ) -> list[ProcessAcctRecord]:
         """Copy pacct from remote, parse locally, return new records.
 
         Running the parser locally (not on the workstation) means:
