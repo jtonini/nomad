@@ -3583,12 +3583,19 @@ def sync(ctx, config_file, output, dry_run):
         'sqlite_sequence', 'config',
     }
 
-    # Remove old combined DB and start fresh
-    if combined_path.exists():
-        combined_path.unlink()
+    # Build to a temp path so a failed or interrupted sync doesn't destroy
+    # the existing combined.db. Swap into place only after successful merge.
+    import os as _os
+    combined_tmp_path = combined_path.with_suffix(combined_path.suffix + ".tmp")
+    if combined_tmp_path.exists():
+        combined_tmp_path.unlink()
 
-    combined = sqlite3.connect(combined_path)
-    combined.execute("PRAGMA journal_mode=WAL")
+    # Open a fresh connection per site (below) rather than holding one
+    # across the whole loop. This prevents one site's failure from
+    # polluting subsequent iterations with leaked ATTACH/lock state.
+    _init = sqlite3.connect(combined_tmp_path)
+    _init.execute("PRAGMA journal_mode=WAL")
+    _init.close()
 
     total_records = 0
 
@@ -3596,6 +3603,13 @@ def sync(ctx, config_file, output, dry_run):
         click.echo(f"  Merging {site_name}... ", nl=False)
         site_records = 0
 
+        # Open a fresh connection per site. If a previous iteration's
+        # DETACH failed (e.g., because the source was locked due to a
+        # malformed DB error mid-read), that state cannot leak into this
+        # iteration because we start with a new connection.
+        combined = sqlite3.connect(combined_tmp_path)
+        # Track whether ATTACH succeeded, so we know whether to DETACH
+        attached = False
         try:
             # Checkpoint WAL on the cached copy before attaching
             try:
@@ -3607,6 +3621,7 @@ def sync(ctx, config_file, output, dry_run):
 
             combined.execute(
                 "ATTACH DATABASE ? AS source", (str(db_path),))
+            attached = True
 
             # Get list of tables in source
             tables = [row[0] for row in combined.execute(
@@ -3682,7 +3697,6 @@ def sync(ctx, config_file, output, dry_run):
                 site_records += count
 
             combined.commit()
-            combined.execute("DETACH DATABASE source")
             total_records += site_records
             click.echo(click.style(
                 f"OK ({site_records:,} records)", fg="green"))
@@ -3690,12 +3704,29 @@ def sync(ctx, config_file, output, dry_run):
         except Exception as e:
             click.echo(click.style(f"ERROR: {e}", fg="red"))
             try:
-                combined.execute("DETACH DATABASE source")
+                combined.rollback()
             except Exception:
                 pass
 
-    # Write sync_sites metadata table
+        finally:
+            # Release 'source' name if we attached it. If DETACH fails
+            # (e.g., source locked after a mid-merge error), closing the
+            # connection below releases it anyway, and the next iteration
+            # opens a fresh one so no state leaks.
+            if attached:
+                try:
+                    combined.execute("DETACH DATABASE source")
+                except Exception:
+                    pass
+            try:
+                combined.close()
+            except Exception:
+                pass
+
+    # Write sync_sites metadata table (fresh connection, matching the
+    # per-site pattern above).
     if site_configs:
+        combined = sqlite3.connect(combined_tmp_path)
         try:
             combined.execute(
                 'CREATE TABLE IF NOT EXISTS sync_sites ('
@@ -3722,8 +3753,35 @@ def sync(ctx, config_file, output, dry_run):
             combined.commit()
         except Exception:
             pass
+        finally:
+            try:
+                combined.close()
+            except Exception:
+                pass
 
-    combined.close()
+    # Atomic swap: replace the real combined.db with the freshly-built
+    # temp DB. If anything earlier failed badly enough to leave total_records
+    # at 0, preserve the previous combined.db instead of clobbering it.
+    if total_records == 0:
+        click.echo()
+        click.echo(click.style(
+            "  Sync produced 0 records — not replacing existing combined.db",
+            fg="yellow"))
+        try:
+            combined_tmp_path.unlink()
+        except Exception:
+            pass
+    else:
+        try:
+            _os.replace(str(combined_tmp_path), str(combined_path))
+        except Exception as swap_err:
+            click.echo()
+            click.echo(click.style(
+                f"  Atomic swap failed: {swap_err}",
+                fg="red"))
+            click.echo(click.style(
+                f"  Combined DB remains at: {combined_tmp_path}",
+                fg="yellow"))
 
     # Summary
     click.echo()
