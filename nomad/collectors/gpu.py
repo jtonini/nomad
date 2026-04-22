@@ -49,14 +49,18 @@ GPU_TEMP_WARN: dict[str, int] = {
 
 # DCGM profiling field IDs used with dcgmi dmon
 DCGM_FIELDS = {
-    "sm_active":      1001,  # DCGM_FI_PROF_SM_ACTIVE
+    "gr_engine":      1001,  # DCGM_FI_PROF_GR_ENGINE_ACTIVE
+    "sm_active":      1002,  # DCGM_FI_PROF_SM_ACTIVE
+    "sm_occupancy":   1003,  # DCGM_FI_PROF_SM_OCCUPANCY
     "tensor_active":  1004,  # DCGM_FI_PROF_PIPE_TENSOR_ACTIVE
     "dram_active":    1005,  # DCGM_FI_PROF_DRAM_ACTIVE
-    "gr_engine":      1000,  # DCGM_FI_PROF_GR_ENGINE_ACTIVE
-    "fp64_active":    1006,  # DCGM_FI_PROF_PIPE_FP64_ACTIVE
-    "memcpy_util":    1007,  # DCGM_FI_PROF_PCIE_TX_BYTES (proxy for memcpy activity)
+    "fp64_active":    1006,  # DCGM_FI_PROF_PIPE_FP64_ACTIVE (not on RTX 6000 Ada)
+    "fp32_active":    1007,  # DCGM_FI_PROF_PIPE_FP32_ACTIVE
+    "fp16_active":    1008,  # DCGM_FI_PROF_PIPE_FP16_ACTIVE
+    "pcie_tx_bytes":  1009,  # DCGM_FI_PROF_PCIE_TX_BYTES
+    "pcie_rx_bytes":  1010,  # DCGM_FI_PROF_PCIE_RX_BYTES
     "pcie_replay":     312,  # DCGM_FI_DEV_PCIE_REPLAY_COUNTER
-    "ecc_correctable": 312,  # DCGM_FI_DEV_ECC_SBE_AGG_TOTAL — actual field 312 for SBE
+    "ecc_correctable": 312,  # DCGM_FI_DEV_ECC_SBE_AGG_TOTAL
     "ecc_uncorrectable": 313,  # DCGM_FI_DEV_ECC_DBE_AGG_TOTAL
 }
 
@@ -314,7 +318,7 @@ class GPUCollector(BaseCollector):
         future iteration.
         """
         # Try dcgmi dmon with a 1-sample, 1-second poll to verify it works
-        probe = 'dcgmi dmon -e 1001 -c 1 2>/dev/null | head -5'
+        probe = 'dcgmi dmon -e 1001,1002,1004,1005 -c 1 2>/dev/null | head -5'
         output = self._run(probe, host)
         if output and 'dcgm' not in output.lower().replace('dcgmi', ''):
             # dcgmi returned data (not just an error containing "dcgm")
@@ -382,8 +386,10 @@ class GPUCollector(BaseCollector):
         Returns a mapping of gpu_index -> DCGMStats.
         Uses dcgmi dmon with a single sample (-c 1).
         """
-        # Field IDs: SM_ACTIVE=1001, GR_ENGINE=1000, TENSOR=1004, DRAM=1005, FP64=1006
-        field_ids = "1001,1000,1004,1005,1006"
+        # Field IDs per dcgmi profile --list (verified on RTX 6000 Ada):
+        # GR_ENGINE=1001, SM_ACTIVE=1002, TENSOR=1004, DRAM=1005, FP32=1007
+        # FP64=1006 not available on all GPUs (absent on RTX 6000 Ada)
+        field_ids = "1001,1002,1004,1005,1007"
         cmd = f"dcgmi dmon -e {field_ids} -c 1 -d 1000 2>/dev/null"
         output = self._run(cmd, host)
         if not output:
@@ -396,18 +402,27 @@ class GPUCollector(BaseCollector):
             if not line or line.startswith('#') or line.startswith('-') or line.startswith('Id'):
                 continue
             parts = line.split()
-            # Expected: gpu_id sm_active gr_engine tensor dram fp64
+            # Expected: gpu_id gr_engine sm_active tensor dram fp32
+            # Field order matches: 1001,1002,1004,1005,1007
             if len(parts) < 6:
                 continue
             try:
-                gpu_id = int(parts[0])
+                # Handle both "N ..." and "GPU N ..." formats
+                if parts[0].upper() == 'GPU':
+                    gpu_id = int(parts[1])
+                    vals = parts[2:]
+                else:
+                    gpu_id = int(parts[0])
+                    vals = parts[1:]
+                if len(vals) < 4:
+                    continue
                 results[gpu_id] = DCGMStats(
                     gpu_index=gpu_id,
-                    sm_active_pct=float(parts[1]),
-                    gr_engine_active_pct=float(parts[2]),
-                    tensor_active_pct=float(parts[3]),
-                    dram_active_pct=float(parts[4]),
-                    fp64_active_pct=float(parts[5]),
+                    gr_engine_active_pct=float(vals[0]) * 100,
+                    sm_active_pct=float(vals[1]) * 100,
+                    tensor_active_pct=float(vals[2]) * 100,
+                    dram_active_pct=float(vals[3]) * 100,
+                    fp64_active_pct=0.0,  # fp32_active (1007); fp64 not universal
                 )
             except (ValueError, IndexError):
                 continue
