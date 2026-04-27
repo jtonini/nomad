@@ -6,6 +6,7 @@ NØMAÐ Dashboard Server - Integrated Version
 Connects to TOML config, NØMAÐ database, and falls back to demo data.
 """
 
+import importlib.metadata
 import http.server
 import urllib.parse
 import json
@@ -5055,6 +5056,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
             const [mlPredictions, setMlPredictions] = useState(null);
             const [features, setFeatures] = useState({});
                 const [dataSource, setDataSource] = useState('loading...');
+                const [nomadVersion, setNomadVersion] = useState('');
             
 
 
@@ -5080,6 +5082,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         setClusteringQuality(data.clustering_quality);
                         setMlPredictions(data.ml_predictions);
                         setDataSource(data.data_source || 'unknown');
+                        setNomadVersion(data.nomad_version || '');
                         setFeatures(data.features || {});
                         setQueueRunning(data.queue_running || {});
                         setActiveTab('insights');
@@ -5216,7 +5219,7 @@ DASHBOARD_HTML = '''<!DOCTYPE html>
                         
                         <div className="header-right">
                             <button className="theme-toggle" onClick={() => { document.body.classList.toggle("light-theme"); localStorage.setItem("nomad-theme", document.body.classList.contains("light-theme") ? "light" : "dark"); }}>🌓 Theme</button>
-                            <div className="data-source">{dataSource}</div>
+                            <div className="data-source">{dataSource}{nomadVersion ? " | v" + nomadVersion : ""}</div>
                             <div className="timestamp">
                                 {currentTime.toLocaleTimeString()}
                             </div>
@@ -8083,6 +8086,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 "jobs": dm.jobs,
                 "edges": dm.edges,
                 "data_source": dm.data_source,
+                "nomad_version": importlib.metadata.version("nomad-hpc"),
                 "feature_stats": dm.feature_stats,
                 "correlation_data": dm.correlation_data,
                 "suggested_axes": dm.suggested_axes,
@@ -8994,6 +8998,7 @@ def serve_dashboard(host='localhost', port=8050, config_path=None, db_path=None)
     print("              NØMAÐ Dashboard")
     print("=" * 60)
     print(f"  Server:      http://{host}:{port}")
+    print(f"  Version:     {importlib.metadata.version('nomad-hpc')}")
     print(f"  Data Source: {stats['data_source']}")
     print("-" * 60)
     print(f"  Clusters:    {stats['clusters']}")
