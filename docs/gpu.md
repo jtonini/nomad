@@ -226,13 +226,27 @@ No configuration change is required.
 | NVIDIA A100 | ✓ | ✓ |
 | NVIDIA A40 | ✓ | ✓ |
 | NVIDIA H100 / H200 | ✓ | ✓ |
-| NVIDIA RTX 6000 Ada | ✓ | Planned |
-| Consumer GPUs (workstations) | ✓ | — |
+| NVIDIA RTX 6000 Ada | ✓ | ✓ (DCGM 3.3.9+, field IDs 1001-1005) |
+| NVIDIA RTX 4090 / 3090 / 3050 | ✓ | Management only — profiling not supported |
+| NVIDIA GTX series (Maxwell/Pascal) | ✓ | — |
 | AWS p3/p4/g4dn/g5 instances | ✓ | ✓ (if installed) |
 | AMD GPUs | — | — |
 
-RTX 6000 Ada nodes fall back to nvidia-smi automatically. AMD GPU support
-is a future initiative (ROCm).
+**Profiling counter availability is GPU-class dependent.** NVIDIA gates the
+profiling fields (SM_ACTIVE, TENSOR_ACTIVE, DRAM_ACTIVE, GR_ENGINE_ACTIVE) to
+datacenter and professional GPUs. Consumer GeForce cards (RTX 40/30/20 series)
+support DCGM for management metrics (utilization, memory, temperature, power)
+but profiling counters return error -36 ("Profiling is not supported"). The
+collector detects this automatically and falls back to nvidia-smi data with
+no DCGM enrichment fields populated. Real Utilization and workload
+classification are unavailable for these GPUs.
+
+NØMAD has been verified with DCGM on:
+- **NVIDIA RTX 6000 Ada Generation** with DCGM 3.3.9 (full profiling support)
+- **NVIDIA A100, A40, H100** (full profiling support — datacenter GPUs)
+- **NVIDIA RTX 4090** (DCGM 4.5+ — management only, no profiling)
+
+AMD GPU support is a future initiative (ROCm).
 
 ---
 
