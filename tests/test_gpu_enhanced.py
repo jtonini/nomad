@@ -337,6 +337,101 @@ class TestGPUCollectorParsing:
 # Collector: DCGM detection (mocked)
 # ---------------------------------------------------------------------------
 
+class TestDCGMParsing:
+    """Test _collect_dcgm parsing with real dcgmi dmon output format."""
+
+    # Realistic dcgmi dmon output from RTX 6000 Ada (fields 1001,1002,1004,1005)
+    # Values are fractions 0.0-1.0, must be multiplied by 100
+    DCGM_OUTPUT_IDLE = """\
+#Entity   GRACT        SMACT        TENSO        DRAMA
+ID
+GPU 7     0.000        0.000        0.000        0.000
+GPU 6     0.000        0.000        0.000        0.000
+GPU 0     0.000        0.000        0.000        0.000
+"""
+
+    DCGM_OUTPUT_ACTIVE = """\
+#Entity   GRACT        SMACT        TENSO        DRAMA
+ID
+GPU 2     0.984        0.930        0.000        0.252
+GPU 1     1.000        0.926        0.038        0.869
+GPU 0     1.000        0.916        0.023        0.881
+"""
+
+    def test_parse_gpu_n_format(self, collector, tmp_path):
+        """dcgmi dmon uses 'GPU N' not 'N' — both formats must parse."""
+        with patch.object(collector, '_run', return_value=self.DCGM_OUTPUT_IDLE):
+            result = collector._collect_dcgm('node51')
+        assert len(result) == 3
+        assert 0 in result and 6 in result and 7 in result
+
+    def test_fraction_to_percentage_scaling(self, collector):
+        """DCGM returns fractions (0.0-1.0); collector must scale to 0-100."""
+        with patch.object(collector, '_run', return_value=self.DCGM_OUTPUT_ACTIVE):
+            result = collector._collect_dcgm('node51')
+        gpu0 = result[0]
+        # 1.000 * 100 = 100.0
+        assert abs(gpu0.gr_engine_active_pct - 100.0) < 0.1
+        assert abs(gpu0.sm_active_pct - 91.6) < 0.2
+        assert abs(gpu0.tensor_active_pct - 2.3) < 0.2
+        assert abs(gpu0.dram_active_pct - 88.1) < 0.2
+
+    def test_field_order_gr_sm_tensor_dram(self, collector):
+        """Field order must match dcgmi dmon -e 1001,1002,1004,1005:
+        GR_ENGINE(1001), SM_ACTIVE(1002), TENSOR(1004), DRAM(1005)."""
+        with patch.object(collector, '_run', return_value=self.DCGM_OUTPUT_ACTIVE):
+            result = collector._collect_dcgm('node51')
+        gpu2 = result[2]
+        # GPU 2: 0.984, 0.930, 0.000, 0.252
+        assert abs(gpu2.gr_engine_active_pct - 98.4) < 0.2
+        assert abs(gpu2.sm_active_pct - 93.0) < 0.2
+        assert abs(gpu2.tensor_active_pct - 0.0) < 0.1
+        assert abs(gpu2.dram_active_pct - 25.2) < 0.2
+
+    def test_header_lines_skipped(self, collector):
+        """#Entity header and ID separator lines must be skipped."""
+        with patch.object(collector, '_run', return_value=self.DCGM_OUTPUT_IDLE):
+            result = collector._collect_dcgm('node51')
+        # Only GPU data lines, no header entries
+        assert all(isinstance(k, int) for k in result.keys())
+
+    def test_idle_gpus_classify_as_idle(self, collector):
+        """Idle DCGM data should produce idle workload classification."""
+        with patch.object(collector, '_run', return_value=self.DCGM_OUTPUT_IDLE):
+            dcgm_data = collector._collect_dcgm('node51')
+        records = [{'type': 'gpu', 'gpu_index': 0, 'gpu_util_percent': 0.0,
+                    'data_source': 'nvidia-smi', 'node_name': 'node51'}]
+        enriched = collector._enrich_with_dcgm(records, dcgm_data)
+        assert enriched[0]['workload_class'] == 'idle'
+        assert enriched[0]['real_util_pct'] == 0.0
+
+    def test_active_gpus_classify_correctly(self, collector):
+        """Active DCGM data (high SM, low tensor) should classify as compute."""
+        with patch.object(collector, '_run', return_value=self.DCGM_OUTPUT_ACTIVE):
+            dcgm_data = collector._collect_dcgm('node51')
+        records = [{'type': 'gpu', 'gpu_index': 0, 'gpu_util_percent': 100.0,
+                    'data_source': 'nvidia-smi', 'node_name': 'node51'}]
+        enriched = collector._enrich_with_dcgm(records, dcgm_data)
+        # SM ~91.6%, tensor ~2.3% → compute-heavy or compute-active
+        assert enriched[0]['workload_class'] in ('compute-heavy', 'compute-active')
+        assert enriched[0]['data_source'] == 'dcgm'
+        assert enriched[0]['real_util_pct'] > 50  # should be high
+
+    def test_dcgm_field_ids_in_command(self, collector):
+        """Collector must use corrected field IDs: 1001,1002,1004,1005,1007."""
+        calls = []
+        def capture_run(cmd, host=None):
+            calls.append(cmd)
+            return self.DCGM_OUTPUT_IDLE
+        with patch.object(collector, '_run', side_effect=capture_run):
+            collector._collect_dcgm('node51')
+        assert any('1001,1002,1004,1005' in str(c) for c in calls), \
+            f"Expected field IDs 1001,1002,1004,1005 in commands: {calls}"
+        # Must NOT use old wrong field 1000
+        assert not any(',1000,' in str(c) for c in calls), \
+            "Old field ID 1000 found — should be 1001 for gr_engine"
+
+
 class TestDCGMDetection:
     def test_dcgm_detected_via_which(self, collector):
         with patch.object(collector, '_run', side_effect=lambda cmd, host=None: (
