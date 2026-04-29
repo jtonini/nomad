@@ -3360,6 +3360,225 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     lines.append("")
 
     # Write the config
+
+    # ============================================
+    # HUB ROLE (optional — pulls databases from other sites)
+    # ============================================
+    click.echo()
+    click.echo(click.style(
+        "  ── Hub role ──", fg="cyan", bold=True))
+    click.echo()
+    click.echo(
+        "  A hub machine pulls NOMAD databases from one or more other")
+    click.echo(
+        "  sites and merges them into a single combined database for")
+    click.echo(
+        "  cross-site dashboards and analytics.")
+    click.echo()
+
+    is_hub = click.confirm(
+        "  Will this machine also pull from other sites?",
+        default=False)
+
+    if is_hub:
+        click.echo()
+        click.echo(
+            "  For each remote site, you will need: a name, a hostname")
+        click.echo(
+            "  reachable via SSH, the SSH user, and the path to that")
+        click.echo("  site's nomad.db.")
+        click.echo()
+
+        hub_sites = []
+        site_idx = 1
+        while True:
+            click.echo(click.style(
+                f"  Site {site_idx}", fg="cyan"))
+            site_name = click.prompt(
+                "    Name (e.g., arachne)", type=str).strip()
+            site_host = click.prompt(
+                "    Hostname or SSH alias",
+                default=site_name, type=str).strip()
+            site_user = click.prompt(
+                "    SSH user", type=str).strip()
+            site_db = click.prompt(
+                "    Remote db_path",
+                default="~/.local/share/nomad/nomad.db",
+                type=str).strip()
+            site_key = click.prompt(
+                "    SSH key path (blank for default)",
+                default="", show_default=False, type=str).strip()
+
+            site_dict = {
+                'name': site_name,
+                'host': site_host,
+                'ssh_user': site_user,
+                'db_path': site_db,
+            }
+            if site_key:
+                site_dict['ssh_key'] = site_key
+            hub_sites.append(site_dict)
+
+            click.echo()
+            if not click.confirm(
+                    "    Add another site?", default=True):
+                break
+            site_idx += 1
+            click.echo()
+
+        # Hub-level settings
+        click.echo()
+        hub_output_db = click.prompt(
+            "  Output database path",
+            default="~/.local/share/nomad/combined.db",
+            type=str).strip()
+        hub_interval = click.prompt(
+            "  Sync interval (minutes)",
+            default=10, type=int)
+
+        # Optional SSH connectivity test
+        click.echo()
+        if click.confirm(
+                "  Test SSH connectivity to each site now?",
+                default=True):
+            import subprocess as _sp
+            click.echo()
+            failures = []
+            for s in hub_sites:
+                user = s['ssh_user']
+                host = s['host']
+                key = s.get('ssh_key')
+                cmd = ['ssh', '-o', 'BatchMode=yes',
+                       '-o', 'ConnectTimeout=5',
+                       '-o', 'StrictHostKeyChecking=accept-new']
+                if key:
+                    cmd += ['-i', key]
+                cmd += [f'{user}@{host}', 'true']
+                click.echo(f"    {s['name']}: ", nl=False)
+                try:
+                    r = _sp.run(cmd, capture_output=True,
+                                text=True, timeout=10)
+                    if r.returncode == 0:
+                        click.echo(click.style("OK", fg="green"))
+                    else:
+                        err = (r.stderr.strip().splitlines()[0]
+                               if r.stderr.strip()
+                               else f"exit {r.returncode}")
+                        click.echo(click.style(
+                            f"FAILED — {err[:80]}", fg="red"))
+                        failures.append(s['name'])
+                except _sp.TimeoutExpired:
+                    click.echo(click.style(
+                        "TIMEOUT", fg="red"))
+                    failures.append(s['name'])
+                except Exception as _e:
+                    click.echo(click.style(
+                        f"ERROR — {_e}", fg="red"))
+                    failures.append(s['name'])
+
+            if failures:
+                click.echo()
+                click.echo(click.style(
+                    f"  {len(failures)} site(s) failed: "
+                    f"{', '.join(failures)}", fg="yellow"))
+                click.echo(
+                    "  Common fixes: copy your key with `ssh-copy-id`,")
+                click.echo(
+                    "  add the host to ~/.ssh/config, or update ssh_key.")
+                click.echo(
+                    "  You can re-run with `nomad hub test` after fixing.")
+                if not click.confirm(
+                        "  Continue saving config anyway?",
+                        default=True):
+                    click.echo(click.style(
+                        "  Aborted. Config not written.", fg="red"))
+                    return
+
+        # Append [hub] sections to the config
+        lines.append("# ============================================")
+        lines.append("# HUB (cross-site database aggregation)")
+        lines.append("# ============================================")
+        lines.append("")
+        lines.append("[hub]")
+        lines.append("enabled = true")
+        lines.append(f'output_db = "{hub_output_db}"')
+        lines.append(f"sync_interval_minutes = {hub_interval}")
+        lines.append("")
+        for s in hub_sites:
+            lines.append("[[hub.sites]]")
+            lines.append(f'name = "{s["name"]}"')
+            lines.append(f'host = "{s["host"]}"')
+            lines.append(f'ssh_user = "{s["ssh_user"]}"')
+            lines.append(f'db_path = "{s["db_path"]}"')
+            if 'ssh_key' in s:
+                lines.append(f'ssh_key = "{s["ssh_key"]}"')
+            lines.append("")
+
+        # Optional cron entry — install only if not in dry-run mode
+        click.echo()
+        install_cron = click.confirm(
+            "  Add a cron entry to run `nomad sync` automatically?",
+            default=True)
+        if install_cron and not dry_run:
+            import subprocess as _sp2
+            try:
+                _which = _sp2.run(['which', 'nomad'],
+                                  capture_output=True,
+                                  text=True, timeout=5)
+                nomad_bin = (_which.stdout.strip()
+                             if _which.returncode == 0
+                             else 'nomad')
+            except Exception:
+                nomad_bin = 'nomad'
+
+            cron_line = (
+                f"*/{hub_interval} * * * * "
+                f"{nomad_bin} sync >/dev/null 2>&1"
+            )
+
+            try:
+                _ct = _sp2.run(['crontab', '-l'],
+                               capture_output=True,
+                               text=True, timeout=10)
+                existing = _ct.stdout if _ct.returncode == 0 else ""
+            except Exception:
+                existing = ""
+
+            if 'nomad sync' in existing:
+                click.echo(click.style(
+                    "  Crontab already has a `nomad sync` line — "
+                    "skipping insert.", fg="yellow"))
+                click.echo("  Suggested line:")
+                click.echo(f"    {cron_line}")
+            else:
+                new_crontab = (
+                    existing.rstrip() + chr(10) + cron_line + chr(10)
+                    if existing.strip()
+                    else cron_line + chr(10)
+                )
+                try:
+                    _ins = _sp2.run(['crontab', '-'],
+                                    input=new_crontab,
+                                    capture_output=True,
+                                    text=True, timeout=10)
+                    if _ins.returncode == 0:
+                        click.echo(click.style(
+                            "  ✓ Cron entry installed.", fg="green"))
+                        click.echo(f"    {cron_line}")
+                    else:
+                        click.echo(click.style(
+                            "  Failed to install cron entry. "
+                            "Add manually:", fg="yellow"))
+                        click.echo(f"    {cron_line}")
+                except Exception as _e:
+                    click.echo(click.style(
+                        f"  Could not run crontab: {_e}", fg="yellow"))
+                    click.echo("  Add this line manually:")
+                    click.echo(f"    {cron_line}")
+        elif install_cron and dry_run:
+            click.echo(click.style(
+                "  (dry-run: cron entry not installed)", fg="yellow"))
+
     config_content = '\n'.join(lines)
 
     if dry_run:
