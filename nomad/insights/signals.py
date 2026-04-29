@@ -844,9 +844,18 @@ def _read_dynamics_for_site(
     try:
         from nomad.dynamics.diversity import compute_diversity
         div = compute_diversity(db_path, dimension="group", hours=hours)
+        # Guard: skip diversity signals when data is too sparse to be meaningful
+        # H' = 0 means single category (no diversity to assess)
+        # 'ungrouped' as dominant means SLURM accounts not yet populated
+        total_jobs = sum(div.current.counts.values()) if hasattr(div.current, 'counts') and div.current.counts else 0
+        skip_diversity = (
+            div.current.shannon_h == 0
+            or total_jobs < 20
+            or div.current.dominant_category in ('ungrouped', 'unknown', None)
+        )
 
         # Fragility warning
-        if div.fragility_warning:
+        if div.fragility_warning and not skip_diversity:
             signals.append(Signal(
                 signal_type=SignalType.DYNAMICS,
                 severity=Severity.NOTICE,
@@ -861,8 +870,11 @@ def _read_dynamics_for_site(
                 },
             ))
 
-        # Diversity declining
-        if div.trend_direction == "decreasing" and abs(div.trend_slope) > 0.01:
+        # Diversity declining (only if there's actual diversity to lose)
+        if (div.trend_direction == "decreasing"
+                and abs(div.trend_slope) > 0.01
+                and not skip_diversity
+                and div.current.shannon_h > 0.1):
             signals.append(Signal(
                 signal_type=SignalType.DYNAMICS,
                 severity=Severity.NOTICE,
@@ -885,7 +897,7 @@ def _read_dynamics_for_site(
         from nomad.dynamics.capacity import compute_capacity
         cap = compute_capacity(db_path, hours=hours)
 
-        if cap.binding_constraint:
+        if cap.binding_constraint and cap.binding_constraint.current_utilization >= 0.05:
             bc = cap.binding_constraint
             sev = Severity.CRITICAL if bc.current_utilization >= 0.9 else \
                   Severity.WARNING if bc.current_utilization >= 0.75 else \
