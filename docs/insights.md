@@ -91,6 +91,28 @@ Correlated insights include a **recommendation** with specific actions.
 | Slack | Channel notifications (supports webhook) |
 | Email digest | Daily/weekly summaries |
 
+## Signal Suppression
+
+Some signals only make sense when there's enough activity or appropriate cluster type to support them. The engine suppresses signals that would be misleading or noisy in low-data conditions.
+
+### Diversity signals
+
+The Shannon diversity (H') signal measures how concentrated activity is across user groups. The engine suppresses diversity signals when:
+
+- **Total jobs < 20** in the analysis window — too few jobs to compute meaningful diversity
+- **H' = 0** — single category dominates entirely (no diversity to assess)
+- **Dominant category is `ungrouped` or `unknown`** — typically means SLURM accounts haven't been populated yet, not a real concentration concern
+
+The "diversity declining" signal additionally requires current H' > 0.1 to fire — a cluster already at the floor cannot decline further.
+
+### Capacity binding constraint
+
+The binding constraint signal identifies which resource (CPU, memory, GPU, I/O) limits cluster throughput. The engine suppresses this signal when **utilization < 5%** — at very low load, no resource is meaningfully "binding" and the report would just confuse readers.
+
+### Cluster type considerations
+
+NØMAD monitors three cluster types: HPC clusters (SLURM), workstation groups (per-user processes), and interactive servers (RStudio/Jupyter sessions). Some signals only fire for specific types — for example, SLURM-related signals only run when there are jobs in the database, and workstation pressure signals only run when `workstation_state` has data.
+
 ## CLI Reference
 
 All commands accept `--db PATH`, `--hours N`, and `--cluster NAME`.
