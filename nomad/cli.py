@@ -3526,9 +3526,127 @@ def _pull_via_backup(user, host, remote_db, local_copy, ssh_key=None):
     return False
 
 
+def _load_hub_config(config_file_override=None):
+    """Load hub/sync configuration.
+
+    Priority order:
+      1. ``config_file_override`` (from --config-file flag) — read as a
+         standalone TOML file with top-level [[sites]], same shape as
+         legacy sync.toml. No fallback if this is given and missing.
+      2. ``~/.config/nomad/nomad.toml`` [hub] section — preferred location.
+      3. ``~/.config/nomad/sync.toml`` — deprecated, warns every run.
+
+    Returns a dict with keys:
+        sites                   list of {name, host, ssh_user, db_path,
+                                         ssh_key?} dicts (ssh_user is the
+                                         canonical key — `user` accepted as
+                                         legacy alias)
+        output_db               Path or None (caller picks default)
+        sync_interval_minutes   int or None (informational; cron is wizard's
+                                job, not sync's)
+        source                  human-readable string for diagnostics
+
+    Returns None if no config can be found. Caller is responsible for
+    printing the "create one with ..." help in that case.
+    """
+    import toml as toml_lib
+
+    def _normalize_sites(raw_sites):
+        """Accept ssh_user or legacy `user`; emit ssh_user."""
+        out = []
+        for s in raw_sites or []:
+            site = dict(s)
+            if 'ssh_user' not in site and 'user' in site:
+                site['ssh_user'] = site.pop('user')
+            elif 'user' in site and 'ssh_user' in site:
+                site.pop('user')
+            out.append(site)
+        return out
+
+    # 1. Explicit --config-file override
+    if config_file_override:
+        path = Path(config_file_override)
+        if not path.exists():
+            return None
+        with open(path) as f:
+            data = toml_lib.load(f)
+        sites = _normalize_sites(data.get('sites', []))
+        if not sites:
+            return None
+        return {
+            'sites': sites,
+            'output_db': data.get('output_db'),
+            'sync_interval_minutes': data.get('sync_interval_minutes'),
+            'source': str(path),
+        }
+
+    nomad_toml = Path.home() / '.config' / 'nomad' / 'nomad.toml'
+    sync_toml = Path.home() / '.config' / 'nomad' / 'sync.toml'
+
+    nomad_has_hub = False
+    nomad_hub_data = None
+    if nomad_toml.exists():
+        try:
+            with open(nomad_toml) as f:
+                cfg = toml_lib.load(f)
+            hub = cfg.get('hub')
+            if hub and hub.get('sites'):
+                nomad_has_hub = True
+                nomad_hub_data = hub
+        except Exception:
+            pass
+
+    sync_toml_exists = sync_toml.exists()
+
+    # 2. nomad.toml [hub] is canonical
+    if nomad_has_hub:
+        if sync_toml_exists:
+            click.echo(click.style(
+                "  Warning: both nomad.toml [hub] and sync.toml exist. "
+                "Using nomad.toml. Remove sync.toml to silence this.",
+                fg="yellow"))
+        sites = _normalize_sites(nomad_hub_data.get('sites', []))
+        if not sites:
+            return None
+        return {
+            'sites': sites,
+            'output_db': nomad_hub_data.get('output_db'),
+            'sync_interval_minutes': nomad_hub_data.get(
+                'sync_interval_minutes'),
+            'source': f"{nomad_toml} [hub]",
+        }
+
+    # 3. Legacy sync.toml fallback
+    if sync_toml_exists:
+        click.echo(click.style(
+            "  Deprecation warning: sync.toml is deprecated. Move your "
+            "site list under a [hub] section in nomad.toml. See "
+            "`nomad sync --help` for the new format.",
+            fg="yellow"))
+        try:
+            with open(sync_toml) as f:
+                data = toml_lib.load(f)
+        except Exception as e:
+            click.echo(click.style(
+                f"  Failed to parse sync.toml: {e}", fg="red"))
+            return None
+        sites = _normalize_sites(data.get('sites', []))
+        if not sites:
+            return None
+        return {
+            'sites': sites,
+            'output_db': data.get('output_db'),
+            'sync_interval_minutes': data.get('sync_interval_minutes'),
+            'source': f"{sync_toml} (deprecated)",
+        }
+
+    return None
+
+
 @cli.command()
 @click.option('--config-file', '-c', type=click.Path(),
-              help='Sync config file (default: ~/.config/nomad/sync.toml)')
+              help='Sync config file (default: read [hub] from nomad.toml, '
+                   'falls back to ~/.config/nomad/sync.toml)')
 @click.option('--output', '-o', type=click.Path(),
               default=None, help='Output combined database path')
 @click.option('--dry-run', is_flag=True, help='Show what would be synced')
@@ -3542,17 +3660,30 @@ def sync(ctx, config_file, output, dry_run):
     Each site keeps its own database as a fallback.
 
     \b
-    Config file (~/.config/nomad/sync.toml):
+    Preferred config location — ~/.config/nomad/nomad.toml:
+      [hub]
+      output_db = "~/.local/share/nomad/combined.db"
+      sync_interval_minutes = 10
+
+      [[hub.sites]]
+      name = "cluster-a"
+      host = "headnode-a"
+      ssh_user = "jtonini"
+      db_path = "~/.local/share/nomad/nomad.db"
+
+      [[hub.sites]]
+      name = "workstations"
+      host = "jonimitchell"
+      ssh_user = "zeus"
+      db_path = "~/.local/share/nomad/nomad.db"
+
+    \b
+    Legacy fallback — ~/.config/nomad/sync.toml (deprecated, will be
+    removed in a future release):
       [[sites]]
       name = "cluster-a"
       host = "headnode-a"
       user = "jtonini"
-      db_path = "~/.local/share/nomad/nomad.db"
-
-      [[sites]]
-      name = "workstations"
-      host = "jonimitchell"
-      user = "zeus"
       db_path = "~/.local/share/nomad/nomad.db"
 
     \b
@@ -3566,44 +3697,32 @@ def sync(ctx, config_file, output, dry_run):
     import subprocess as sp
     import toml as toml_lib
 
-    # Resolve config
-    if not config_file:
-        config_file = Path.home() / '.config' / 'nomad' / 'sync.toml'
-    else:
-        config_file = Path(config_file)
+    # Resolve config via shared loader (handles nomad.toml [hub] preference,
+    # sync.toml fallback with deprecation warning, --config-file override)
+    hub_cfg = _load_hub_config(config_file_override=config_file)
 
-    if not config_file.exists():
+    if hub_cfg is None:
+        nomad_toml_path = Path.home() / '.config' / 'nomad' / 'nomad.toml'
         click.echo(click.style(
-            f"  Sync config not found: {config_file}", fg="red"))
+            f"  No hub configuration found.", fg="red"))
         click.echo()
-        click.echo("  Create it with your remote sites:")
+        click.echo(f"  Add a [hub] section to {nomad_toml_path}:")
         click.echo()
-        click.echo(f"    nano {config_file}")
+        click.echo('    [hub]')
+        click.echo('    output_db = "~/.local/share/nomad/combined.db"')
+        click.echo('    sync_interval_minutes = 10')
         click.echo()
-        click.echo("  Example contents:")
-        click.echo()
-        click.echo('    [[sites]]')
+        click.echo('    [[hub.sites]]')
         click.echo('    name = "cluster-a"')
         click.echo('    host = "headnode-a"')
-        click.echo('    user = "jtonini"')
+        click.echo('    ssh_user = "jtonini"')
         click.echo('    db_path = "~/.local/share/nomad/nomad.db"')
         click.echo()
-        click.echo('    [[sites]]')
-        click.echo('    name = "workstations"')
-        click.echo('    host = "jonimitchell"')
-        click.echo('    user = "zeus"')
-        click.echo('    db_path = "~/.local/share/nomad/nomad.db"')
+        click.echo("  Or run `nomad init` to set this up interactively.")
         click.echo()
         return
 
-    with open(config_file) as f:
-        sync_config = toml_lib.load(f)
-
-    sites = sync_config.get('sites', [])
-    if not sites:
-        click.echo(click.style(
-            "  No sites configured in sync.toml", fg="yellow"))
-        return
+    sites = hub_cfg['sites']
 
     # Output path
     default_data = Path.home() / '.local' / 'share' / 'nomad'
@@ -3631,7 +3750,7 @@ def sync(ctx, config_file, output, dry_run):
         for site in sites:
             name = site.get('name', 'unknown')
             host = site.get('host', '?')
-            user = site.get('user', '?')
+            user = site.get('ssh_user') or site.get('user', '?')
             db = site.get('db_path', '?')
             click.echo(f"  Would sync: {name}")
             click.echo(f"    scp {user}@{host}:{db} -> {cache_dir}/{name}.db")
@@ -3648,7 +3767,7 @@ def sync(ctx, config_file, output, dry_run):
     for site in sites:
         name = site.get('name', 'unknown')
         host = site.get('host')
-        user = site.get('user')
+        user = site.get('ssh_user') or site.get('user')
         remote_db = site.get('db_path', '~/.local/share/nomad/nomad.db')
         ssh_key = site.get('ssh_key')
         local_copy = cache_dir / f"{name}.db"
@@ -3688,7 +3807,7 @@ def sync(ctx, config_file, output, dry_run):
     for site in sites:
         name = site.get('name', 'unknown')
         host = site.get('host', 'localhost')
-        user = site.get('user', '')
+        user = site.get('ssh_user') or site.get('user', '')
         ssh_key = site.get('ssh_key')
         # Derive config path from user's home
         if user == 'root':
