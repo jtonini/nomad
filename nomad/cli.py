@@ -1964,6 +1964,23 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
                     "nodes": nodes,
                     "gpu_nodes": part_gpu,
                 }
+            # Ask for node_ssh_user (e.g., zeus on headnode but root on nodes)
+            click.echo()
+            click.echo(
+                "  Some clusters require SSHing into compute nodes")
+            click.echo(
+                "  for GPU monitoring. If your compute nodes need a")
+            click.echo(
+                "  different SSH user (e.g., 'root'), enter it here.")
+            click.echo("  Leave blank to use your current user.")
+            click.echo()
+            import getpass
+            node_user = click.prompt(
+                "  Compute node SSH user (optional)",
+                default="",
+                show_default=False)
+            if node_user.strip():
+                cluster["node_ssh_user"] = node_user.strip()
         else:
             # Workstation group
             click.echo(
@@ -1971,6 +1988,18 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
             click.echo(
                 "  department or lab. Each group becomes a section")
             click.echo("  in the dashboard.")
+            click.echo()
+            # Ask for workstation SSH user (zeus may SSH as root, etc.)
+            import getpass
+            current_user = getpass.getuser()
+            click.echo(
+                "  The collector will SSH to each workstation to gather")
+            click.echo(
+                "  metrics. What user should it connect as?")
+            click.echo()
+            ws_ssh_user = click.prompt(
+                "  Workstation SSH user", default=current_user)
+            cluster["ws_ssh_user"] = ws_ssh_user
             click.echo()
             click.echo(
                 "  Type your department/lab names, separated by commas:")
@@ -3072,6 +3101,22 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     # GPU collector
     lines.append("[collectors.gpu]")
     lines.append(f"enabled = {str(any_gpu).lower()}")
+    if any_gpu:
+        # Use node_ssh_user from any HPC cluster that has it
+        gpu_ssh_user = None
+        all_gpu_nodes = []
+        for c in clusters:
+            if c.get("type") == "hpc":
+                if c.get("node_ssh_user") and not gpu_ssh_user:
+                    gpu_ssh_user = c["node_ssh_user"]
+                for pdata in c.get("partitions", {}).values():
+                    all_gpu_nodes.extend(pdata.get("gpu_nodes", []))
+        if gpu_ssh_user:
+            lines.append(f'ssh_user = "{gpu_ssh_user}"')
+        if all_gpu_nodes:
+            nodes_items = ', '.join(
+                f'"{n}"' for n in sorted(set(all_gpu_nodes)))
+            lines.append(f"gpu_nodes = [{nodes_items}]")
     lines.append("")
 
     # NFS collector
@@ -3092,8 +3137,16 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
     if any_workstation:
         lines.append("[collectors.workstation]")
         lines.append("enabled = true")
-        import getpass
-        lines.append(f'ssh_user = "{getpass.getuser()}"')
+        # Use the user-specified ws_ssh_user (or fallback to current user)
+        ws_user = None
+        for c in clusters:
+            if c.get("type") == "workstations" and c.get("ws_ssh_user"):
+                ws_user = c["ws_ssh_user"]
+                break
+        if not ws_user:
+            import getpass
+            ws_user = getpass.getuser()
+        lines.append(f'ssh_user = "{ws_user}"')
         ws_list = []
         for c in clusters:
             if c.get("type") != "workstations":
@@ -3129,10 +3182,16 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
 
         # SSH user for accessing compute nodes (e.g., root)
         if cluster.get("type") == "hpc":
-            lines.append(
-                '# SSH user for compute nodes'
-                ' (if different from current user)')
-            lines.append('# node_ssh_user = "root"')
+            if cluster.get("node_ssh_user"):
+                lines.append(
+                    '# SSH user for compute nodes')
+                lines.append(
+                    f'node_ssh_user = "{cluster["node_ssh_user"]}"')
+            else:
+                lines.append(
+                    '# SSH user for compute nodes'
+                    ' (if different from current user)')
+                lines.append('# node_ssh_user = "root"')
 
         if cluster.get("mode") == "remote":
             if cluster.get("host"):
