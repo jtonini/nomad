@@ -27,24 +27,49 @@ Where is NØMAÐ running?
 
 ---
 
-## Step 2: Number of Clusters
+## Step 2: Deployment Strategy
 
+NØMAÐ supports two deployment strategies. The wizard explains both and asks how many systems this instance will monitor.
+
+### Strategy A — One NØMAÐ per machine + sync
+
+Install NØMAÐ on each machine independently. Each instance monitors its own environment and stores data in its own database. Use `nomad sync` on a central machine to merge all databases into a unified dashboard.
+
+This is the **recommended approach** when each machine has a different role — for example, an HPC cluster with SLURM, an interactive server with Jupyter/RStudio, and a workstation management server.
+
+In this case, answer **1** on each machine:
+
+- **HPC headnode**: 1 cluster (HPC type) — monitors partitions, jobs, nodes
+- **Interactive server**: 1 cluster (HPC type, SLURM auto-skipped) — monitors sessions, disk, CPU
+- **Workstation manager**: 1 cluster (Workstation type) — monitors lab machines via SSH
+
+Then on a central machine, configure `nomad sync` to pull all databases together:
+
+```bash
+nomad sync                        # Merge all site databases
+nomad dashboard --db combined.db  # Unified view across all sites
 ```
-How many HPC clusters or workstation groups do you
-want to monitor? Most sites have 1-3 clusters.
-Number of clusters [1]:
-```
 
-A single NØMAÐ instance can monitor multiple clusters and workstation groups. Each becomes a separate section in the dashboard.
+### Strategy B — One NØMAÐ monitors everything
 
-Common configurations:
+A single NØMAÐ instance monitors multiple systems from one machine, using SSH for remote access. This works when you have a machine that can reach all targets.
 
-- **1 cluster** — Single HPC cluster (most common)
-- **2 clusters** — HPC cluster + workstation group, or two HPC clusters
-- **3+ clusters** — Multiple HPC clusters, interactive servers, and departmental workstations
+For example, to monitor both an HPC cluster and a set of workstations from the same headnode, answer **2**:
 
-!!! note
-    For multi-site monitoring across different machines, install NØMAÐ on each site and use `nomad sync` to merge databases into a combined view. The wizard configures one site at a time.
+- Cluster 1: HPC cluster (SLURM, local)
+- Cluster 2: Workstation group (department machines, via SSH)
+
+### Which strategy to choose?
+
+| Scenario | Strategy | Why |
+|----------|----------|-----|
+| Machines have different roles (HPC, interactive, workstations) | A — one per machine + sync | Each instance uses the right collectors for its environment |
+| Everything is reachable from one machine | B — single instance | Simpler setup, no sync needed |
+| Machines are on different networks | A — one per machine + sync | SSH may not work across network boundaries |
+| You want resilience (one site going down doesn't stop others) | A — one per machine + sync | Each site collects independently |
+
+!!! tip "You can always start with Strategy B and split later"
+    If you start with a single instance monitoring everything and later want to split, just run `nomad init` on each machine separately and set up `nomad sync`. The data format is the same either way.
 
 ---
 

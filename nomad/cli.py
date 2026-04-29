@@ -2499,15 +2499,61 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
                             "@cluster.university.edu")
                         click.echo()
 
-            # Step 2: Number of clusters
+            # Step 2: Deployment strategy
             click.echo(click.style(
-                "  ━━ Step 2: Clusters ━━", fg="cyan", bold=True))
+                "  ━━ Step 2: Deployment Strategy ━━",
+                fg="cyan", bold=True))
             click.echo()
             click.echo(
-                "  How many HPC clusters or workstation groups"
-                " do you")
+                "  NØMAD supports two deployment strategies:")
+            click.echo()
+            click.echo(click.style(
+                "  Strategy A — One NØMAD per machine + sync",
+                fg="green", bold=True))
             click.echo(
-                "  want to monitor? Most sites have 1-3 clusters.")
+                "    Install NØMAD on each machine independently.")
+            click.echo(
+                "    Each instance monitors its own environment.")
+            click.echo(
+                "    Use 'nomad sync' on a central host to merge")
+            click.echo(
+                "    all databases into a unified dashboard.")
+            click.echo()
+            click.echo(
+                "    Best when: machines have different roles")
+            click.echo(
+                "    (HPC + interactive server + workstations),")
+            click.echo(
+                "    or are on different networks.")
+            click.echo()
+            click.echo(click.style(
+                "  Strategy B — One NØMAD monitors everything",
+                fg="green", bold=True))
+            click.echo(
+                "    A single instance monitors multiple systems")
+            click.echo(
+                "    via SSH from one machine.")
+            click.echo()
+            click.echo(
+                "    Best when: everything is reachable from one")
+            click.echo(
+                "    machine and you want a simpler setup.")
+            click.echo()
+            click.echo(click.style(
+                "  Tip: ", fg="yellow") +
+                "Strategy A is recommended for most sites.")
+            click.echo(
+                "  You can always start with B and split later.")
+            click.echo()
+            click.echo(
+                "  How many HPC clusters or workstation groups")
+            click.echo(
+                "  will THIS NØMAD instance monitor?")
+            click.echo()
+            click.echo(
+                "  - Strategy A: enter 1 (this machine only)")
+            click.echo(
+                "  - Strategy B: enter the total number of systems")
             click.echo()
             num_clusters = click.prompt(
                 "  Number of clusters",
