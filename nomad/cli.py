@@ -3440,6 +3440,92 @@ def init(ctx, system, force, quick, no_systemd, no_prolog, dry_run, show):
 
 
 
+
+def _pull_via_backup(user, host, remote_db, local_copy, ssh_key=None):
+    """Pull a remote SQLite database using .backup for atomic snapshot.
+
+    Returns True on success, False on failure.
+
+    Tries SQLite .backup first (handles WAL correctly). Falls back to
+    direct scp if sqlite3 is unavailable on the remote.
+
+    Snapshot is created in /tmp on the remote, then scp'd locally,
+    then deleted from the remote regardless of outcome.
+    """
+    import os
+    import subprocess as sp
+    import logging
+    logger = logging.getLogger("nomad.sync")
+
+    pid = os.getpid()
+    remote_snap = f"/tmp/nomad_sync_{pid}.db"
+
+    def _ssh(cmd, timeout=30):
+        ssh_args = ["ssh", "-o", "ConnectTimeout=10",
+                    "-o", "BatchMode=yes"]
+        if ssh_key:
+            ssh_args += ["-i", ssh_key]
+        ssh_args += [f"{user}@{host}", cmd]
+        return sp.run(ssh_args, capture_output=True,
+                      text=True, timeout=timeout)
+
+    def _scp(remote_path, local_path, timeout=120):
+        scp_args = ["scp", "-o", "ConnectTimeout=10",
+                    "-o", "BatchMode=yes"]
+        if ssh_key:
+            scp_args += ["-i", ssh_key]
+        scp_args += [f"{user}@{host}:{remote_path}", str(local_path)]
+        return sp.run(scp_args, capture_output=True,
+                      text=True, timeout=timeout)
+
+    # Try .backup first
+    backup_used = False
+    try:
+        # Check sqlite3 binary exists on remote
+        check = _ssh("command -v sqlite3 >/dev/null && echo OK || echo MISSING",
+                     timeout=10)
+        if check.returncode == 0 and "OK" in check.stdout:
+            # Use .backup to make atomic snapshot
+            backup_cmd = (f"sqlite3 {remote_db} \".backup {remote_snap}\" "
+                          f"&& chmod 600 {remote_snap}")
+            backup_result = _ssh(backup_cmd, timeout=120)
+            if backup_result.returncode == 0:
+                # scp the snapshot
+                scp_result = _scp(remote_snap, local_copy)
+                # Always cleanup remote snapshot
+                _ssh(f"rm -f {remote_snap}", timeout=10)
+                if scp_result.returncode == 0:
+                    return True
+                logger.warning(
+                    f"scp of snapshot failed: {scp_result.stderr.strip()[:200]}")
+            else:
+                logger.warning(
+                    f".backup failed on {host}: "
+                    f"{backup_result.stderr.strip()[:200]}")
+                # Cleanup any partial snapshot
+                _ssh(f"rm -f {remote_snap}", timeout=10)
+            backup_used = True  # We tried, but it failed
+        else:
+            logger.info(
+                f"sqlite3 not available on {host}, falling back to scp")
+    except Exception as e:
+        logger.warning(f"backup attempt failed: {e}")
+
+    # Fallback: direct scp of live DB (risk of corruption if mid-WAL-write)
+    if not backup_used:
+        logger.info(f"Falling back to direct scp for {host}")
+    try:
+        scp_result = _scp(remote_db, local_copy)
+        if scp_result.returncode == 0:
+            return True
+        logger.warning(
+            f"scp fallback failed: {scp_result.stderr.strip()[:200]}")
+    except Exception as e:
+        logger.warning(f"scp fallback exception: {e}")
+
+    return False
+
+
 @cli.command()
 @click.option('--config-file', '-c', type=click.Path(),
               help='Sync config file (default: ~/.config/nomad/sync.toml)')
@@ -3568,37 +3654,23 @@ def sync(ctx, config_file, output, dry_run):
         local_copy = cache_dir / f"{name}.db"
 
         click.echo(f"  {name}: ", nl=False)
-
-        scp_cmd = ["scp", "-o", "ConnectTimeout=10",
-                   "-o", "BatchMode=yes"]
-        if ssh_key:
-            scp_cmd += ["-i", ssh_key]
-        scp_cmd += [
-            f"{user}@{host}:{remote_db}",
-            str(local_copy)]
-
+        # Use SQLite .backup for atomic snapshot to fix corruption from
+        # WAL mid-write during scp. Falls back to direct scp.
         try:
-            result = sp.run(scp_cmd, capture_output=True,
-                            text=True, timeout=60)
-
-            # Remove any stale WAL/SHM files from previous syncs
-            # (these contain lock state from remote collectors)
-            if result.returncode == 0:
+            ok = _pull_via_backup(
+                user, host, remote_db, local_copy, ssh_key)
+            if ok:
                 for suffix in ["-wal", "-shm"]:
                     stale = Path(str(local_copy) + suffix)
                     if stale.exists():
                         stale.unlink()
-            if result.returncode == 0:
                 size_mb = local_copy.stat().st_size / (1024 * 1024)
                 click.echo(click.style(
                     f"OK ({size_mb:.1f} MB)", fg="green"))
                 pulled.append((name, local_copy))
             else:
                 click.echo(click.style(
-                    f"FAILED: {result.stderr.strip()[:80]}",
-                    fg="red"))
-        except sp.TimeoutExpired:
-            click.echo(click.style("TIMEOUT", fg="red"))
+                    "FAILED (see log)", fg="red"))
         except Exception as e:
             click.echo(click.style(f"ERROR: {e}", fg="red"))
 
