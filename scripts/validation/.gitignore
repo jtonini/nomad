@@ -1,0 +1,5 @@
+# Local validation results -- not committed
+results/
+*.db
+*.log
+*.pid
