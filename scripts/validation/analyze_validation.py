@@ -198,7 +198,12 @@ def main():
     # --- fd attribution (optional) ---
     if meta.get("walk_fds") == "1":
         section("FILESYSTEM ATTRIBUTION  (from /proc/<pid>/fd)")
-        # Classify paths into rough buckets
+        # Classify paths into rough buckets.
+        # NOTE: bucket names reflect intent, not mount point. On arachne,
+        # /scratch doesn't exist as a separate filesystem -- "scratch"
+        # directories live under /home (e.g. /home/scratch/<user>/...).
+        # On clusters where /scratch IS a separate NFS mount, those
+        # paths land in nfs_scratch.
         rows = conn.execute("""
             SELECT s.username, f.path
             FROM fd_paths f
@@ -217,16 +222,35 @@ def main():
                 b = "nfs_home"
             elif p.startswith("/data"):
                 b = "nfs_data"
+            elif p.startswith("/opt") or p.startswith("/usr") or p.startswith("/var/spool/slurmd"):
+                b = "system"  # software, libs, slurm scripts -- not user I/O
             else:
                 b = "other"
             bucket[r["username"]][b] += 1
         print(f"  {'user':<16} {'local':>8} {'tmp':>8} {'nfs_h':>8} "
-              f"{'nfs_s':>8} {'nfs_d':>8} {'other':>8}")
+              f"{'nfs_s':>8} {'nfs_d':>8} {'system':>8} {'other':>8}")
         for u in sorted(bucket):
             d = bucket[u]
             print(f"  {u:<16} {d['local_scratch']:>8} {d['tmp']:>8} "
                   f"{d['nfs_home']:>8} {d['nfs_scratch']:>8} "
-                  f"{d['nfs_data']:>8} {d['other']:>8}")
+                  f"{d['nfs_data']:>8} {d['system']:>8} {d['other']:>8}")
+
+        # Drill-down: per-user, what's actually under nfs_home?
+        # On arachne, /home/scratch/<user>/ is "scratch-like" use of NFS,
+        # /home/<user>/ is "home-like" use. Worth distinguishing.
+        section("NFS_HOME BREAKDOWN  (top path prefixes per user)")
+        for u in sorted(bucket):
+            if bucket[u]["nfs_home"] == 0:
+                continue
+            print(f"\n  {u}:")
+            for r in conn.execute("""
+                SELECT substr(f.path, 1, 50) AS prefix, COUNT(*) AS n
+                FROM fd_paths f
+                JOIN samples s ON s.timestamp = f.timestamp AND s.pid = f.pid
+                WHERE s.username = ? AND f.path LIKE '/home%'
+                GROUP BY prefix ORDER BY n DESC LIMIT 5
+            """, (u,)):
+                print(f"    {r[1]:>5}  {r[0]}")
 
     print()
 
