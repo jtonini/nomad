@@ -218,6 +218,7 @@ class JobMetricsCollector(BaseCollector):
             # Build sacct command
             cmd = [
                 'sacct',
+                '-a',              # All users (collector may run as non-submitting monitoring user)
                 '-n', '-X', '-P',  # No header, no steps, parseable
                 '--format', self.SACCT_FORMAT,
                 '--starttime', start_time.strftime('%Y-%m-%dT%H:%M:%S'),
