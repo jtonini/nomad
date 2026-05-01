@@ -118,7 +118,11 @@ class JobMetricsCollector(BaseCollector):
     Collector for detailed job metrics using sacct.
     
     Configuration options:
-        lookback_hours: Hours of completed jobs to collect (default: 24)
+        lookback_hours: Hours of completed jobs to collect (default: 168 = 7 days).
+            Used as a fallback when no prior watermark exists. The collector
+            tracks the most recent processed job's end_time and prefers that
+            over a fixed window, so this only matters on first run or after
+            extended collector outages.
         min_runtime_seconds: Minimum job runtime to include (default: 10)
         partitions: List of partitions to monitor (default: all)
     
@@ -146,7 +150,7 @@ class JobMetricsCollector(BaseCollector):
     def __init__(self, config: dict[str, Any], db_path: str):
         super().__init__(config, db_path)
 
-        self.lookback_hours = config.get('lookback_hours', 24)
+        self.lookback_hours = config.get('lookback_hours', 168)  # 7 days fallback
         self.min_runtime = config.get('min_runtime_seconds', 10)
         self.partitions = config.get('partitions', None)
 
@@ -154,7 +158,8 @@ class JobMetricsCollector(BaseCollector):
         self._processed_jobs: set[str] = set()
         self._load_processed_jobs()
 
-        logger.info(f"JobMetricsCollector: lookback={self.lookback_hours}h, min_runtime={self.min_runtime}s")
+        logger.info(f"JobMetricsCollector: lookback={self.lookback_hours}h "
+                    f"(fallback when no watermark), min_runtime={self.min_runtime}s")
 
     def _load_processed_jobs(self) -> None:
         """Load already processed job IDs from database."""
@@ -168,12 +173,46 @@ class JobMetricsCollector(BaseCollector):
         except Exception as e:
             logger.debug(f"Could not load processed jobs: {e}")
 
+    def _get_watermark(self) -> datetime | None:
+        """
+        Return the end_time of the most recently processed job, or None
+        if no jobs have been processed yet.
+
+        Used as the start of the next sacct query so we don't miss
+        long-running jobs that complete after the fixed lookback window
+        ends. Long-job clusters (where typical job duration > lookback_hours)
+        would otherwise produce zero collected jobs every cycle indefinitely.
+        """
+        try:
+            with self.get_db_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT MAX(j.end_time)
+                    FROM jobs j
+                    JOIN job_summary js ON j.job_id = js.job_id
+                    """
+                ).fetchone()
+                if row and row[0]:
+                    return datetime.fromisoformat(row[0])
+        except Exception as e:
+            logger.debug(f"Could not load watermark: {e}")
+        return None
+
     def collect(self) -> list[dict[str, Any]]:
         """Collect job metrics from sacct."""
 
-        # Calculate time range
+        # Calculate time range. Prefer the watermark (the end_time of the
+        # most recent successfully processed job) over the fixed lookback,
+        # but use whichever produces an earlier start_time so we don't miss
+        # jobs near boundaries. The 5-minute overlap is to handle clock skew
+        # and jobs that complete during a collection cycle.
         end_time = datetime.now()
-        start_time = end_time - timedelta(hours=self.lookback_hours)
+        watermark = self._get_watermark()
+        fallback_start = end_time - timedelta(hours=self.lookback_hours)
+        if watermark is not None:
+            start_time = min(watermark - timedelta(minutes=5), fallback_start)
+        else:
+            start_time = fallback_start
 
         try:
             # Build sacct command
@@ -219,7 +258,21 @@ class JobMetricsCollector(BaseCollector):
 
                     self._processed_jobs.add(job.job_id)
 
-            logger.info(f"Collected metrics for {len(jobs)} jobs")
+            # Distinguish between "sacct returned nothing" and "we filtered
+            # everything out". Silent zero-result loops are how this bug hid
+            # for weeks; explicit logging surfaces it.
+            if not result.stdout.strip():
+                logger.info(
+                    f"sacct returned no rows for window "
+                    f"{start_time.isoformat()} to {end_time.isoformat()} — "
+                    f"either no jobs in window, or all jobs still RUNNING"
+                )
+            else:
+                raw_lines = len(result.stdout.strip().split('\n'))
+                logger.info(
+                    f"Collected metrics for {len(jobs)} jobs "
+                    f"(sacct returned {raw_lines} rows)"
+                )
             return jobs
 
         except subprocess.TimeoutExpired:
