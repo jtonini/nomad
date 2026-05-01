@@ -219,7 +219,7 @@ class JobMetricsCollector(BaseCollector):
             cmd = [
                 'sacct',
                 '-a',              # All users (collector may run as non-submitting monitoring user)
-                '-n', '-X', '-P',  # No header, no steps, parseable
+                '-n', '-P',        # No header, parseable. -X dropped so step rows return too.
                 '--format', self.SACCT_FORMAT,
                 '--starttime', start_time.strftime('%Y-%m-%dT%H:%M:%S'),
                 '--endtime', end_time.strftime('%Y-%m-%dT%H:%M:%S'),
@@ -239,25 +239,44 @@ class JobMetricsCollector(BaseCollector):
             if result.returncode != 0:
                 raise CollectionError(f"sacct failed: {result.stderr}")
 
-            # Parse jobs
-            jobs = []
+            # Parse jobs. SLURM emits one row per job plus one row per step
+            # (e.g. job '506137' has rows '506137', '506137.batch', '506137.0').
+            # Job rows carry request fields (ReqCPUS, ReqMem); step rows carry
+            # actual usage metrics (AveCPU, MaxRSS, etc.). We group by parent
+            # JobID and merge the two so each emitted record has both.
+            grouped: dict[str, dict] = {}  # parent_jobid -> {'job': line, 'steps': [lines]}
             for line in result.stdout.strip().split('\n'):
                 if not line.strip():
                     continue
+                first_field = line.split('|', 1)[0]
+                parent_id = first_field.split('.')[0]
+                bucket = grouped.setdefault(parent_id, {'job': None, 'steps': []})
+                if '.' in first_field:
+                    bucket['steps'].append(line)
+                else:
+                    bucket['job'] = line
 
-                job = self._parse_sacct_line(line)
-                if job and self._should_include(job):
-                    # Compute derived metrics
-                    self._compute_derived_metrics(job)
-                    self._compute_feature_vector(job)
-                    self._compute_health_score(job)
-
-                    jobs.append({
-                        'type': 'job_metrics',
-                        **job.to_dict()
-                    })
-
-                    self._processed_jobs.add(job.job_id)
+            jobs = []
+            for parent_id, bucket in grouped.items():
+                if bucket['job'] is None:
+                    # Step rows without a parent (rare; can happen at sacct
+                    # window boundaries). Skip; we have no request fields.
+                    continue
+                job = self._parse_sacct_line(bucket['job'])
+                if job is None:
+                    continue
+                # Merge in step-level metrics (max across all steps).
+                self._merge_step_metrics(job, bucket['steps'])
+                if not self._should_include(job):
+                    continue
+                self._compute_derived_metrics(job)
+                self._compute_feature_vector(job)
+                self._compute_health_score(job)
+                jobs.append({
+                    'type': 'job_metrics',
+                    **job.to_dict()
+                })
+                self._processed_jobs.add(job.job_id)
 
             # Distinguish between "sacct returned nothing" and "we filtered
             # everything out". Silent zero-result loops are how this bug hid
@@ -316,6 +335,94 @@ class JobMetricsCollector(BaseCollector):
         except Exception as e:
             logger.debug(f"Failed to parse sacct line: {e}")
             return None
+
+    def _merge_step_metrics(self, job: JobMetrics, step_lines: list[str]) -> None:
+        """
+        Merge step-level metrics into the parent job record.
+
+        SLURM stores AveCPU, MaxRSS, AveRSS, MaxVMSize, and disk metrics on
+        steps (.batch, .0, .extern, etc.), not on the parent job row. We take
+        the maximum across all steps for each metric — this gives "peak
+        observed across the job's execution" which is the meaningful number
+        for efficiency analysis.
+
+        AveCPU is reported as cumulative CPU time (HH:MM:SS), not percentage.
+        We sum across steps and convert to a percentage in
+        _compute_derived_metrics using elapsed_seconds and req_cpus.
+        """
+        max_rss_mb = 0.0
+        avg_rss_mb_sum = 0.0
+        avg_rss_mb_count = 0
+        max_vmsize_mb = 0.0
+        max_disk_read_mb = 0.0
+        max_disk_write_mb = 0.0
+        avg_disk_read_sum = 0.0
+        avg_disk_read_count = 0
+        avg_disk_write_sum = 0.0
+        avg_disk_write_count = 0
+        cpu_seconds_total = 0.0
+
+        for line in step_lines:
+            parts = line.split('|')
+            if len(parts) < 23:
+                continue
+            # AveCPU is parts[15]: cumulative CPU time, summed across steps
+            ave_cpu = self._parse_elapsed(parts[15])
+            if ave_cpu:
+                cpu_seconds_total += ave_cpu
+            for value, _max in (
+                (self._parse_memory(parts[16]), 'max_rss'),
+                (self._parse_memory(parts[18]), 'max_vmsize'),
+                (self._parse_memory(parts[19]), 'max_disk_read'),
+                (self._parse_memory(parts[20]), 'max_disk_write'),
+            ):
+                pass  # handled explicitly below for clarity
+            v = self._parse_memory(parts[16])
+            if v is not None:
+                max_rss_mb = max(max_rss_mb, v)
+            v = self._parse_memory(parts[17])
+            if v is not None:
+                avg_rss_mb_sum += v
+                avg_rss_mb_count += 1
+            v = self._parse_memory(parts[18])
+            if v is not None:
+                max_vmsize_mb = max(max_vmsize_mb, v)
+            v = self._parse_memory(parts[19])
+            if v is not None:
+                max_disk_read_mb = max(max_disk_read_mb, v)
+            v = self._parse_memory(parts[20])
+            if v is not None:
+                max_disk_write_mb = max(max_disk_write_mb, v)
+            v = self._parse_memory(parts[21])
+            if v is not None:
+                avg_disk_read_sum += v
+                avg_disk_read_count += 1
+            v = self._parse_memory(parts[22])
+            if v is not None:
+                avg_disk_write_sum += v
+                avg_disk_write_count += 1
+
+        # Convert cumulative CPU seconds to a percent using job's elapsed time
+        # and allocated CPUs. Done lazily here; _compute_derived_metrics expects
+        # avg_cpu_percent to be a percentage already.
+        if cpu_seconds_total > 0 and job.elapsed_seconds > 0 and job.req_cpus > 0:
+            theoretical_max = job.elapsed_seconds * job.req_cpus
+            job.avg_cpu_percent = (cpu_seconds_total / theoretical_max) * 100.0
+        # Memory and disk: take what we found, leave None if nothing reported
+        if max_rss_mb > 0:
+            job.max_rss_mb = max_rss_mb
+        if avg_rss_mb_count > 0:
+            job.avg_rss_mb = avg_rss_mb_sum / avg_rss_mb_count
+        if max_vmsize_mb > 0:
+            job.max_vmsize_mb = max_vmsize_mb
+        if max_disk_read_mb > 0:
+            job.max_disk_read_mb = max_disk_read_mb
+        if max_disk_write_mb > 0:
+            job.max_disk_write_mb = max_disk_write_mb
+        if avg_disk_read_count > 0:
+            job.avg_disk_read_mb = avg_disk_read_sum / avg_disk_read_count
+        if avg_disk_write_count > 0:
+            job.avg_disk_write_mb = avg_disk_write_sum / avg_disk_write_count
 
     def _should_include(self, job: JobMetrics) -> bool:
         """Check if job should be included in collection."""
