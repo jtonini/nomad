@@ -4453,6 +4453,61 @@ def edu_trajectory(ctx, username, db_path, days, output_json):
         click.echo(format_trajectory(traj))
 
 
+@edu.command('me')
+@click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
+@click.option('--days', default=90, help='Lookback period in days (default: 90)')
+@click.option('--user', 'username', default=None,
+              help='User to analyze (default: $USER). Admins can specify any user.')
+@click.option('--detailed', is_flag=True,
+              help='Show per-dimension trajectory and detail blurbs.')
+@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.pass_context
+def edu_me(ctx, db_path, days, username, detailed, output_json):
+    """Show your computational profile across recent jobs.
+
+    Aggregates per-job recommendations into a structured summary, surfacing
+    only the dimensions where most of your jobs have efficiency issues
+    (>50% of jobs scoring below the recommendation threshold). Use this
+    to find systemic patterns; use 'nomad edu explain <job>' for one job.
+
+    Examples:
+        nomad edu me
+        nomad edu me --days 30
+        nomad edu me --detailed
+        nomad edu me --user other_user      (admin)
+        nomad edu me --json                  (machine-readable)
+    """
+    import getpass
+    import json as _json
+    from dataclasses import asdict
+    from nomad.edu.insights import user_insights, format_user_insights
+
+    if not db_path:
+        config = ctx.obj.get('config', {}) if ctx.obj else {}
+        db_path = get_db_path(config)
+
+    if username is None:
+        username = getpass.getuser()
+
+    config = ctx.obj.get('config', {}) if ctx.obj else {}
+    insights = user_insights(
+        db_path=db_path,
+        username=username,
+        days=days,
+        config=config,
+    )
+
+    if output_json:
+        click.echo(_json.dumps(asdict(insights), indent=2, default=str))
+        return
+
+    text = format_user_insights(insights, detailed=detailed)
+    click.echo(text)
+
+    if any(i.severity == "critical" for i in insights.issues):
+        raise SystemExit(2)
+
+
 @edu.command('report')
 @click.argument('group_name')
 @click.option('--db', 'db_path', type=click.Path(exists=True), help='Database path')
