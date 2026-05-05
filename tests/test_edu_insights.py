@@ -8,20 +8,66 @@ from nomad.edu.insights import (
     _classify_severity, _compute_dimension_trajectory,
     _load_thresholds, format_user_insights,
 )
-from nomad.edu.scoring import DimensionScore, JobFingerprint
+from nomad.edu.scoring import DimensionScore, JobFingerprint, Suggestion
 
 
-def make_fp(job_id: str, scores: dict[str, tuple[float, str, str]]) -> JobFingerprint:
-    """Build a synthetic JobFingerprint. scores: {short_key: (score, suggestion, detail)}."""
+def make_fp(job_id: str, scores: dict) -> JobFingerprint:
+    """Build a synthetic JobFingerprint.
+
+    scores is a dict of {short_key: (score, suggestion, detail)} where:
+      - score is a float 0-100
+      - suggestion is None, or a Suggestion dataclass, or a dict with the
+        Suggestion fields (we'll build it for you), or a directive shorthand
+        tuple like ("mem", suggested_mb, current_mb, actual_mb)
+      - detail is a string
+    """
     fp = JobFingerprint(job_id=job_id, user="testuser")
-    for key, (score, suggestion, detail) in scores.items():
+    for key, value in scores.items():
+        if len(value) == 3:
+            score, suggestion, detail = value
+        else:
+            score, detail = value
+            suggestion = None
         long_name = KEY_TO_DISPLAY[key]
+
+        # Convert various suggestion shapes into a Suggestion or None
+        if suggestion is None or suggestion == "":
+            sug = None
+        elif isinstance(suggestion, Suggestion):
+            sug = suggestion
+        elif isinstance(suggestion, tuple):
+            # Shorthand: ("mem", suggested, current, actual)
+            directive, suggested, current, actual = suggestion
+            unit_map = {"mem": "MB", "time": "seconds",
+                        "ntasks": "cores", "gres": "GPUs"}
+            sug = Suggestion(
+                directive=directive,
+                suggested_value=suggested,
+                current_value=current,
+                actual_usage=actual,
+                unit=unit_map.get(directive, ""),
+                rationale="test",
+            )
+        elif isinstance(suggestion, dict):
+            sug = Suggestion(**suggestion)
+        else:
+            # Plain string — backward compat for old tests that just want
+            # *some* suggestion present. Build a minimal placeholder.
+            sug = Suggestion(
+                directive="mem",
+                suggested_value=2048,
+                current_value=65536,
+                actual_usage=1024,
+                unit="MB",
+                rationale="test placeholder",
+            )
+
         fp.dimensions[key] = DimensionScore(
             name=long_name,
             score=score,
             level="Needs Work" if score < 40 else "Good",
             detail=detail,
-            suggestion=suggestion,
+            suggestion=sug,
             applicable=True,
         )
     return fp
@@ -63,8 +109,12 @@ class TestThresholdConfig:
 
 class TestAggregation:
     def test_systemic_dimension_surfaces(self):
+        # Suggestion: peak 1GB current 64GB suggested 2GB (placeholder shape)
+        sug = Suggestion(directive="mem", suggested_value=2048,
+                         current_value=65536, actual_usage=1024,
+                         unit="MB", rationale="test")
         fps = [
-            make_fp(f"job_{i}", {"memory": (5.0, "Try: --mem=2G", "Used 1GB of 64GB")})
+            make_fp(f"job_{i}", {"memory": (5.0, sug, "Used 1GB of 64GB")})
             for i in range(10)
         ]
         issue = _aggregate_dimension("memory", fps, 40.0)
@@ -72,7 +122,10 @@ class TestAggregation:
         assert issue.affected_jobs == 10
         assert issue.avg_score == 5.0
         assert issue.severity == "critical"
-        assert issue.representative_suggestion == "Try: --mem=2G"
+        assert issue.directive == "mem"
+        # The aggregator uses p95×2 of actual_usage. For uniform 1024MB usage
+        # rounded up to a SLURM-friendly value, expect 2G or 4G.
+        assert issue.suggested_display in ("2G", "4G")
 
     def test_non_systemic_filtered_out(self):
         # 1 of 4 below threshold = 25% < 50% systemic ratio
@@ -84,19 +137,49 @@ class TestAggregation:
         ]
         assert _aggregate_dimension("memory", fps, 40.0) is None
 
-    def test_modal_suggestion_picked(self):
+    def test_modal_strategy_for_discrete(self):
+        # CPU recommendations are integers (mode strategy applies).
+        # 3 jobs say 1 core, 2 say 2 cores -> mode is 1.
+        sug1 = Suggestion(directive="ntasks", suggested_value=1,
+                          current_value=8, actual_usage=1,
+                          unit="cores", rationale="test")
+        sug2 = Suggestion(directive="ntasks", suggested_value=2,
+                          current_value=8, actual_usage=2,
+                          unit="cores", rationale="test")
         fps = [
-            make_fp("j1", {"memory": (5.0, "Try: --mem=2G", "")}),
-            make_fp("j2", {"memory": (5.0, "Try: --mem=2G", "")}),
-            make_fp("j3", {"memory": (5.0, "Try: --mem=2G", "")}),
-            make_fp("j4", {"memory": (5.0, "Try: --mem=4G", "")}),
-            make_fp("j5", {"memory": (5.0, "Try: --mem=8G", "")}),
+            make_fp("j1", {"cpu": (5.0, sug1, "")}),
+            make_fp("j2", {"cpu": (5.0, sug1, "")}),
+            make_fp("j3", {"cpu": (5.0, sug1, "")}),
+            make_fp("j4", {"cpu": (5.0, sug2, "")}),
+            make_fp("j5", {"cpu": (5.0, sug2, "")}),
         ]
+        issue = _aggregate_dimension("cpu", fps, 40.0)
+        assert issue is not None
+        assert issue.directive == "ntasks"
+        assert issue.suggested_display == "1"  # mode of {1,1,1,2,2} = 1
+        assert issue.strategy == "mode"
+
+    def test_quantile_strategy_for_continuous(self):
+        # Memory recommendations use quantile×buffer strategy.
+        # Build jobs with usage 1000, 1100, 1200, 1300, 1400 MB (range 1-1.4G).
+        # p95 = ~1380, × 2x buffer = ~2760, rounded up = 4G.
+        fps = []
+        for i, usage in enumerate([1000, 1100, 1200, 1300, 1400]):
+            sug = Suggestion(directive="mem", suggested_value=usage * 2,
+                             current_value=204800, actual_usage=usage,
+                             unit="MB", rationale="test")
+            fps.append(make_fp(f"j{i}", {"memory": (5.0, sug, "")}))
         issue = _aggregate_dimension("memory", fps, 40.0)
-        assert issue.representative_suggestion == "Try: --mem=2G"
+        assert issue is not None
+        assert issue.directive == "mem"
+        assert issue.suggested_display in ("4G",)
+        assert "buffer" in issue.strategy or "p95" in issue.strategy
 
     def test_inapplicable_excluded_from_total(self):
-        fps = [make_fp(f"j{i}", {"memory": (5.0, "x", "y")}) for i in range(5)]
+        sug = Suggestion(directive="mem", suggested_value=2048,
+                         current_value=65536, actual_usage=1024,
+                         unit="MB", rationale="test")
+        fps = [make_fp(f"j{i}", {"memory": (5.0, sug, "y")}) for i in range(5)]
         # Add a fingerprint with no Memory dimension at all
         no_mem = JobFingerprint(job_id="no_mem", user="testuser")
         fps.append(no_mem)
@@ -159,13 +242,19 @@ class TestFormatting:
             affected_jobs=30,
             total_applicable=30,
             avg_score=5.0,
-            representative_suggestion="Try: #SBATCH --mem=3G",
-            representative_detail="Requested 200GB but peaked at 1.7GB",
             severity="critical",
             trajectory="stable",
+            directive="mem",
+            suggested_value=4096,
+            suggested_display="4G",
+            current_value_typical=204800,
+            current_display="200G",
+            strategy="p95_with_2x_buffer",
+            rationale="covers 95% of jobs with 2x safety buffer",
         )]
         text = format_user_insights(ui)
         assert "[CRITICAL]" in text
         assert "Memory Efficiency" in text
-        assert "Try: #SBATCH --mem=3G" in text
+        assert "--mem=4G" in text
+        assert "Memory Efficiency" in text
         assert "30/30 jobs" in text

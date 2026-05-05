@@ -306,7 +306,14 @@ def format_terminal(
             wrapped = textwrap.fill(dim.detail, width=52, initial_indent="      ", subsequent_indent="      ")
             lines.append(wrapped)
             if dim.suggestion:
-                for sline in dim.suggestion.split("\n"):
+                # dim.suggestion is now a Suggestion dataclass (or None);
+                # render via str() which returns the legacy SLURM directive line
+                suggestion_text = str(dim.suggestion)
+                if dim.suggestion.rationale:
+                    suggestion_text = f"Try: {suggestion_text}\n    {dim.suggestion.rationale}"
+                else:
+                    suggestion_text = f"Try: {suggestion_text}"
+                for sline in suggestion_text.split("\n"):
                     lines.append(f"      {c.CYAN}{sline}{c.RESET}")
             lines.append("")
     else:
@@ -360,7 +367,17 @@ def format_json(
             "level": dim.level,
             "applicable": dim.applicable,
             "detail": dim.detail,
-            "suggestion": dim.suggestion,
+            "suggestion": (
+                {
+                    "directive": dim.suggestion.directive,
+                    "suggested_value": dim.suggestion.suggested_value,
+                    "current_value": dim.suggestion.current_value,
+                    "actual_usage": dim.suggestion.actual_usage,
+                    "unit": dim.suggestion.unit,
+                    "rationale": dim.suggestion.rationale,
+                    "display": str(dim.suggestion),
+                } if dim.suggestion is not None else None
+            ),
         }
 
     return json.dumps(result, indent=2)
