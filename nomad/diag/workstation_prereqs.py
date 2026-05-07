@@ -299,62 +299,6 @@ def check_persistent_systemd_config(
     )
 
 
-def check_probe_deployed(
-    hostname: str, ssh_user: Optional[str],
-) -> DiagCheck:
-    """Find out where (if anywhere) the cgroup probe is deployed."""
-    cmd = (
-        f"if [ -f {PROBE_PATH_PRIMARY} ]; then echo PRIMARY; "
-        f"elif [ -f {PROBE_PATH_FALLBACK} ]; then echo FALLBACK; "
-        f"else echo MISSING; fi"
-    )
-    rc, out, err = _run_remote(hostname, cmd, ssh_user)
-    if rc != 0:
-        return DiagCheck(
-            category="Probe deployment", name="cgroup probe deployed",
-            status="FAIL",
-            detail=f"could not check: {err}",
-        )
-    if out == "PRIMARY":
-        return DiagCheck(
-            category="Probe deployment", name="cgroup probe deployed",
-            status="OK",
-            detail=f"installed at {PROBE_PATH_PRIMARY}",
-        )
-    if out == "FALLBACK":
-        return DiagCheck(
-            category="Probe deployment", name="cgroup probe deployed",
-            status="WARN",
-            detail=(
-                f"at fallback {PROBE_PATH_FALLBACK} (works but /tmp can be "
-                f"cleared by reboot or tmp-cleanup services)"
-            ),
-            fix_hint=(
-                f"Move to permanent location:\n"
-                f"  sudo mkdir -p /usr/local/lib/nomad\n"
-                f"  sudo cp {PROBE_PATH_FALLBACK} {PROBE_PATH_PRIMARY}\n"
-                f"  sudo chmod 755 {PROBE_PATH_PRIMARY}"
-            ),
-        )
-    return DiagCheck(
-        category="Probe deployment", name="cgroup probe deployed",
-        status="FAIL",
-        detail=(
-            f"not found at {PROBE_PATH_PRIMARY} or {PROBE_PATH_FALLBACK}; "
-            f"the workstation collector cannot gather per-user data"
-        ),
-        fix_hint=(
-            "Deploy the probe (from the NØMAD collector host):\n"
-            "  scp /path/to/nomad/collectors/cgroup_probe.py "
-            f"{hostname}:{PROBE_PATH_FALLBACK}\n"
-            "or for permanent install:\n"
-            "  scp ... <host>:/tmp/cgroup_probe.py\n"
-            "  ssh <host> 'sudo mkdir -p /usr/local/lib/nomad && "
-            f"sudo mv /tmp/cgroup_probe.py {PROBE_PATH_PRIMARY}'"
-        ),
-    )
-
-
 def check_probe_runs(
     hostname: str, ssh_user: Optional[str],
 ) -> DiagCheck:
@@ -613,7 +557,6 @@ def check_workstation_prerequisites(
         diag.checks.append(check_persistent_systemd_config(hostname, ssh_user))
 
         # 3. Probe deployment
-        diag.checks.append(check_probe_deployed(hostname, ssh_user))
         diag.checks.append(check_probe_runs(hostname, ssh_user))
 
         # 4. Process accounting (optional)

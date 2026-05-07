@@ -256,6 +256,79 @@ def run_command(cmd: str, host: str | None = None, timeout: int = 30) -> str:
         raise CollectionError(f"Command failed: {e}")
 
 
+# Cache for probe sources — loaded once per process from the package.
+_PROBE_SOURCE_CACHE: dict[str, str] = {}
+
+
+def _load_probe_source(probe_name: str) -> str:
+    """Read a probe script from the nomad.collectors package.
+
+    Caches sources so repeated probe invocations do not re-read the file.
+    """
+    if probe_name in _PROBE_SOURCE_CACHE:
+        return _PROBE_SOURCE_CACHE[probe_name]
+    try:
+        import importlib.resources
+        ref = importlib.resources.files("nomad.collectors") / f"{probe_name}.py"
+        source = ref.read_text(encoding="utf-8")
+    except Exception:
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, f"{probe_name}.py"), encoding="utf-8") as f:
+            source = f.read()
+    _PROBE_SOURCE_CACHE[probe_name] = source
+    return source
+
+
+def run_python_probe(
+    probe_name: str,
+    host: str | None = None,
+    timeout: int = 30,
+) -> str:
+    """Pipe a probe script over SSH stdin and return its stdout.
+
+    Reads probe source from the nomad.collectors package and sends it
+    to `python3 -` on the target host. Eliminates per-host probe
+    deployment — works on read-only systems, immutable OS images,
+    and ephemeral container hosts.
+    """
+    script = _load_probe_source(probe_name)
+
+    if host and host not in ('localhost', '127.0.0.1', socket.gethostname()):
+        argv = [
+            "ssh",
+            "-o", "ConnectTimeout=10",
+            "-o", "BatchMode=yes",
+            host,
+            "python3 -",
+        ]
+    else:
+        argv = ["python3", "-"]
+
+    try:
+        result = subprocess.run(
+            argv,
+            input=script,
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise CollectionError(
+            f"{probe_name} timed out on {host or 'local'} after {timeout}s"
+        )
+    except Exception as e:
+        raise CollectionError(f"{probe_name} failed on {host or 'local'}: {e}")
+
+    if result.returncode != 0:
+        err = result.stderr.strip() or "(no stderr)"
+        raise CollectionError(
+            f"{probe_name} on {host or 'local'} exited "
+            f"{result.returncode}: {err[:200]}"
+        )
+    return result.stdout.strip()
+
+
 def parse_uptime(output: str) -> tuple[int, float, float, float]:
     """Parse uptime output for uptime and load averages."""
     # Example: " 10:30:01 up 5 days,  3:45,  2 users,  load average: 0.50, 0.40, 0.35"
@@ -506,14 +579,11 @@ class WorkstationCollector(BaseCollector):
         bad JSON. Same design as _collect_per_user.
         """
         try:
-            probe_cmd = (
-                f"if [ -f {WORKSTATION_MOUNT_PROBE_PATH} ]; then "
-                f"  python3 {WORKSTATION_MOUNT_PROBE_PATH}; "
-                f"elif [ -f {WORKSTATION_MOUNT_PROBE_FALLBACK} ]; then "
-                f"  python3 {WORKSTATION_MOUNT_PROBE_FALLBACK}; "
-                f"fi"
+            # Pipe the probe over SSH stdin (see run_python_probe docstring
+            # for the rationale; same pattern as cgroup_probe).
+            probe_out = run_python_probe(
+                "mount_probe", hostname, timeout=30,
             )
-            probe_out = run_command(probe_cmd, hostname, timeout=30)
             for line in probe_out.splitlines():
                 line = line.strip()
                 if not line:
@@ -546,16 +616,12 @@ class WorkstationCollector(BaseCollector):
         """
         # --- cgroup probe (live per-user snapshot) ------------------------
         try:
-            # Probe is deployed once to a known path; fall back to /tmp for
-            # ad-hoc testing before the bootstrap command exists.
-            probe_cmd = (
-                f"if [ -f {WORKSTATION_PROBE_PATH} ]; then "
-                f"  python3 {WORKSTATION_PROBE_PATH}; "
-                f"elif [ -f {WORKSTATION_PROBE_FALLBACK} ]; then "
-                f"  python3 {WORKSTATION_PROBE_FALLBACK}; "
-                f"fi"
+            # Pipe the probe script over SSH stdin — no per-host deployment
+            # required. Works on read-only systems, immutable OS images,
+            # and any SSH-reachable host.
+            probe_out = run_python_probe(
+                "cgroup_probe", hostname, timeout=20,
             )
-            probe_out = run_command(probe_cmd, hostname, timeout=20)
             for line in probe_out.splitlines():
                 line = line.strip()
                 if not line:
