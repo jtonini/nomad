@@ -19,6 +19,12 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from nomad.diag.workstation_prereqs import (
+    WorkstationPrereqDiagnostic,
+    check_workstation_prerequisites,
+    format_prerequisite_checks,
+)
+
 # Import existing analysis tools
 try:
     from nomad.analysis.derivatives import AlertLevel, DerivativeAnalyzer
@@ -58,6 +64,9 @@ class WorkstationDiagnostic:
     # Analysis results
     potential_causes: list = field(default_factory=list)
     recommendations: list = field(default_factory=list)
+
+    # Collection prerequisites diagnostic (filled when check_prereqs=True)
+    prereqs: WorkstationPrereqDiagnostic | None = None
 
 
 def get_workstation_state(db_path: str, hostname: str) -> dict | None:
@@ -353,6 +362,8 @@ def diagnose_workstation(
     db_path: str,
     hostname: str,
     hours: int = 24,
+    check_prereqs: bool = False,
+    ssh_user: str | None = None,
 ) -> WorkstationDiagnostic | None:
     """
     Generate comprehensive diagnostics for a workstation.
@@ -419,6 +430,19 @@ def diagnose_workstation(
     # Generate recommendations
     diag.recommendations = generate_recommendations(diag.potential_causes, state, diag.trends)
 
+    if check_prereqs:
+        try:
+            diag.prereqs = check_workstation_prerequisites(
+                hostname=hostname,
+                ssh_user=ssh_user,
+                db_path=db_path,
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"prereq check failed for {hostname}: {exc}"
+            )
+
     return diag
 
 
@@ -445,6 +469,18 @@ def format_diagnostic(diag: WorkstationDiagnostic) -> str:
     dept_str = f" ({diag.department})" if diag.department else ""
     lines.append(f"\n  {c.BOLD}NØMAD Workstation Diagnostic{c.RESET} — {c.CYAN}{diag.hostname}{dept_str}{c.RESET}")
     lines.append(f"  {'─' * 56}")
+
+    # Collection prerequisites (if checked)
+    if diag.prereqs is not None:
+        lines.append(format_prerequisite_checks(
+            diag.prereqs, use_color=True, show_fix_hints=True,
+        ))
+        if diag.prereqs.fail_count > 0:
+            lines.append("")
+            lines.append(
+                f"  {c.YELLOW}Note: data collection has FAILed prerequisites; "
+                f"the health analysis below may be based on incomplete data.{c.RESET}"
+            )
 
     # Current State
     status_color = c.GREEN if diag.current_status == 'online' else c.YELLOW if diag.current_status == 'degraded' else c.RED

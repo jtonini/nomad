@@ -4790,7 +4790,11 @@ def diag_node(ctx, cluster, node_name, db_path, hours, output_json):
 @click.option('--hours', default=24, help='Hours of history to analyze (default: 24)')
 @click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
 @click.pass_context
-def diag_workstation(ctx, hostname, db_path, hours, output_json):
+@click.option('--prereqs', is_flag=True, default=False,
+              help='Run collection prerequisite checks (cgroup config, probe, SSH).')
+@click.option('--ssh-user', default=None,
+              help='Override SSH user for prereq checks. By default, SSH config (~/.ssh/config) decides — match what the collector does.')
+def diag_workstation(ctx, hostname, db_path, hours, output_json, prereqs, ssh_user):
     """Diagnose a workstation.
 
     Analyzes system state, user sessions, resource utilization, and
@@ -4835,7 +4839,11 @@ def diag_workstation(ctx, hostname, db_path, hours, output_json):
             click.echo(f"  {r[0]}")
         click.echo("\nUsage: nomad diag workstation <hostname>")
         return
-    diag = diagnose_workstation(db_path, hostname, hours)
+    diag = diagnose_workstation(
+        db_path, hostname, hours,
+        check_prereqs=prereqs,
+        ssh_user=ssh_user,
+    )
 
     if not diag:
         click.echo(f"Workstation {hostname} not found in database.", err=True)
